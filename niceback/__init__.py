@@ -126,7 +126,9 @@ def variable_inspector(variables, sourcecode):
                 if found: continue
                 value = ''
             if name not in identifiers: continue
-            if hasattr(value, 'dtype'): typename += f' of {value.dtype}'
+            # Append dtype on Numpy-style arrays (but not on np.float64 etc)
+            if hasattr(value, 'dtype') and hasattr(value, "__iter__"):
+                typename += f' of {value.dtype}'
             html += f"<tr><td>{escape(name)}<td>{escape(typename)}<td>{prettyvalue(value)}"
         except:
             pass
