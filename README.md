@@ -4,7 +4,7 @@ Other languages such as C++ have gotten quite useful error messages and
 diagnostics with tips on how the fix the problems but Python is still stuck
 with the bare stacktraces that are very intimidating and often not very helpful.
 
-![Niceback](https://raw.githubusercontent.com/Tronic/niceback/master/docs/with-niceback.png){width=50%}
+![Niceback](https://raw.githubusercontent.com/Tronic/niceback/master/docs/with-niceback.png)
 **Niceback backtrace shows where the user has terminated the program.**
 
 Niceback hides the irrelevant IPython/notebook internals and concisely shows
