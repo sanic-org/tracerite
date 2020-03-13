@@ -1,7 +1,10 @@
 README.md
 setup.py
 niceback/__init__.py
+niceback/html.py
+niceback/on_notebook.py
 niceback.egg-info/PKG-INFO
 niceback.egg-info/SOURCES.txt
 niceback.egg-info/dependency_links.txt
+niceback.egg-info/requires.txt
 niceback.egg-info/top_level.txt

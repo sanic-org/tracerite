@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: niceback
-Version: 0.0.2
+Version: 0.1.0
 Summary: Human-readable tracebacks in Jupyter notebooks
 Home-page: https://github.com/Tronic/niceback
 Author: L. Kärkkäinen

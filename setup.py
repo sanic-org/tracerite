@@ -18,6 +18,7 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires = [
+        "html5tagger>=1.0.0",
     ],
     include_package_data = True,
 )
