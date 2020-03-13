@@ -9,8 +9,15 @@ text to find the relevant details of what went wrong. Although IPython and
 Google Colab developers have done their tweaks to improve backtraces, it is all
 too apparent that much remains to be done:
 
+![](https://raw.githubusercontent.com/Tronic/niceback/master/docs/with-niceback.png)
+
+Niceback focuses on the relevant details but provides more information than the
+standard tracebacks, like a variable inspector for each stack frame.
+
+For comparison, this is one of the better "standard" implementations, from
+Google Colab:
+
 ![Google Colab standard backtrace](https://raw.githubusercontent.com/Tronic/niceback/master/docs/without-niceback.png)
-![Niceback enabled](https://raw.githubusercontent.com/Tronic/niceback/master/docs/with-niceback.png)
 
 Niceback hides the irrelevant IPython/notebook internals and concisely shows
 what happened (the program was interrupted) and where that happened. This could
