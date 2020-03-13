@@ -9,9 +9,8 @@ text to find the relevant details of what went wrong. Although IPython and
 Google Colab developers have done their tweaks to improve backtraces, it is all
 too apparent that much remains to be done:
 
-Google Colab standard backtrace |  Niceback enabled
-:-------------------------:|:-------------------------:
-![](https://raw.githubusercontent.com/Tronic/niceback/master/docs/without-niceback.png) | ![](https://raw.githubusercontent.com/Tronic/niceback/master/docs/with-niceback.png)
+![Google Colab standard backtrace](https://raw.githubusercontent.com/Tronic/niceback/master/docs/without-niceback.png)
+![Niceback enabled](https://raw.githubusercontent.com/Tronic/niceback/master/docs/with-niceback.png)
 
 Niceback hides the irrelevant IPython/notebook internals and concisely shows
 what happened (the program was interrupted) and where that happened. This could
@@ -24,8 +23,8 @@ the default handling that never considered this particular error.
 At the beginning of your Notebook:
 
 ```ipython
-!pip install git+https://github.com/Tronic/niceback.git
-import niceback
+!pip install niceback
+import niceback.on_notebook
 ```
 
 ## Background
