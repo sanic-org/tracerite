@@ -1,0 +1,103 @@
+/* CSS reset */
+.niceback,
+.niceback * {
+  margin: 0;
+  padding: 0;
+  outline: none;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.niceback h3 {
+  margin: 0;
+}
+.niceback .codeline::before {
+  content: attr(data-lineno);
+  color: gray;
+  opacity: 0.0;
+  transition: all 0.4s;
+  display: inline-block;
+  text-align: center;
+  width: 3ch;
+}
+.niceback code:hover .codeline::before {
+  opacity: 1.0;
+}
+.niceback mark {
+  background: transparent;
+}
+.niceback mark span {
+  background: #ff0;
+}
+.niceback mark::after {
+  padding: .5em;
+  content: attr(data-symbol);
+  font-size: 2em;
+}
+.niceback pre {
+  padding: .5em;
+}
+.niceback .excmessage {
+  max-height: 10em;
+  overflow: auto;
+}
+.niceback .exctype {color: gray}
+.niceback .traceback-labels {
+  display: flex;
+  align-items: center;
+  border-bottom: 3px solid gray;
+  margin-top: 0.3em;
+}
+.niceback .traceback-labels button {
+  flex-shrink: 1;
+  line-height: 1.0;
+  padding: .5em;
+}
+.niceback .traceback-labels * {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.niceback .traceback-tabs .content {
+  scroll-snap-type: x mandatory;
+  display: flex;
+  align-items: flex-start;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.niceback .traceback-tabs .content::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.niceback .traceback-details {
+  max-width: 100%;
+  max-height: 20em;
+  margin: 0 .3em;
+  overflow-y: auto;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  border-radius: .5em;
+  padding: .2em;
+}
+.niceback .traceback-details:last-child {
+  width: 100%;
+}
+.niceback .inspector tbody tr:nth-child(odd),
+.niceback .inspector tbody tr:nth-child(even),
+.niceback .inspector th,
+.niceback .inspector td {
+  background: transparent;
+  text-align: left;
+  max-width: 20em;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.niceback .inspector table {
+  table-layout: fixed;
+}
+.niceback .inspector table td {
+  border-collapse: collapse;
+  border: 1px solid white;
+  background: #eee;
+  text-align: center;
+}
