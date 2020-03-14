@@ -5,6 +5,7 @@ import IPython
 from niceback import html_traceback
 from niceback.logging import logger
 
+
 def showtraceback(*args, **kwargs):
 
     try:
@@ -12,11 +13,13 @@ def showtraceback(*args, **kwargs):
     except Exception:
         original_showtraceback(*args, **kwargs)
 
+
 def can_display_html():
     try:
         return get_ipython().__class__.__name__ != 'TerminalInteractiveShell'
     except NameError:
         return False
+
 
 try:
     if can_display_html():

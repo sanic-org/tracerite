@@ -1,8 +1,8 @@
 import re
+import types
 
 from html5tagger import E
 from niceback.logging import logger
-import types
 
 blacklist_names = {"_", "In", "Out"}
 blacklist_types = (
@@ -12,6 +12,7 @@ blacklist_types = (
     types.BuiltinFunctionType,
 )
 no_str_conv = re.compile(r"<.* object at 0x[0-9a-f]{5,}>")
+
 
 def extract_variables(variables, sourcecode):
     identifiers = {
@@ -50,6 +51,7 @@ def extract_variables(variables, sourcecode):
         except Exception:
             logger.exception("Variable inspector failed (please report a bug)")
     return rows
+
 
 def prettyvalue(val):
     if isinstance(val, (list, tuple)):

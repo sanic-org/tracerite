@@ -1,19 +1,20 @@
-import sys
-import re
-import os
 import inspect
-from textwrap import dedent
-from niceback.logging import logger
-from niceback.inspector import extract_variables
-from urllib.parse import quote
+import os
+import re
+import sys
 from secrets import token_urlsafe
+from textwrap import dedent
+from urllib.parse import quote
 
+from niceback.inspector import extract_variables
+from niceback.logging import logger
 
 # Function name for IPython interactive input (matches input number)
 ipython_input = re.compile(r"<ipython-input-(\d+)-\w+>")
 
 # Locations considered to be bug-free
 libdir = re.compile(r'/usr/.*|.*(site-packages|dist-packages).*')
+
 
 def extract_exc() -> list:
     """Extract information on current exception."""
@@ -28,6 +29,7 @@ def extract_exc() -> list:
     return [
         extract_exception(e, skip_outmost=1 if e is chain[0] else 0) for e in chain
     ]
+
 
 def extract_exception(e, *, skip_outmost=1) -> dict:
     tb = e.__traceback__
@@ -60,9 +62,10 @@ def extract_exception(e, *, skip_outmost=1) -> dict:
         frames=frames or []
     )
 
+
 def extract_frames(tb, suppress_inner=False) -> list:
     if not tb:
-         return []
+        return []
     frames = []
     # Choose a frame to open by default
     # - The innermost non-library frame (libdir regex), or if not found,
@@ -125,7 +128,7 @@ def extract_frames(tb, suppress_inner=False) -> list:
                     if n in ('self', 'cls')
                 )
                 function = f'{cls.__name__}.{function}'
-            except:
+            except StopIteration:
                 pass
             # Remove long module paths (keep last two items)
             function = '.'.join(function.split('.')[-2:])
