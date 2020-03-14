@@ -27,7 +27,7 @@ traceback, Niceback produces scrollable outputs that concentrate on the relevant
 details but also provide variable inspectors on each frame where it may be
 relevant:
 
-![Nested exceptions](https://raw.githubusercontent.com/Tronic/niceback/master/docs/without-niceback.png)
+![Nested exceptions](https://raw.githubusercontent.com/Tronic/niceback/master/docs/nested.png)
 **Niceback output with nested exceptions.**
 
 
