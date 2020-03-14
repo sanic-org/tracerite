@@ -17,10 +17,19 @@ Although IPython and Google Colab developers have done their tweaks to improve
 backtraces, it is all too apparent that much remains to be done:
 
 ![Colab](https://raw.githubusercontent.com/Tronic/niceback/master/docs/without-niceback.png)
-**Standard backtrace from Google Colab**
+**Standard backtrace from Google Colab.**
 
 Even for the experienced programmer, it is tedious to read through the wall of
 text to find the relevant details of what went wrong.
+
+In more complex situations where one might get many screenfuls of standard
+traceback, Niceback produces scrollable outputs that concentrate on the relevant
+details but also provide variable inspectors on each frame where it may be
+relevant:
+
+![Nested exceptions](https://raw.githubusercontent.com/Tronic/niceback/master/docs/without-niceback.png)
+**Niceback output with nested exceptions.**
+
 
 ## Usage
 
