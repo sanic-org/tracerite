@@ -1,7 +1,7 @@
 from os.path import dirname
 
 from html5tagger import E
-from niceback.trace import extract_exc
+from niceback.trace import extract_chain
 
 stylefile = f"{dirname(__file__)}/style.css"
 
@@ -21,8 +21,8 @@ function niceback_show(id) {
 """
 
 
-def html_traceback():
-    chain = extract_exc()[-3:]
+def html_traceback(exc=None, chain=None):
+    chain = chain or extract_chain(exc=exc)[-3:]
     with E.div(class_="niceback") as doc:
         doc.script(niceback_show)
         doc.style(style)

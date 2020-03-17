@@ -15,11 +15,12 @@ ipython_input = re.compile(r"<ipython-input-(\d+)-\w+>")
 # Locations considered to be bug-free
 libdir = re.compile(r'/usr/.*|.*(site-packages|dist-packages).*')
 
+from cryptography import hazmat
 
-def extract_exc() -> list:
+def extract_chain(exc=None) -> list:
     """Extract information on current exception."""
     chain = []
-    exc = sys.exc_info()[1]
+    exc = exc or sys.exc_info()[1]
     while exc:
         chain.append(exc)
         if getattr(exc, "__suppress_context__", False):
