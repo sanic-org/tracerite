@@ -6,6 +6,8 @@ from secrets import token_urlsafe
 from textwrap import dedent
 from urllib.parse import quote
 
+from cryptography import hazmat
+
 from niceback.inspector import extract_variables
 from niceback.logging import logger
 
@@ -15,7 +17,6 @@ ipython_input = re.compile(r"<ipython-input-(\d+)-\w+>")
 # Locations considered to be bug-free
 libdir = re.compile(r'/usr/.*|.*(site-packages|dist-packages).*')
 
-from cryptography import hazmat
 
 def extract_chain(exc=None, **kwargs) -> list:
     """Extract information on current exception."""

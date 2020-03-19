@@ -1,12 +1,9 @@
-from os.path import dirname
+import pkg_resources
 
 from html5tagger import E
 from niceback.trace import extract_chain
 
-stylefile = f"{dirname(__file__)}/style.css"
-
-with open(stylefile) as f:
-    style = f.read()
+style = pkg_resources.resource_string(__name__, "style.css").decode()
 
 detail_show = "{display: inherit}"
 
@@ -79,7 +76,10 @@ def _exception(doc, info):
                     # Code printout
                     lines = info["lines"].splitlines(keepends=True)
                     if not lines:
+                        function = info["function"]
                         doc.p("Code not available")
+                        if function:
+                            doc(" for function ", function)
                     else:
                         with doc.pre, doc.code:
                             start = info["linenostart"]
