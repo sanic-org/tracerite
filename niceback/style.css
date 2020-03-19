@@ -9,6 +9,11 @@
 }
 .niceback h3 {
   margin: 0;
+  padding: .2em 0;
+  font-size: 1.2em;
+}
+.niceback p {
+  margin: 0;
 }
 .niceback pre {
   width: 100%;
@@ -20,18 +25,17 @@
 
 }
 .niceback .codeline::before {
-  position: absolute;
-  left: 0;
   content: attr(data-lineno);
-  color: #bbb;
+  color: #888;
   opacity: 0.0;
   transition: all 0.4s;
   display: inline-block;
   text-align: right;
   text-indent: 0;
+  white-space: nowrap;
   word-break: keep-all;
-  padding-left: 4ch;
-  width: 5ch;
+  padding-right: 1ch;
+  width: 4ch;
 }
 .niceback pre:hover .codeline::before {
   opacity: 1.0;

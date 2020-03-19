@@ -18,8 +18,8 @@ function niceback_show(id) {
 """
 
 
-def html_traceback(exc=None, chain=None):
-    chain = chain or extract_chain(exc=exc)[-3:]
+def html_traceback(exc=None, chain=None, **extract_args):
+    chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
     with E.div(class_="niceback") as doc:
         doc.script(niceback_show)
         doc.style(style)
@@ -79,7 +79,7 @@ def _exception(doc, info):
                         function = info["function"]
                         doc.p("Code not available")
                         if function:
-                            doc(" for function ", function)
+                            doc(" for function ").strong(function)
                     else:
                         with doc.pre, doc.code:
                             start = info["linenostart"]

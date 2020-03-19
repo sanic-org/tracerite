@@ -9,7 +9,7 @@ from niceback.logging import logger
 def showtraceback(*args, **kwargs):
 
     try:
-        IPython.display.display(html_traceback())
+        IPython.display.display(html_traceback(skip_until="<ipython-input-"))
     except Exception:
         original_showtraceback(*args, **kwargs)
 
