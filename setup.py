@@ -1,9 +1,9 @@
 import setuptools
-from niceback import __version__
+#from niceback.version import __version__
 
 setuptools.setup(
     name="niceback",
-    version=__version__,
+    version="0.2.0",
     author="L. Kärkkäinen",
     author_email="tronic@noreply.users.github.com",
     description="Human-readable tracebacks in Jupyter notebooks",
