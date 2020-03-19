@@ -55,25 +55,20 @@ def extract_variables(variables, sourcecode):
 
 def prettyvalue(val):
     if isinstance(val, (list, tuple)):
-        if len(val) > 10:
+        if not 0 < len(val) <= 10:
             return f'({len(val)} items)'
-        return E(", ".join(repr(v)[:80] for v in val))
+        return ", ".join(repr(v)[:80] for v in val)
     try:
         # This only works for Numpy-like arrays, and should cause exceptions otherwise
         if val.size > 100:
-            return E(f'({"×".join(str(d) for d in val.shape)})')
+            return f'({"×".join(str(d) for d in val.shape)})'
         elif len(val.shape) == 2:
-            with E.table as doc:
-                for row in val:
-                    doc.tr
-                    for num in row:
-                        doc.td(f'{num:.2g}' if isinstance(num, float) else num)
-            return doc
+            return val
     except AttributeError:
         pass
     except Exception:
         logger.exception("Pretty-printing in variable inspector failed (please report a bug)")
     ret = f"{val}"
     if len(ret) > 80:
-        return E(ret[:30] + " … " + ret[-30:])
-    return E(ret)
+        return ret[:30] + " … " + ret[-30:]
+    return ret

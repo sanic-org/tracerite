@@ -17,7 +17,7 @@ libdir = re.compile(r'/usr/.*|.*(site-packages|dist-packages).*')
 
 from cryptography import hazmat
 
-def extract_chain(exc=None) -> list:
+def extract_chain(exc=None, **kwargs) -> list:
     """Extract information on current exception."""
     chain = []
     exc = exc or sys.exc_info()[1]
@@ -28,17 +28,22 @@ def extract_chain(exc=None) -> list:
         exc = getattr(exc, "__cause__") or getattr(exc, "__context__")
     # Newest exception first
     return [
-        extract_exception(e, skip_outmost=1 if e is chain[0] else 0) for e in chain
+        extract_exception(e, **(kwargs if e is chain[0] else {})) for e in chain
     ]
 
 
-def extract_exception(e, *, skip_outmost=1) -> dict:
+def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     tb = e.__traceback__
     try:
-        tb = inspect.getinnerframes(tb)[skip_outmost:]
+        tb = inspect.getinnerframes(tb)
     except IndexError:  # Bug in inspect internals, find_source()
         logger.exception("Bug in inspect?")
         tb = []
+    if skip_until:
+        for i, frame in enumerate(tb):
+            if skip_until in frame.filename:
+                skip_outmost = i
+    tb = tb[skip_outmost:]
     # Header and exception message
     message = e.message if hasattr(e, 'message') else str(e)
     summary = message.split("\n", 1)[0]
@@ -104,9 +109,12 @@ def extract_frames(tb, suppress_inner=False) -> list:
                 continue
         urls = {}
         if os.path.isfile(filename):
-            urls["VS Code"] = f"vscode://file/{quote(filename)}:{lineno}"
-        if filename.startswith(os.getcwd()):
-            urls["Jupyter"] = f"/edit{quote(filename[len(os.getcwd()):])}"
+            fn = os.path.abspath(filename)
+            urls["VS Code"] = f"vscode://file/{quote(fn)}:{lineno}"
+        cwd = os.getcwd()
+        if filename.startswith(cwd):
+            fn = filename[len(cwd):]
+            urls["Jupyter"] = f"/edit{quote(fn)}"
         # Format filename
         m = ipython_input.fullmatch(filename)
         if m:

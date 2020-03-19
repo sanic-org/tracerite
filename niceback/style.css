@@ -10,16 +10,30 @@
 .niceback h3 {
   margin: 0;
 }
+.niceback pre {
+  width: 100%;
+  padding: .5em;
+  padding-left: 5ch;
+}
+.niceback .codeline {
+  text-indent: 4ch each-line;
+
+}
 .niceback .codeline::before {
+  position: absolute;
+  left: 0;
   content: attr(data-lineno);
-  color: gray;
+  color: #bbb;
   opacity: 0.0;
   transition: all 0.4s;
   display: inline-block;
-  text-align: center;
-  width: 3ch;
+  text-align: right;
+  text-indent: 0;
+  word-break: keep-all;
+  padding-left: 4ch;
+  width: 5ch;
 }
-.niceback code:hover .codeline::before {
+.niceback pre:hover .codeline::before {
   opacity: 1.0;
 }
 .niceback mark {
@@ -29,15 +43,13 @@
   background: #ff0;
 }
 .niceback mark::after {
-  padding: .5em;
+  display: inline-block;
   content: attr(data-symbol);
-  font-size: 2em;
-}
-.niceback pre {
-  padding: .5em;
+  margin: -1ch;
+  transform: translate(2em, 0) scale(1.5);
 }
 .niceback .excmessage {
-  max-height: 10em;
+  max-height: 12em;
   overflow: auto;
 }
 .niceback .exctype {color: gray}
