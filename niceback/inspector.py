@@ -1,7 +1,6 @@
 import re
 import types
 
-from html5tagger import E
 from niceback.logging import logger
 
 blacklist_names = {"_", "In", "Out"}

@@ -100,7 +100,7 @@ def _exception(doc, info):
                                     doc.tr.td(n).td(t).td(v)
                                 else:
                                     with doc.table:
-                                        for row in val:
+                                        for row in v:
                                             doc.tr
                                             for num in row:
                                                 doc.td(f'{num:.2g}' if isinstance(num, float) else num)
@@ -109,6 +109,7 @@ def _exception(doc, info):
 def marked(line, symbol=None):
     indent, code, trailing = split3(line)
     return E(indent).mark(E.span(code), data_symbol=symbol)(trailing)
+
 
 def split3(s):
     """Split s into indent, code and trailing whitespace"""
