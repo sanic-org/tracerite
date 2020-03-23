@@ -2,6 +2,7 @@ import inspect
 import os
 import re
 import sys
+
 from secrets import token_urlsafe
 from textwrap import dedent
 from urllib.parse import quote
@@ -42,6 +43,7 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         for i, frame in enumerate(tb):
             if skip_until in frame.filename:
                 skip_outmost = i
+                break
     tb = tb[skip_outmost:]
     # Header and exception message
     message = e.message if hasattr(e, 'message') else str(e)
