@@ -49,11 +49,14 @@ def _exception(doc, info):
     if not frames:
         return
     # Format call chain
-    limitedframes = frames[:16]
+    limitedframes = [*frames[:10], ..., *frames[-4:]] if len(frames) > 16 else frames
     with doc.div(class_="traceback-tabs"):
         if len(limitedframes) > 1:
             with doc.div(class_="traceback-labels"):
                 for info in limitedframes:
+                    if info is ...:
+                        doc("...")
+                        continue
                     doc.button(
                         E.strong(info["location"]).br.small(
                             info["function"] or "－"),
@@ -61,6 +64,10 @@ def _exception(doc, info):
                     )
         with doc.div(class_="content"):
             for info in limitedframes:
+                if info is ...:
+                    with doc.div(class_="traceback-details"):
+                        doc.p("...")
+                    continue
                 with doc.div(class_="traceback-details", id=info['id']):
                     doc.span(
                         style="font-size: 2em",
