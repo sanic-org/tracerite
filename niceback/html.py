@@ -17,6 +17,8 @@ function niceback_show(id) {
 }
 """
 
+local_urls = False
+
 
 def html_traceback(exc=None, chain=None, **extract_args):
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
@@ -69,13 +71,10 @@ def _exception(doc, info):
                         doc.p("...")
                     continue
                 with doc.div(class_="traceback-details", id=info['id']):
-                    doc.span(
-                        style="font-size: 2em",
-                    )
                     if info['filename']:
                         doc.p.b(f"{info['filename']}")(f":{info['lineno']}")
                         urls = info["urls"]
-                        if urls:
+                        if local_urls and urls:
                             for name, href in urls.items():
                                 doc(" ").a(name, href=href)
                     else:
