@@ -57,6 +57,10 @@ browser-based systems (this should be useful for web development frameworks as
 well). This allows interactivity and much better layout than that of the text
 console.
 
+## License
+
+Public Domain or equivalent.
+
 ## Help wanted
 
 I won't be able to maintain this all by myself. If you like the idea of nicer
