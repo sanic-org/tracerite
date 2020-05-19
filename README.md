@@ -37,7 +37,7 @@ At the beginning of your Notebook:
 
 ```ipython
 !pip install niceback
-import niceback.on_notebook
+%load_ext niceback
 ```
 
 ## Background
