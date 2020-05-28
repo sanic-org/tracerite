@@ -27,8 +27,12 @@ def extract_variables(variables, sourcecode):
             typename = type(value).__name__
             if name not in identifiers:
                 continue
+            try:
+                strvalue = str(value)
+            except Exception:
+                continue  # Skip variables failing str()
             # Try to print members of objects that don't have proper __str__
-            if no_str_conv.fullmatch(str(value)):
+            if no_str_conv.fullmatch(strvalue):
                 found = False
                 for n, v in vars(value).items():
                     mname = f'{name}.{n}'
