@@ -25,6 +25,9 @@ def extract_chain(exc=None, **kwargs) -> list:
         chain.append(exc)
         if getattr(exc, "__suppress_context__", False):
             break
+        # Remove this once input() interrupt is fixed in ipykernel:
+        if type(exc) is KeyboardInterrupt:
+            break
         exc = getattr(exc, "__cause__") or getattr(exc, "__context__")
     # Newest exception first
     return [
