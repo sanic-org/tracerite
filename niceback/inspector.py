@@ -1,5 +1,6 @@
 import re
 import types
+from functools import reduce
 
 from niceback.logging import logger
 
@@ -63,10 +64,11 @@ def prettyvalue(val):
         return ", ".join(repr(v)[:80] for v in val)
     try:
         # This only works for Numpy-like arrays, and should cause exceptions otherwise
-        if val.size > 100:
-            return f'({"×".join(str(d) for d in val.shape)})'
-        elif len(val.shape) == 2:
-            return val
+        if isinstance(val.shape, tuple) and val.shape:
+            if reduce(lambda a, b: a * b, val.shape) > 100:
+                return f'({"×".join(str(d) for d in val.shape)})'
+            elif len(val.shape) == 2:
+                return val
     except AttributeError:
         pass
     except Exception:
