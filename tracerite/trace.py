@@ -7,8 +7,8 @@ from secrets import token_urlsafe
 from textwrap import dedent
 from urllib.parse import quote
 
-from niceback.inspector import extract_variables
-from niceback.logging import logger
+from .inspector import extract_variables
+from .logging import logger
 
 # Function name for IPython interactive input (matches input number)
 ipython_input = re.compile(r"<ipython-input-(\d+)-\w+>")

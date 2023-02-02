@@ -1,6 +1,6 @@
 import sys
-from niceback import html_traceback
-from niceback.logging import logger
+from .html import html_traceback
+from .logging import logger
 
 
 def _can_display_html():
@@ -16,7 +16,7 @@ def load_ipython_extension(ipython):
     def showtraceback(*args, **kwargs):
         try:
             from IPython.display import display
-            # Niceback HTML output
+            # TraceRite HTML output
             display(html_traceback(skip_until="<ipython-input-"))
         except Exception:
             # Fall back to built-in showtraceback
@@ -27,9 +27,9 @@ def load_ipython_extension(ipython):
         if _can_display_html():
             ipython.showtraceback = showtraceback
         else:
-            logger.warning("Niceback not loaded: No HTML notebook detected")
+            logger.warning("Tracerite not loaded: No HTML notebook detected")
     except Exception:
-        logger.error("Unable to load Niceback (please report a bug!)")
+        logger.error("Unable to load Tracerite (please report a bug!)")
         raise
 
 

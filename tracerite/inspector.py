@@ -2,7 +2,7 @@ import re
 import types
 from functools import reduce
 
-from niceback.logging import logger
+from .logging import logger
 
 blacklist_names = {"_", "In", "Out"}
 blacklist_types = (

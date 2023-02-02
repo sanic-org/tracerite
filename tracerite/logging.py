@@ -1,4 +1,4 @@
 import logging
 
-logger = logging.getLogger("niceback")
+logger = logging.getLogger("tracerite")
 logger.setLevel(logging.INFO)

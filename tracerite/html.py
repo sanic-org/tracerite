@@ -1,7 +1,7 @@
 import pkg_resources
 
 from html5tagger import E
-from niceback.trace import extract_chain
+from .trace import extract_chain
 
 style = pkg_resources.resource_string(__name__, "style.css").decode()
 
@@ -9,8 +9,8 @@ detail_show = "{display: inherit}"
 
 symbols = dict(call="➤", warning="⚠️", error="💣")
 
-niceback_show = """\
-function niceback_show(id) {
+tracerite_show = """\
+function tracerite_show(id) {
     document.getElementById(id).scrollIntoView(
         {behavior: 'smooth', block: 'nearest', inline: 'start'}
     )
@@ -22,8 +22,8 @@ local_urls = False
 
 def html_traceback(exc=None, chain=None, **extract_args):
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
-    with E.div(class_="niceback") as doc:
-        doc.script(niceback_show)
+    with E.div(class_="tracerite") as doc:
+        doc.script(tracerite_show)
         doc.style(style)
         for e in chain:
             if e is not chain[0]:
@@ -33,7 +33,7 @@ def html_traceback(exc=None, chain=None, **extract_args):
             for e in reversed(chain):
                 for info in e["frames"]:
                     if info["relevance"] != "call":
-                        doc(f"niceback_show('{info['id']}')\n")
+                        doc(f"tracerite_show('{info['id']}')\n")
                         break
     return doc
 
@@ -62,7 +62,7 @@ def _exception(doc, info):
                     doc.button(
                         E.strong(info["location"]).br.small(
                             info["function"] or "－"),
-                        onclick=f"niceback_show('{info['id']}')"
+                        onclick=f"tracerite_show('{info['id']}')"
                     )
         with doc.div(class_="content"):
             for info in limitedframes:

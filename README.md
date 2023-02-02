@@ -4,10 +4,10 @@ Other languages such as C++ have gotten quite useful error messages and
 diagnostics with tips on how the fix the problems but Python is still stuck
 with the bare stacktraces that are very intimidating and often not very helpful.
 
-![Niceback](https://raw.githubusercontent.com/Tronic/niceback/master/docs/with-niceback.png)
-**Niceback backtrace shows where the user has terminated the program.**
+![TraceRite](https://raw.githubusercontent.com/sanic-org/tracerite/master/docs/with-tracerite.webp)
+**TraceRite backtrace shows where the user has terminated the program.**
 
-Niceback hides the irrelevant IPython/notebook internals and concisely shows
+TraceRite hides the irrelevant IPython/notebook internals and concisely shows
 what happened (the program was interrupted) and where that happened. This could
 further be improved by converting the KeyboardInterrupt message into something
 more suitable, like "You stopped the program", but what you see above is just
@@ -16,19 +16,19 @@ the default handling that never considered this particular error.
 Although IPython and Google Colab developers have done their tweaks to improve
 backtraces, it is all too apparent that much remains to be done:
 
-![Colab](https://raw.githubusercontent.com/Tronic/niceback/master/docs/without-niceback.png)
+![Colab](https://raw.githubusercontent.com/sanic-org/tracerite/master/docs/without-tracerite.webp)
 **Standard backtrace from Google Colab.**
 
 Even for the experienced programmer, it is tedious to read through the wall of
 text to find the relevant details of what went wrong.
 
 In more complex situations where one might get many screenfuls of standard
-traceback, Niceback produces scrollable outputs that concentrate on the relevant
+traceback, TraceRite produces scrollable outputs that concentrate on the relevant
 details but also provide variable inspectors on each frame where it may be
 relevant:
 
-![Nested exceptions](https://raw.githubusercontent.com/Tronic/niceback/master/docs/nested.png)
-**Niceback output with nested exceptions.**
+![Nested exceptions](https://raw.githubusercontent.com/sanic-org/tracerite/master/docs/nested.webp)
+**TraceRite output with nested exceptions.**
 
 
 ## Usage
@@ -36,8 +36,8 @@ relevant:
 At the beginning of your Notebook:
 
 ```ipython
-!pip install niceback
-%load_ext niceback
+!pip install tracerite
+%load_ext tracerite
 ```
 
 ## Background
