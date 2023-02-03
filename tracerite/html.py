@@ -9,13 +9,7 @@ detail_show = "{display: inherit}"
 
 symbols = dict(call="➤", warning="⚠️", error="💣", stop="🛑")
 
-javascript = """\
-function tracerite_show(id) {
-    document.getElementById(id).scrollIntoView(
-        {behavior: 'smooth', block: 'nearest', inline: 'start'}
-    )
-}
-"""
+javascript = """const scrollto=id=>document.getElementById(id).scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"""
 
 local_urls = False
 
@@ -34,7 +28,7 @@ def html_traceback(exc=None, chain=None, include_js_css=True, **extract_args):
             for e in reversed(chain):
                 for info in e["frames"]:
                     if info["relevance"] != "call":
-                        doc(f"tracerite_show('{info['id']}')\n")
+                        doc(f"scrollto('{info['id']}')\n")
                         break
     return doc
 

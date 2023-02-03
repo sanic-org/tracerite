@@ -87,7 +87,7 @@ def extract_frames(tb, suppress_inner=False) -> list:
         if frame.f_locals.get("__tracebackhide__", False):
             continue
         if frame is tb[-1][0]:
-            # Exception was raised here, show am error bomb normally, but
+            # Exception was raised here, show an error bomb normally, but
             # stop for KeyboardInterrupt, CancelledError (BaseException)
             relevance = "stop" if suppress_inner else "error"
         elif frame is bug_in_frame:
@@ -108,7 +108,7 @@ def extract_frames(tb, suppress_inner=False) -> list:
         except OSError:
             lines = ""
             # Skip non-Python modules unless particularly relevant
-            if relevance != "error":
+            if relevance == "call":
                 continue
         urls = {}
         if os.path.isfile(filename):
