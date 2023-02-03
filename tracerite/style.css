@@ -50,7 +50,9 @@
   display: inline-block;
   content: attr(data-symbol);
   margin: -1ch;
-  transform: translate(2em, 0) scale(1.5);
+  transform: translate(2em, 0) scale(1.8);
+  color: #ff0;
+  -webkit-text-stroke: .05em black;
 }
 .tracerite .excmessage {
   max-height: 12em;

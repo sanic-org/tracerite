@@ -7,7 +7,7 @@ style = pkg_resources.resource_string(__name__, "style.css").decode()
 
 detail_show = "{display: inherit}"
 
-symbols = dict(call="➤", warning="⚠️", error="💣")
+symbols = dict(call="➤", warning="⚠️", error="💣", stop="🛑")
 
 javascript = """\
 function tracerite_show(id) {
