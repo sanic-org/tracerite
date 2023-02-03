@@ -107,8 +107,9 @@ def variable_inspector(doc, variables):
     with doc.table(class_="inspector"):
         doc.thead.tr.th("Variable").th("Type").th("Value").tbody
         for n, t, v in variables:
+            doc.tr.td(n).td(t).td
             if isinstance(v, str):
-                doc.tr.td(n).td(t).td(v)
+                doc(v)
             else:
                 with doc.table:
                     for row in v:
