@@ -55,61 +55,65 @@ def _exception(doc, info):
     with doc.div(class_="traceback-tabs"):
         if len(limitedframes) > 1:
             with doc.div(class_="traceback-labels"):
-                for info in limitedframes:
-                    if info is ...:
+                for frinfo in limitedframes:
+                    if frinfo is ...:
                         doc("...")
                         continue
                     doc.button(
-                        E.strong(info["location"]).br.small(
-                            info["function"] or "－"),
-                        onclick=f"tracerite_show('{info['id']}')"
+                        E.strong(frinfo["location"]).br.small(
+                            frinfo["function"] or "－"),
+                        onclick=f"tracerite_show('{frinfo['id']}')"
                     )
         with doc.div(class_="content"):
-            for info in limitedframes:
-                if info is ...:
+            for frinfo in limitedframes:
+                if frinfo is ...:
                     with doc.div(class_="traceback-details"):
                         doc.p("...")
                     continue
-                with doc.div(class_="traceback-details", id=info['id']):
-                    if info['filename']:
-                        doc.p.b(f"{info['filename']}")(f":{info['lineno']}")
-                        urls = info["urls"]
+                with doc.div(class_="traceback-details", id=frinfo['id']):
+                    if frinfo['filename']:
+                        doc.p.b(frinfo['filename'])(f":{frinfo['lineno']}")
+                        urls = frinfo["urls"]
                         if local_urls and urls:
                             for name, href in urls.items():
                                 doc(" ").a(name, href=href)
                     else:
-                        doc.p.b(info["location"] + ":")
+                        doc.p.b(frinfo["location"] + ":")
                     # Code printout
-                    lines = info["lines"].splitlines(keepends=True)
+                    lines = frinfo["lines"].splitlines(keepends=True)
                     if not lines:
-                        function = info["function"]
+                        function = frinfo["function"]
                         doc.p("Code not available")
                         if function:
                             doc(" for function ").strong(function)
                     else:
                         with doc.pre, doc.code:
-                            start = info["linenostart"]
-                            lineno = info["lineno"]
+                            start = frinfo["linenostart"]
+                            lineno = frinfo["lineno"]
                             for i, line in enumerate(lines, start=start):
                                 with doc.span(class_="codeline", data_lineno=i):
                                     doc(
-                                        marked(line, symbols.get(info["relevance"]))
+                                        marked(line, symbols.get(frinfo["relevance"]))
                                         if i == lineno else
                                         line
                                     )
-                    # Variable inspector
-                    if info["variables"]:
-                        with doc.table(class_="inspector"):
-                            doc.thead.tr.th("Variable").th("Type").th("Value").tbody
-                            for n, t, v in info["variables"]:
-                                if isinstance(v, str):
-                                    doc.tr.td(n).td(t).td(v)
-                                else:
-                                    with doc.table:
-                                        for row in v:
-                                            doc.tr
-                                            for num in row:
-                                                doc.td(f'{num:.2g}' if isinstance(num, float) else num)
+                    variable_inspector(doc, frinfo["variables"])
+
+
+def variable_inspector(doc, variables):
+    if not variables:
+        return
+    with doc.table(class_="inspector"):
+        doc.thead.tr.th("Variable").th("Type").th("Value").tbody
+        for n, t, v in variables:
+            if isinstance(v, str):
+                doc.tr.td(n).td(t).td(v)
+            else:
+                with doc.table:
+                    for row in v:
+                        doc.tr
+                        for num in row:
+                            doc.td(f'{num:.2g}' if isinstance(num, float) else num)
 
 
 def marked(line, symbol=None):
