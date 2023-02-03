@@ -27,7 +27,7 @@ def load_ipython_extension(ipython):
         if _can_display_html():
             ipython.showtraceback = showtraceback
         else:
-            logger.warning("Tracerite not loaded: No HTML notebook detected")
+            logger.warning("TraceRite not loaded: No HTML notebook detected")
     except Exception:
         logger.error("Unable to load Tracerite (please report a bug!)")
         raise

@@ -9,7 +9,7 @@ detail_show = "{display: inherit}"
 
 symbols = dict(call="➤", warning="⚠️", error="💣")
 
-tracerite_show = """\
+javascript = """\
 function tracerite_show(id) {
     document.getElementById(id).scrollIntoView(
         {behavior: 'smooth', block: 'nearest', inline: 'start'}
@@ -20,11 +20,12 @@ function tracerite_show(id) {
 local_urls = False
 
 
-def html_traceback(exc=None, chain=None, **extract_args):
+def html_traceback(exc=None, chain=None, include_js_css=True, **extract_args):
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
     with E.div(class_="tracerite") as doc:
-        doc.script(tracerite_show)
-        doc.style(style)
+        if include_js_css:
+            doc._script(javascript)
+            doc._style(style)
         for e in chain:
             if e is not chain[0]:
                 doc.p("The above exception occurred after catching")
