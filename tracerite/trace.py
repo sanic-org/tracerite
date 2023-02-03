@@ -10,8 +10,8 @@ from urllib.parse import quote
 from .inspector import extract_variables
 from .logging import logger
 
-# Function name for IPython interactive input (matches input number)
-ipython_input = re.compile(r"<ipython-input-(\d+)-\w+>")
+# Will be set to an instance if loaded as an IPython extension by %load_ext
+ipython = None
 
 # Locations considered to be bug-free
 libdir = re.compile(r'/usr/.*|.*(site-packages|dist-packages).*')
@@ -116,12 +116,16 @@ def extract_frames(tb, suppress_inner=False) -> list:
         if filename.startswith(cwd):
             fn = filename[len(cwd):]
             urls["Jupyter"] = f"/edit{quote(fn)}"
-        # Format filename
-        m = ipython_input.fullmatch(filename)
-        if m:
-            filename = None
-            location = f"In [{m.group(1)}]"
-        else:
+        # Format location
+        location = None
+        try:
+            ipython_in = ipython.compile._filename_map[filename]
+            location = f"In [{ipython_in}]"
+            filename = None  # tmp file likely already deleted
+        except (AttributeError, KeyError):
+            pass
+        # Shorten filename to use as displayable location
+        if not location:
             split = 0
             if len(filename) > 40:
                 split = filename.rfind("/", 10, len(filename) - 20) + 1
