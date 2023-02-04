@@ -128,7 +128,8 @@ def extract_frames(tb, suppress_inner=False) -> list:
             # Use relative path if in current working directory
             if cwd in fn.parents:
                 fn = fn.relative_to(cwd)
-                urls["Jupyter"] = f"/edit/{quote(fn.as_posix())}"
+                if ipython is not None:
+                   urls["Jupyter"] = f"/edit/{quote(fn.as_posix())}"
             filename = fn.as_posix()  # Use forward slashes
         # Shorten filename to use as displayable location
         if not location:
