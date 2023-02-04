@@ -49,8 +49,18 @@ def extract_variables(variables, sourcecode):
                     continue
                 value = ''
             # Append dtype on Numpy-style arrays (but not on np.float64 etc)
-            if hasattr(value, 'dtype') and hasattr(value, "__iter__"):
-                typename += f' of {value.dtype}'
+            # Access attributes directly to avoid triggering __getattr__
+            try:
+                dtype = object.__getattribute__(value, 'dtype')
+                shape = object.__getattribute__(value, 'shape')
+                if dtype and shape:
+                    try:
+                        dims = "×".join(str(d + 0) for d in shape) + " "
+                    except ValueError:
+                        dims = ""
+                    typename += f' of {dims}{dtype}'
+            except AttributeError:
+                pass
             rows += (name, typename, prettyvalue(value)),
         except Exception:
             logger.exception("Variable inspector failed (please report a bug)")
@@ -64,16 +74,15 @@ def prettyvalue(val):
         return ", ".join(repr(v)[:80] for v in val)
     try:
         # This only works for Numpy-like arrays, and should cause exceptions otherwise
-        if isinstance(val.shape, tuple) and val.shape:
-            if reduce(lambda a, b: a * b, val.shape) > 100:
-                return f'({"×".join(str(d) for d in val.shape)})'
-            elif len(val.shape) == 2:
+        shape = object.__getattribute__(val, 'shape')
+        if isinstance(shape, tuple) and val.shape:
+            if len(shape) <= 2 and reduce(lambda a, b: a * b, shape) <= 100:
                 return val
     except AttributeError:
         pass
     except Exception:
         logger.exception("Pretty-printing in variable inspector failed (please report a bug)")
     ret = f"{val}"
-    if len(ret) > 80:
+    if len(ret) > 120:
         return ret[:30] + " … " + ret[-30:]
     return ret

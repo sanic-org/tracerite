@@ -1,3 +1,9 @@
+:root {
+  --color-var: #8af;
+  --color-type: #5c8;
+  --color-val: #8af;
+  --color-tab: #aaaa;
+}
 /* CSS reset */
 .tracerite,
 .tracerite * {
@@ -18,11 +24,9 @@
 .tracerite pre {
   width: 100%;
   padding: .5em;
-  padding-left: 5ch;
 }
 .tracerite .codeline {
   text-indent: 4ch each-line;
-
 }
 .tracerite .codeline::before {
   content: attr(data-lineno);
@@ -41,7 +45,7 @@
   opacity: 1.0;
 }
 .tracerite mark {
-  background: transparent;
+  background: none;
 }
 .tracerite mark span {
   background: #ff0;
@@ -62,14 +66,19 @@
 .tracerite .traceback-labels {
   display: flex;
   align-items: center;
-  border-bottom: 3px solid gray;
+  border-bottom: 3px solid var(--color-tab);
   margin-top: 0.3em;
 }
 .tracerite .traceback-labels button {
+  background: var(--color-tab); color: black;
+  border: 0;
+  border-radius: .5em .5em 0 0;
   flex-shrink: 1;
   line-height: 1.0;
   padding: .5em;
+  margin-right: .2em;
 }
+.tracerite .traceback-labels button:hover { background: #ddd }
 .tracerite .traceback-labels * {
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -90,9 +99,7 @@
 .tracerite .traceback-details {
   min-width: 20ch;
   max-width: 100%;
-  max-height: 30em;
   margin: 0 .3em;
-  overflow-y: auto;
   flex-shrink: 0;
   scroll-snap-align: start;
   border-radius: .5em;
@@ -101,22 +108,29 @@
 .tracerite .traceback-details:last-child {
   width: 100%;
 }
-.tracerite .inspector tbody tr:nth-child(odd),
-.tracerite .inspector tbody tr:nth-child(even),
+.tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-all;) }
+.tracerite .inspector tbody tr,
 .tracerite .inspector th,
 .tracerite .inspector td {
-  background: transparent;
+  padding: 0;
+  background: none;
   text-align: left;
   max-width: 20em;
   text-overflow: ellipsis;
   overflow: hidden;
 }
-.tracerite .inspector table {
-  table-layout: fixed;
-}
+.tracerite .inspector .var { font-weight: bold; color: var(--color-var) }
+.tracerite .inspector .type { color: var(--color-type) }
+.tracerite .inspector .val { white-space: pre-wrap; color: var(--color-val) }
+
+/* matrix value on a variable */
 .tracerite .inspector table td {
+  color: var(--color-val);
+  min-width: 3em;
+  word-break: keep-all;
+  overflow: hidden;
+  padding: 0;
+  font-size: 0.8em;
   border-collapse: collapse;
-  border: 1px solid white;
-  background: #eee;
-  text-align: center;
+  text-align: right;
 }

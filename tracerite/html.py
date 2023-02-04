@@ -57,7 +57,7 @@ def _exception(doc, info):
                     doc.button(
                         E.strong(frinfo["location"]).br.small(
                             frinfo["function"] or "－"),
-                        onclick=f"tracerite_show('{frinfo['id']}')"
+                        onclick=f"scrollto('{frinfo['id']}')"
                     )
         with doc.div(class_="content"):
             for frinfo in limitedframes:
@@ -99,9 +99,8 @@ def variable_inspector(doc, variables):
     if not variables:
         return
     with doc.table(class_="inspector"):
-        doc.thead.tr.th("Variable").th("Type").th("Value").tbody
         for n, t, v in variables:
-            doc.tr.td(n).td(t).td
+            doc.tr.td.span(n, class_="var")(": ").span(t, class_="type")("\xA0=\xA0").td(class_="val")
             if isinstance(v, str):
                 doc(v)
             else:
@@ -109,7 +108,7 @@ def variable_inspector(doc, variables):
                     for row in v:
                         doc.tr
                         for num in row:
-                            doc.td(f'{num:.2g}' if isinstance(num, float) else num)
+                            doc.td(f'{num:.2f}' if isinstance(num, float) else num)
 
 
 def marked(line, symbol=None):

@@ -3,6 +3,7 @@ import os
 import re
 import sys
 
+from pathlib import Path
 from secrets import token_urlsafe
 from textwrap import dedent
 from urllib.parse import quote
@@ -46,7 +47,7 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
                 break
     tb = tb[skip_outmost:]
     # Header and exception message
-    message = e.message if hasattr(e, 'message') else str(e)
+    message = getattr(e, "message", "") or str(e)
     summary = message.split("\n", 1)[0]
     if len(summary) > 100:
         if len(message) > 1000:
@@ -111,21 +112,24 @@ def extract_frames(tb, suppress_inner=False) -> list:
             if relevance == "call":
                 continue
         urls = {}
-        if os.path.isfile(filename):
-            fn = os.path.abspath(filename)
-            urls["VS Code"] = f"vscode://file/{quote(fn)}:{lineno}"
-        cwd = os.getcwd()
-        if filename.startswith(cwd):
-            fn = filename[len(cwd):]
-            urls["Jupyter"] = f"/edit{quote(fn)}"
         # Format location
         location = None
         try:
             ipython_in = ipython.compile._filename_map[filename]
             location = f"In [{ipython_in}]"
-            filename = None  # tmp file likely already deleted
+            filename = None
         except (AttributeError, KeyError):
             pass
+        # Format filename
+        if filename and Path(filename).is_file():
+            fn = Path(filename).resolve()
+            urls["VS Code"] = f"vscode://file/{quote(fn.as_posix())}:{lineno}"
+            cwd = Path.cwd()
+            # Use relative path if in current working directory
+            if cwd in fn.parents:
+                fn = fn.relative_to(cwd)
+                urls["Jupyter"] = f"/edit/{quote(fn.as_posix())}"
+            filename = fn.as_posix()  # Use forward slashes
         # Shorten filename to use as displayable location
         if not location:
             split = 0
