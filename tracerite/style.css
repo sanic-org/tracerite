@@ -108,7 +108,7 @@
 .tracerite .traceback-details:last-child {
   width: 100%;
 }
-.tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-all;) }
+.tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-word;) }
 .tracerite .inspector tbody tr,
 .tracerite .inspector th,
 .tracerite .inspector td {
@@ -120,9 +120,8 @@
   overflow: hidden;
 }
 .tracerite .inspector .var { font-weight: bold; color: var(--color-var) }
-.tracerite .inspector .type { color: var(--color-type) }
+.tracerite .inspector .type { white-space: nowrap; color: var(--color-type) }
 .tracerite .inspector .val { white-space: pre-wrap; color: var(--color-val) }
-
 /* matrix value on a variable */
 .tracerite .inspector table td {
   color: var(--color-val);

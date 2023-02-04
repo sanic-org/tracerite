@@ -104,11 +104,25 @@ def variable_inspector(doc, variables):
             if isinstance(v, str):
                 doc(v)
             else:
+                skipcol = skiprow = False
                 with doc.table:
                     for row in v:
+                        if row[0] is None:
+                            skiprow = True
+                            continue
                         doc.tr
-                        for num in row:
-                            doc.td(f'{num:.2f}' if isinstance(num, float) else num)
+                        if skiprow:
+                            skiprow = False
+                            doc(class_="skippedabove")
+                        for e in row:
+                            if e is None:
+                                skipcol = True
+                                continue
+                            if skipcol:
+                                skipcol = False
+                                doc.td(e, class_="skippedleft")
+                            else:
+                                doc.td(e)
 
 
 def marked(line, symbol=None):

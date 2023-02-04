@@ -48,17 +48,19 @@ def extract_variables(variables, sourcecode):
                 if found:
                     continue
                 value = ''
-            # Append dtype on Numpy-style arrays (but not on np.float64 etc)
-            # Access attributes directly to avoid triggering __getattr__
+            # Full types for Numpy-like arrays, PyTorch tensors, etc.
             try:
-                dtype = object.__getattribute__(value, 'dtype')
+                dtype = str(object.__getattribute__(value, 'dtype')).rsplit(".", 1)[-1]
+                if typename == dtype:
+                    raise AttributeError   # Numpy scalars need no further info
                 shape = object.__getattribute__(value, 'shape')
-                if dtype and shape:
-                    try:
-                        dims = "×".join(str(d + 0) for d in shape) + " "
-                    except ValueError:
-                        dims = ""
-                    typename += f' of {dims}{dtype}'
+                dims = "×".join(str(d + 0) for d in shape) + " " if shape else ""
+                try:
+                    dev = object.__getattribute__(value, 'device')
+                    dev = f"@{dev}" if dev and dev.type != "cpu" else ""
+                except AttributeError:
+                    dev = ""
+                typename += f' of {dims}{dtype}{dev}'
             except AttributeError:
                 pass
             rows += (name, typename, prettyvalue(value)),
@@ -76,13 +78,33 @@ def prettyvalue(val):
         # This only works for Numpy-like arrays, and should cause exceptions otherwise
         shape = object.__getattribute__(val, 'shape')
         if isinstance(shape, tuple) and val.shape:
-            if len(shape) <= 2 and reduce(lambda a, b: a * b, shape) <= 100:
-                return val
-    except AttributeError:
+            numelem = reduce(lambda x, y: x * y, shape)
+            if numelem <= 1:
+                return f"{val[0]:.2g}"
+            # 1D arrays
+            if len(shape) == 1:
+                if shape[0] <= 100:
+                    return ", ".join(f"{v:.2f}" for v in val)
+                else:
+                    fmt = [f"{v:.2f}" for v in (*val[:3], *val[-3:])]
+                    return ", ".join([*fmt[:3], "…", *fmt[-3:]])
+            # 2D arrays
+            if len(shape) == 2 and shape[0] <= 10 and shape[1] <= 10:
+                return [[f"{v:.2f}" for v in row] for row in val]
+    except (AttributeError, ValueError):
         pass
     except Exception:
         logger.exception("Pretty-printing in variable inspector failed (please report a bug)")
-    ret = f"{val}"
+
+    try:
+        floaty = isinstance(val, float) or "float" in str(val.dtype)
+    except AttributeError:
+        floaty = False
+
+    if floaty: ret = f"{val:.2g}"
+    elif isinstance(val, str): ret = str(val)
+    else: ret = repr(val)
+
     if len(ret) > 120:
         return ret[:30] + " … " + ret[-30:]
     return ret
