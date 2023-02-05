@@ -13,7 +13,7 @@
 
 .tracerite,
 .tracerite *,
-.tracerite h3 {
+.tracerite > h3 {
   margin: 0;
   padding: 0;
   outline: none;
@@ -22,29 +22,28 @@
   font: inherit;
 }
 
-.tracerite code {
-  font-family: monospace;
-}
-
 .tracerite .after {
   margin: 0;
   padding: 1em 0 0 0;
   font-size: 1.2em;
 }
-
-.tracerite h3 {
+.tracerite > h3 {
   font-size: 1.2em;
 }
+.tracerite .excmessage {
+  max-height: 12em;
+  overflow: auto;
+}
+.tracerite .exctype { color: var(--tracerite-exception) }
 
 .tracerite .traceback-details pre {
   width: 100%;
   padding: .5em;
+  font-family: monospace;
 }
-
 .tracerite .traceback-details .codeline {
   text-indent: 4ch each-line;
 }
-
 .tracerite .traceback-details .codeline::before {
   content: attr(data-lineno);
   color: #888;
@@ -58,7 +57,6 @@
   padding-right: 1ch;
   width: 4ch;
 }
-
 .tracerite .traceback-details pre:hover .codeline::before {
   opacity: 1.0;
 }
@@ -66,11 +64,9 @@
 .tracerite .traceback-details mark {
   background: none;
 }
-
 .tracerite .traceback-details mark span {
   background: var(--tracerite-highlight);
 }
-
 .tracerite .traceback-details mark::after {
   display: inline-block;
   content: attr(data-symbol);
@@ -79,100 +75,9 @@
   color: var(--tracerite-highlight);
   -webkit-text-stroke: .05em black;
 }
-
-.tracerite .excmessage {
-  max-height: 12em;
-  overflow: auto;
-}
-
-.tracerite .exctype { color: var(--tracerite-exception) }
-
-.tracerite .traceback-labels {
-  display: flex;
-  align-items: center;
-  border-bottom: 3px solid var(--tracerite-tab);
-  margin-top: 0.3em;
-}
-
-.tracerite .traceback-labels button {
-  background: var(--tracerite-tab);
-  color: black;
-  border: 0;
-  border-radius: .5em .5em 0 0;
-  flex-shrink: 1;
-  line-height: 1.0;
-  padding: .5em;
-  margin-right: .2em;
-}
-
-.tracerite .traceback-labels button:hover { background: var(--tracerite-tab-hover) }
-
-.tracerite .traceback-labels * {
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-
-.tracerite .traceback-tabs .content {
-  scroll-snap-type: x mandatory;
-  display: flex;
-  align-items: flex-start;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tracerite .traceback-tabs .content::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-
-.tracerite .traceback-details {
-  min-width: 20ch;
-  max-width: 100%;
-  margin: 0 .3em;
-  flex-shrink: 0;
-  scroll-snap-align: start;
-  border-radius: .5em;
-  padding: .2em;
-}
-
-.tracerite .traceback-details:last-child {
-  width: 100%;
-}
-
-.tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-word; }
-
-.tracerite .inspector tbody tr,
-.tracerite .inspector th,
-.tracerite .inspector td {
-  padding: 0;
-  background: none;
-  text-align: left;
-  max-width: 20em;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-
-.tracerite .inspector .var { font-weight: bold; color: var(--tracerite-var) }
-.tracerite .inspector .type { white-space: nowrap; color: var(--tracerite-type) }
-.tracerite .inspector .val { white-space: pre-wrap; color: var(--tracerite-val) }
-
-/* matrix value on a variable */
-.tracerite .inspector table td {
-  color: var(--tracerite-val);
-  min-width: 3em;
-  word-break: keep-all;
-  overflow: hidden;
-  padding: 0;
-  font-size: 0.8em;
-  border-collapse: collapse;
-  text-align: right;
-}
-
 .tracerite .tracerite-tooltip {
   position: relative;
 }
-
 .tracerite .tracerite-tooltip::before {
   position: absolute;
   content: attr(data-tooltip);
@@ -189,7 +94,79 @@
   text-transform: capitalize;
   z-index: 2;
 }
-
 .tracerite .tracerite-tooltip:hover::before {
   display: block;
+}
+
+.tracerite .traceback-labels {
+  display: flex;
+  align-items: center;
+  border-bottom: 3px solid var(--tracerite-tab);
+  margin-top: 0.3em;
+}
+.tracerite .traceback-labels button {
+  background: var(--tracerite-tab);
+  color: black;
+  border: 0;
+  border-radius: .5em .5em 0 0;
+  flex-shrink: 1;
+  line-height: 1.0;
+  padding: .5em;
+  margin-right: .2em;
+}
+.tracerite .traceback-labels button:hover { background: var(--tracerite-tab-hover) }
+.tracerite .traceback-labels * {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.tracerite .traceback-tabs .content {
+  scroll-snap-type: x mandatory;
+  display: flex;
+  align-items: flex-start;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tracerite .traceback-tabs .content::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.tracerite .traceback-details {
+  min-width: 20ch;
+  max-width: 100%;
+  margin: 0 .3em;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  border-radius: .5em;
+  padding: .2em;
+}
+.tracerite .traceback-details:last-child {
+  width: 100%;
+}
+
+.tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-word; }
+.tracerite .inspector tbody tr,
+.tracerite .inspector th,
+.tracerite .inspector td {
+  padding: 0;
+  background: none;
+  text-align: left;
+  max-width: 20em;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.tracerite .inspector .var { font-weight: bold; color: var(--tracerite-var) }
+.tracerite .inspector .type { white-space: nowrap; color: var(--tracerite-type) }
+.tracerite .inspector .val { white-space: pre-wrap; color: var(--tracerite-val) }
+/* matrix value on a variable */
+.tracerite .inspector table td {
+  color: var(--tracerite-val);
+  min-width: 3em;
+  word-break: keep-all;
+  overflow: hidden;
+  padding: 0;
+  font-size: 0.8em;
+  border-collapse: collapse;
+  text-align: right;
 }
