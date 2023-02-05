@@ -6,7 +6,8 @@
   --tracerite-tab: #aaaa;
 }
 .tracerite,
-.tracerite * {
+.tracerite *,
+.tracerite h3 {
   margin: 0;
   padding: 0;
   outline: none;
@@ -22,14 +23,14 @@
 .tracerite h3 {
   font-size: 1.2em;
 }
-.tracerite pre {
+.tracerite .traceback-details pre {
   width: 100%;
   padding: .5em;
 }
-.tracerite .codeline {
+.tracerite .traceback-details .codeline {
   text-indent: 4ch each-line;
 }
-.tracerite .codeline::before {
+.tracerite .traceback-details .codeline::before {
   content: attr(data-lineno);
   color: #888;
   opacity: 0.0;
@@ -42,16 +43,16 @@
   padding-right: 1ch;
   width: 4ch;
 }
-.tracerite pre:hover .codeline::before {
+.tracerite .traceback-details pre:hover .codeline::before {
   opacity: 1.0;
 }
-.tracerite mark {
+.tracerite .traceback-details mark {
   background: none;
 }
-.tracerite mark span {
+.tracerite .traceback-details mark span {
   background: #ff0;
 }
-.tracerite mark::after {
+.tracerite .traceback-details mark::after {
   display: inline-block;
   content: attr(data-symbol);
   margin: -1ch;
@@ -109,7 +110,7 @@
 .tracerite .traceback-details:last-child {
   width: 100%;
 }
-.tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-word;) }
+.tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-word; }
 .tracerite .inspector tbody tr,
 .tracerite .inspector th,
 .tracerite .inspector td {
