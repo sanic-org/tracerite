@@ -7,7 +7,7 @@
 }
 .tracerite,
 .tracerite *,
-.tracerite h3 {
+.tracerite > h3 {
   margin: 0;
   padding: 0;
   outline: none;
@@ -15,12 +15,12 @@
   overflow: hidden;
   font: inherit;
 }
-.tracerite .after {
+.tracerite > .after {
   margin: 0;
   padding: 1em 0 0 0;
   font-size: 1.2em;
 }
-.tracerite h3 {
+.tracerite > h3 {
   font-size: 1.2em;
 }
 .tracerite .traceback-details pre {
