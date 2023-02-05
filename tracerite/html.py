@@ -11,10 +11,8 @@ symbols = dict(call="➤", warning="⚠️", error="💣", stop="🛑")
 
 javascript = """const scrollto=id=>document.getElementById(id).scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"""
 
-local_urls = False
 
-
-def html_traceback(exc=None, chain=None, include_js_css=True, **extract_args):
+def html_traceback(exc=None, chain=None, *, include_js_css=True, local_urls=False, **extract_args):
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
     with E.div(class_="tracerite") as doc:
         if include_js_css:
@@ -23,7 +21,7 @@ def html_traceback(exc=None, chain=None, include_js_css=True, **extract_args):
         for e in chain:
             if e is not chain[0]:
                 doc.p("The above exception occurred after catching")
-            _exception(doc, e)
+            _exception(doc, e, local_urls=local_urls)
         with doc.script:
             for e in reversed(chain):
                 for info in e["frames"]:
@@ -33,7 +31,7 @@ def html_traceback(exc=None, chain=None, include_js_css=True, **extract_args):
     return doc
 
 
-def _exception(doc, info):
+def _exception(doc, info, *, local_urls=False):
     """Format single exception message and traceback"""
     summary, message = info["summary"], info["message"]
     doc.h3(E.span(f"{info['type']}:", class_="exctype")(f" {summary}"))
