@@ -1,10 +1,10 @@
+/** TraceRite **/
 :root {
-  --color-var: #8af;
-  --color-type: #5c8;
-  --color-val: #8af;
-  --color-tab: #aaaa;
+  --tracerite-var: #8af;
+  --tracerite-type: #5c8;
+  --tracerite-val: #8af;
+  --tracerite-tab: #aaaa;
 }
-/* CSS reset */
 .tracerite,
 .tracerite * {
   margin: 0;
@@ -66,11 +66,11 @@
 .tracerite .traceback-labels {
   display: flex;
   align-items: center;
-  border-bottom: 3px solid var(--color-tab);
+  border-bottom: 3px solid var(--tracerite-tab);
   margin-top: 0.3em;
 }
 .tracerite .traceback-labels button {
-  background: var(--color-tab); color: black;
+  background: var(--tracerite-tab); color: black;
   border: 0;
   border-radius: .5em .5em 0 0;
   flex-shrink: 1;
@@ -119,12 +119,12 @@
   text-overflow: ellipsis;
   overflow: hidden;
 }
-.tracerite .inspector .var { font-weight: bold; color: var(--color-var) }
-.tracerite .inspector .type { white-space: nowrap; color: var(--color-type) }
-.tracerite .inspector .val { white-space: pre-wrap; color: var(--color-val) }
+.tracerite .inspector .var { font-weight: bold; color: var(--tracerite-var) }
+.tracerite .inspector .type { white-space: nowrap; color: var(--tracerite-type) }
+.tracerite .inspector .val { white-space: pre-wrap; color: var(--tracerite-val) }
 /* matrix value on a variable */
 .tracerite .inspector table td {
-  color: var(--color-val);
+  color: var(--tracerite-val);
   min-width: 3em;
   word-break: keep-all;
   overflow: hidden;
