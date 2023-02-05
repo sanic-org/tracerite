@@ -12,14 +12,15 @@
   outline: none;
   box-sizing: border-box;
   overflow: hidden;
+  font: inherit;
 }
-.tracerite h3 {
+.tracerite .after {
   margin: 0;
-  padding: .2em 0;
+  padding: 1em 0 0 0;
   font-size: 1.2em;
 }
-.tracerite p {
-  margin: 0;
+.tracerite h3 {
+  font-size: 1.2em;
 }
 .tracerite pre {
   width: 100%;

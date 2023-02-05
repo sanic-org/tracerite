@@ -20,7 +20,7 @@ def html_traceback(exc=None, chain=None, *, include_js_css=True, local_urls=Fals
             doc._style(style)
         for e in chain:
             if e is not chain[0]:
-                doc.p("The above exception occurred after catching")
+                doc.p("The above exception occurred after catching", class_="after")
             _exception(doc, e, local_urls=local_urls)
         with doc.script:
             for e in reversed(chain):
