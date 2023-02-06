@@ -84,9 +84,7 @@
   overflow: auto;
 }
 
-.tracerite .exctype {
-  color: var(--tracerite-exception)
-}
+.tracerite .exctype { color: var(--tracerite-exception) }
 
 .tracerite .traceback-labels {
   display: flex;
@@ -106,9 +104,7 @@
   margin-right: .2em;
 }
 
-.tracerite .traceback-labels button:hover {
-  background: var(--tracerite-label)
-}
+.tracerite .traceback-labels button:hover { background: var(--tracerite-label) }
 
 .tracerite .traceback-labels * {
   white-space: nowrap;
@@ -143,11 +139,7 @@
   width: 100%;
 }
 
-.tracerite table.inspector {
-  margin-left: 3.5em;
-  width: auto;
-  word-break: break-word;
-}
+.tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-word; }
 
 .tracerite .inspector tbody tr,
 .tracerite .inspector th,
@@ -160,20 +152,9 @@
   overflow: hidden;
 }
 
-.tracerite .inspector .var {
-  font-weight: bold;
-  color: var(--tracerite-var)
-}
-
-.tracerite .inspector .type {
-  white-space: nowrap;
-  color: var(--tracerite-type)
-}
-
-.tracerite .inspector .val {
-  white-space: pre-wrap;
-  color: var(--tracerite-val)
-}
+.tracerite .inspector .var { font-weight: bold; color: var(--tracerite-var) }
+.tracerite .inspector .type { white-space: nowrap; color: var(--tracerite-type) }
+.tracerite .inspector .val { white-space: pre-wrap; color: var(--tracerite-val) }
 
 /* matrix value on a variable */
 .tracerite .inspector table td {
