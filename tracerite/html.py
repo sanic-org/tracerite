@@ -20,7 +20,7 @@ def html_traceback(exc=None, chain=None, *, include_js_css=True, local_urls=Fals
             doc._style(style)
         for e in chain:
             if e is not chain[0]:
-                doc.p("The above exception occurred after catching the following (order left-to-right)", class_="after")
+                doc.p("The above exception occurred after catching", class_="after")
             _exception(doc, e, local_urls=local_urls)
         with doc.script:
             for e in reversed(chain):
@@ -127,7 +127,7 @@ def variable_inspector(doc, variables):
 def marked(line, text, symbol_name=None):
     indent, code, trailing = split3(line)
     symbol = symbols.get(symbol_name)
-    return E(indent).mark(E.span(code), data_symbol=symbol, data_tooltip=text)(trailing)
+    return E(indent).mark(E.span(code), data_symbol=symbol, data_tooltip=text, class_="tracerite-tooltip")(trailing)
 
 
 def split3(s):

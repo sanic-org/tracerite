@@ -6,7 +6,8 @@
   --tracerite-tab: #aaaa;
   --tracerite-highlight: #ff0;
   --tracerite-exception: gray;
-  --tracerite-label: #ddd;
+  --tracerite-tab-hover: #ddd;
+  --tracerite-light: #ddd;
   --tracerite-dark: black;
 }
 
@@ -104,7 +105,7 @@
   margin-right: .2em;
 }
 
-.tracerite .traceback-labels button:hover { background: var(--tracerite-label) }
+.tracerite .traceback-labels button:hover { background: var(--tracerite-tab-hover) }
 
 .tracerite .traceback-labels * {
   white-space: nowrap;
@@ -168,15 +169,15 @@
   text-align: right;
 }
 
-[data-tooltip] {
+.tracerite .tracerite-tooltip {
   position: relative;
 }
 
-[data-tooltip]::before {
+.tracerite .tracerite-tooltip::before {
   position: absolute;
   content: attr(data-tooltip);
-  opacity: 0;
-  color: var(--tracerite-label);
+  display: none;
+  color: var(--tracerite-light);
   background: var(--tracerite-dark);
   top: 50%;
   transform: translate(2ch, -50%);
@@ -189,6 +190,6 @@
   z-index: 2;
 }
 
-[data-tooltip]:hover::before {
-  opacity: 1;
+.tracerite .tracerite-tooltip:hover::before {
+  display: block;
 }
