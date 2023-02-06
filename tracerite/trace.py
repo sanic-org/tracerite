@@ -146,7 +146,7 @@ def extract_frames(tb, suppress_inner=False) -> list:
                 cls = next(
                     v.__class__ if n == 'self' else v
                     for n, v in frame.f_locals.items()
-                    if n in ('self', 'cls')
+                    if n in ('self', 'cls') and v is not None
                 )
                 function = f'{cls.__name__}.{function}'
             except StopIteration:

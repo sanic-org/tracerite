@@ -1,6 +1,6 @@
 import pkg_resources
-
 from html5tagger import E
+
 from .trace import extract_chain
 
 style = pkg_resources.resource_string(__name__, "style.css").decode()
@@ -85,8 +85,9 @@ def _exception(doc, info, *, local_urls=False):
                             lineno = frinfo["lineno"]
                             for i, line in enumerate(lines, start=start):
                                 with doc.span(class_="codeline", data_lineno=i):
+                                    text = f'{frinfo["relevance"]} @ Line {frinfo["lineno"]}'
                                     doc(
-                                        marked(line, symbols.get(frinfo["relevance"]))
+                                        marked(line, text, frinfo["relevance"])
                                         if i == lineno else
                                         line
                                     )
@@ -123,9 +124,10 @@ def variable_inspector(doc, variables):
                                 doc.td(e)
 
 
-def marked(line, symbol=None):
+def marked(line, text, symbol_name=None):
     indent, code, trailing = split3(line)
-    return E(indent).mark(E.span(code), data_symbol=symbol)(trailing)
+    symbol = symbols.get(symbol_name)
+    return E(indent).mark(E.span(code), data_symbol=symbol, data_tooltip=text, class_="tracerite-tooltip")(trailing)
 
 
 def split3(s):

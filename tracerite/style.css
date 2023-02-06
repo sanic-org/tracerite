@@ -4,7 +4,13 @@
   --tracerite-type: #5c8;
   --tracerite-val: #8af;
   --tracerite-tab: #aaaa;
+  --tracerite-highlight: #ff0;
+  --tracerite-exception: gray;
+  --tracerite-tab-hover: #ddd;
+  --tracerite-light: #ddd;
+  --tracerite-dark: black;
 }
+
 .tracerite,
 .tracerite *,
 .tracerite h3 {
@@ -15,21 +21,30 @@
   overflow: hidden;
   font: inherit;
 }
+
+.tracerite code {
+  font-family: monospace;
+}
+
 .tracerite .after {
   margin: 0;
   padding: 1em 0 0 0;
   font-size: 1.2em;
 }
+
 .tracerite h3 {
   font-size: 1.2em;
 }
+
 .tracerite .traceback-details pre {
   width: 100%;
   padding: .5em;
 }
+
 .tracerite .traceback-details .codeline {
   text-indent: 4ch each-line;
 }
+
 .tracerite .traceback-details .codeline::before {
   content: attr(data-lineno);
   color: #888;
@@ -43,36 +58,45 @@
   padding-right: 1ch;
   width: 4ch;
 }
+
 .tracerite .traceback-details pre:hover .codeline::before {
   opacity: 1.0;
 }
+
 .tracerite .traceback-details mark {
   background: none;
 }
+
 .tracerite .traceback-details mark span {
-  background: #ff0;
+  background: var(--tracerite-highlight);
 }
+
 .tracerite .traceback-details mark::after {
   display: inline-block;
   content: attr(data-symbol);
   margin: -1ch;
   transform: translate(2em, 0) scale(1.8);
-  color: #ff0;
+  color: var(--tracerite-highlight);
   -webkit-text-stroke: .05em black;
 }
+
 .tracerite .excmessage {
   max-height: 12em;
   overflow: auto;
 }
-.tracerite .exctype {color: gray}
+
+.tracerite .exctype { color: var(--tracerite-exception) }
+
 .tracerite .traceback-labels {
   display: flex;
   align-items: center;
   border-bottom: 3px solid var(--tracerite-tab);
   margin-top: 0.3em;
 }
+
 .tracerite .traceback-labels button {
-  background: var(--tracerite-tab); color: black;
+  background: var(--tracerite-tab);
+  color: black;
   border: 0;
   border-radius: .5em .5em 0 0;
   flex-shrink: 1;
@@ -80,12 +104,15 @@
   padding: .5em;
   margin-right: .2em;
 }
-.tracerite .traceback-labels button:hover { background: #ddd }
+
+.tracerite .traceback-labels button:hover { background: var(--tracerite-tab-hover) }
+
 .tracerite .traceback-labels * {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
 }
+
 .tracerite .traceback-tabs .content {
   scroll-snap-type: x mandatory;
   display: flex;
@@ -93,6 +120,7 @@
   overflow-x: auto;
   scrollbar-width: none;
 }
+
 .tracerite .traceback-tabs .content::-webkit-scrollbar {
   width: 0;
   height: 0;
@@ -107,10 +135,13 @@
   border-radius: .5em;
   padding: .2em;
 }
+
 .tracerite .traceback-details:last-child {
   width: 100%;
 }
+
 .tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-word; }
+
 .tracerite .inspector tbody tr,
 .tracerite .inspector th,
 .tracerite .inspector td {
@@ -121,9 +152,11 @@
   text-overflow: ellipsis;
   overflow: hidden;
 }
+
 .tracerite .inspector .var { font-weight: bold; color: var(--tracerite-var) }
 .tracerite .inspector .type { white-space: nowrap; color: var(--tracerite-type) }
 .tracerite .inspector .val { white-space: pre-wrap; color: var(--tracerite-val) }
+
 /* matrix value on a variable */
 .tracerite .inspector table td {
   color: var(--tracerite-val);
@@ -134,4 +167,29 @@
   font-size: 0.8em;
   border-collapse: collapse;
   text-align: right;
+}
+
+.tracerite .tracerite-tooltip {
+  position: relative;
+}
+
+.tracerite .tracerite-tooltip::before {
+  position: absolute;
+  content: attr(data-tooltip);
+  display: none;
+  color: var(--tracerite-light);
+  background: var(--tracerite-dark);
+  top: 50%;
+  transform: translate(2ch, -50%);
+  right: 0;
+  font-size: 0.8em;
+  padding: 0.5em 1em;
+  border-radius: 3px;
+  text-align: center;
+  text-transform: capitalize;
+  z-index: 2;
+}
+
+.tracerite .tracerite-tooltip:hover::before {
+  display: block;
 }
