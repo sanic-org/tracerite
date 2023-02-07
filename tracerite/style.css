@@ -45,7 +45,6 @@
 .tracerite .traceback-details pre {
   width: 100%;
   padding: .5em;
-  font-family: monospace;
 }
 .tracerite .traceback-details .codeline {
   text-indent: 4ch each-line;
