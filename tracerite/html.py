@@ -8,7 +8,12 @@ style = pkg_resources.resource_string(__name__, "style.css").decode()
 detail_show = "{display: inherit}"
 
 symbols = dict(call="➤", warning="⚠️", error="💣", stop="🛑")
-
+tooltips = dict(
+    call="Function call",
+    warning="Bug may be here\n(call from user code)",
+    error="Exception {type} raised",
+    stop="Execution interrupted\n(BaseException)",
+)
 javascript = """const scrollto=id=>document.getElementById(id).scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"""
 
 
@@ -52,11 +57,7 @@ def _exception(doc, info, *, local_urls=False):
                     if frinfo is ...:
                         doc("...")
                         continue
-                    doc.button(
-                        E.strong(frinfo["location"]).br.small(
-                            frinfo["function"] or "－"),
-                        onclick=f"scrollto('{frinfo['id']}')"
-                    )
+                    _tab_header(doc, frinfo)
         with doc.div(class_="content"):
             for frinfo in limitedframes:
                 if frinfo is ...:
@@ -64,69 +65,84 @@ def _exception(doc, info, *, local_urls=False):
                         doc.p("...")
                     continue
                 with doc.div(class_="traceback-details", id=frinfo['id']):
-                    if frinfo['filename']:
-                        doc.p.b(frinfo['filename'])(f":{frinfo['lineno']}")
-                        urls = frinfo["urls"]
-                        if local_urls and urls:
-                            for name, href in urls.items():
-                                doc(" ").a(name, href=href)
-                    else:
-                        doc.p.b(frinfo["location"] + ":")
-                    # Code printout
-                    lines = frinfo["lines"].splitlines(keepends=True)
-                    if not lines:
-                        function = frinfo["function"]
-                        doc.p("Code not available")
-                        if function:
-                            doc(" for function ").strong(function)
-                    else:
-                        with doc.pre, doc.code:
-                            start = frinfo["linenostart"]
-                            lineno = frinfo["lineno"]
-                            for i, line in enumerate(lines, start=start):
-                                with doc.span(class_="codeline", data_lineno=i):
-                                    text = f'{frinfo["relevance"]} @ Line {frinfo["lineno"]}'
-                                    doc(
-                                        marked(line, text, frinfo["relevance"])
-                                        if i == lineno else
-                                        line
-                                    )
+                    traceback_detail(doc, info, frinfo, local_urls=local_urls)
                     variable_inspector(doc, frinfo["variables"])
 
+def _tab_header(doc, frinfo):
+    with doc.button(onclick=f"scrollto('{frinfo['id']}')"):
+        doc.strong(frinfo["location"]).br.small(frinfo["function"] or "－")
+        if frinfo["relevance"] != "call":
+            doc.span(symbols.get(frinfo["relevance"]), class_="symbol")
+
+def traceback_detail(doc, info, frinfo, *, local_urls):
+    function = frinfo["function"]
+    if frinfo['filename']:
+        doc.div.b(frinfo['filename'])(f":{frinfo['lineno']}")
+        urls = frinfo["urls"]
+        if local_urls and urls:
+            for name, href in urls.items():
+                doc(" ").a(name, href=href)
+    else:
+        doc.div.b(frinfo["location"] or E("Native function ").strong(function), ":")
+    # Code printout
+    lines = frinfo["lines"].splitlines(keepends=True)
+    if not lines:
+        doc.p("Source code not available")
+        if frinfo is info["frames"][-1]:
+            doc(" but ").strong(info["type"])(" was raised from here")
+    else:
+        with doc.pre, doc.code:
+            start = frinfo["linenostart"]
+            lineno = frinfo["lineno"]
+            for i, line in enumerate(lines, start=start):
+                with doc.span(class_="codeline", data_lineno=i):
+                    doc(
+                        marked(line, info, frinfo)
+                        if i == lineno else
+                        line
+                    )
 
 def variable_inspector(doc, variables):
     if not variables:
         return
-    with doc.table(class_="inspector"):
+    with doc.table(class_="inspector key-value"):
         for n, t, v in variables:
             doc.tr.td.span(n, class_="var")(": ").span(t, class_="type")("\xA0=\xA0").td(class_="val")
             if isinstance(v, str):
                 doc(v)
             else:
-                skipcol = skiprow = False
-                with doc.table:
-                    for row in v:
-                        if row[0] is None:
-                            skiprow = True
-                            continue
-                        doc.tr
-                        if skiprow:
-                            skiprow = False
-                            doc(class_="skippedabove")
-                        for e in row:
-                            if e is None:
-                                skipcol = True
-                                continue
-                            if skipcol:
-                                skipcol = False
-                                doc.td(e, class_="skippedleft")
-                            else:
-                                doc.td(e)
+                _format_matrix(doc, v)
+
+def _format_matrix(doc, v):
+    skipcol = skiprow = False
+    with doc.table:
+        for row in v:
+            if row[0] is None:
+                skiprow = True
+                continue
+            doc.tr
+            if skiprow:
+                skiprow = False
+                doc(class_="skippedabove")
+            for e in row:
+                if e is None:
+                    skipcol = True
+                    continue
+                if skipcol:
+                    skipcol = False
+                    doc.td(e, class_="skippedleft")
+                else:
+                    doc.td(e)
 
 
-def marked(line, text, symbol_name=None):
+def marked(line, info, frinfo):
     indent, code, trailing = split3(line)
-    symbol = symbols.get(symbol_name)
+    relevance = frinfo["relevance"]
+    symbol = symbols.get(relevance)
+    try:
+        text = tooltips[relevance].format(**info, **frinfo)
+    except Exception:
+        text = repr(relevance)
     return E(indent).mark(E.span(code), data_symbol=symbol, data_tooltip=text, class_="tracerite-tooltip")(trailing)
 
 

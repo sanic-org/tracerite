@@ -11,7 +11,7 @@ blacklist_types = (
     types.MethodType,
     types.BuiltinFunctionType,
 )
-no_str_conv = re.compile(r"<.* object at 0x[0-9a-f]{5,}>")
+no_str_conv = re.compile(r"<.* object at 0x[0-9a-fA-F]{5,}>")
 
 
 def extract_variables(variables, sourcecode):
@@ -30,10 +30,14 @@ def extract_variables(variables, sourcecode):
                 continue
             try:
                 strvalue = str(value)
+                reprvalue = repr(value)
             except Exception:
-                continue  # Skip variables failing str()
+                continue  # Skip variables failing str() or repr()
+            # Using repr is better for empty strings and some other cases
+            if not strvalue and reprvalue:
+                strvalue = reprvalue
             # Try to print members of objects that don't have proper __str__
-            if no_str_conv.fullmatch(strvalue):
+            elif no_str_conv.fullmatch(strvalue):
                 found = False
                 for n, v in vars(value).items():
                     mname = f'{name}.{n}'
@@ -47,7 +51,7 @@ def extract_variables(variables, sourcecode):
                     found = True
                 if found:
                     continue
-                value = ''
+                value = '⋯'
             # Full types for Numpy-like arrays, PyTorch tensors, etc.
             try:
                 dtype = str(object.__getattribute__(value, 'dtype')).rsplit(".", 1)[-1]
@@ -74,6 +78,8 @@ def prettyvalue(val):
         if not 0 < len(val) <= 10:
             return f'({len(val)} items)'
         return ", ".join(repr(v)[:80] for v in val)
+    if isinstance(val, type):
+        return f"{val.__module__}.{val.__name__}"
     try:
         # This only works for Numpy-like arrays, and should cause exceptions otherwise
         shape = object.__getattribute__(val, 'shape')
