@@ -36,7 +36,7 @@ relevant:
 At the beginning of your Notebook:
 
 ```ipython
-!pip install tracerite
+%pip install tracerite
 %load_ext tracerite
 ```
 
