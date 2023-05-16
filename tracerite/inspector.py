@@ -39,7 +39,7 @@ def extract_variables(variables, sourcecode):
             # Try to print members of objects that don't have proper __str__
             elif no_str_conv.fullmatch(strvalue):
                 found = False
-                for n, v in vars(value).items():
+                for n, v in safe_vars(value).items():
                     mname = f'{name}.{n}'
                     if sourcecode and mname not in identifiers:
                         continue
@@ -71,6 +71,17 @@ def extract_variables(variables, sourcecode):
         except Exception:
             logger.exception("Variable inspector failed (please report a bug)")
     return rows
+
+
+def safe_vars(obj):
+    """Like vars(), but also supports objects with slots."""
+    ret = {}
+    for attr in dir(obj):
+        try:
+            ret[attr] = object.__getattribute__(obj, attr)
+        except AttributeError:
+            pass  # Slots that haven't been set
+    return ret
 
 
 def prettyvalue(val):
