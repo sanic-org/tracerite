@@ -17,6 +17,6 @@ setup(
         "License :: Public Domain",
         "Operating System :: OS Independent",
     ],
-    install_requires = ["html5tagger>=1.2.1"],
+    install_requires = ["html5tagger>=1.2.1", "setuptools"],
     include_package_data = True,
 )
