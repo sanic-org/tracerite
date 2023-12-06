@@ -1,9 +1,10 @@
-import pkg_resources
+from importlib.resources import files
+
 from html5tagger import E
 
 from .trace import extract_chain
 
-style = pkg_resources.resource_string(__name__, "style.css").decode()
+style = files(__name__).join_path("style.css").read_text(encoding="UTF-8")
 
 detail_show = "{display: inherit}"
 
