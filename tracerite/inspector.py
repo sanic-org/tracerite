@@ -116,7 +116,7 @@ def prettyvalue(val):
     try:
         floaty = isinstance(val, float) or "float" in str(val.dtype)
         if floaty: ret = f"{val:.2g}"
-    except AttributeError, TypeError:
+    except (AttributeError, TypeError):
         floaty = False
 
     if floaty: pass
