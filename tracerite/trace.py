@@ -19,10 +19,15 @@ libdir = re.compile(r"/usr/.*|.*(site-packages|dist-packages).*")
 
 def _find_caret_position(line, start_col, end_col):
     """
-    Find the exact caret position within a line segment using AST parsing.
-    Similar to CPython's _extract_caret_anchors_from_line_segment.
+    Find the exact highlighting information within a line segment using AST parsing.
+    Returns information about what parts of the code should be highlighted.
 
-    Returns the column offset for the caret within the error range, or None.
+    Returns a dict with highlighting information, or None if no specific highlighting is appropriate.
+    The dict can contain:
+    - 'type': 'caret' for single character, 'range' for a range, 'ranges' for multiple ranges
+    - 'offset': single character offset (for 'caret' type)
+    - 'start', 'end': range bounds (for 'range' type)
+    - 'highlights': list of (start, end) tuples (for 'ranges' type)
     """
     try:
         # Extract the segment that contains the error
@@ -41,7 +46,7 @@ def _find_caret_position(line, start_col, end_col):
             except SyntaxError:
                 return None
 
-        # Find the best caret position based on the AST
+        # Find the best node to analyze
         if hasattr(tree, "body") and tree.body:
             if hasattr(tree, "body") and len(tree.body) > 0:
                 if hasattr(tree.body[0], "value"):
@@ -61,26 +66,26 @@ def _find_caret_position(line, start_col, end_col):
         segment_start_col = start_col - indent_len
         segment_end_col = end_col - indent_len
 
-        # Find the most appropriate caret position
-        caret_col = _find_ast_caret_position(
+        # Find the most appropriate highlighting based on AST node type
+        highlight_info = _find_ast_highlights(
             node, segment_start_col, segment_end_col, segment
         )
 
-        return caret_col if caret_col is not None else 0
+        return highlight_info
 
     except Exception:
-        # Fallback: place caret at start of error range
-        return 0
+        # Don't highlight if we can't parse properly
+        return None
 
 
-def _find_ast_caret_position(node, start_col, end_col, segment):
+def _find_ast_highlights(node, start_col, end_col, segment):
     """
-    Find the best caret position within an AST node.
-    Returns column offset relative to the start of the error range.
+    Find the best highlighting information for an AST node.
+    Returns a dict with highlighting info, or None if no specific highlighting is appropriate.
     """
     lines = segment.splitlines()
     if not lines:
-        return 0
+        return None
 
     def normalize_col(lineno, col_offset):
         """Convert byte offset to character offset"""
@@ -89,54 +94,174 @@ def _find_ast_caret_position(node, start_col, end_col, segment):
         line = lines[lineno - 1]
         return len(line.encode("utf-8")[:col_offset].decode("utf-8", errors="replace"))
 
-    # For binary operations, point to the operator
-    if isinstance(node, ast.BinOp):
-        # The operator is between left and right operands
-        if hasattr(node.left, "end_col_offset"):
-            op_pos = normalize_col(1, node.left.end_col_offset)
-            # Skip whitespace to find the actual operator
-            while op_pos < len(segment) and segment[op_pos].isspace():
-                op_pos += 1
-            return max(0, op_pos - start_col)
+    def make_range_highlight(start, end):
+        """Create a range highlight relative to error start"""
+        return {
+            "type": "range",
+            "start": max(0, start - start_col),
+            "end": max(0, end - start_col),
+        }
 
-    # For function calls, point to the opening parenthesis
-    elif isinstance(node, ast.Call):
-        if hasattr(node.func, "end_col_offset"):
+    def make_caret_highlight(pos):
+        """Create a single character caret highlight relative to error start"""
+        return {"type": "caret", "offset": max(0, pos - start_col)}
+
+    # Handle different AST node types appropriately
+
+    # Function calls - highlight the function name
+    if isinstance(node, ast.Call):
+        if hasattr(node.func, "col_offset") and hasattr(node.func, "end_col_offset"):
+            func_start = normalize_col(1, node.func.col_offset)
+            func_end = normalize_col(1, node.func.end_col_offset)
+            return make_range_highlight(func_start, func_end)
+        elif hasattr(node.func, "end_col_offset"):
+            # Fallback: highlight up to the opening parenthesis
             paren_pos = normalize_col(1, node.func.end_col_offset)
-            # Find the opening parenthesis
             while paren_pos < len(segment) and segment[paren_pos] != "(":
                 paren_pos += 1
-            return max(0, paren_pos - start_col)
+            if paren_pos < len(segment) and segment[paren_pos] == "(":
+                return make_caret_highlight(paren_pos)
 
-    # For attribute access, point to the dot
+    # Binary operations - highlight just the operator
+    elif isinstance(node, ast.BinOp):
+        if hasattr(node.left, "end_col_offset") and hasattr(node.right, "col_offset"):
+            left_end = normalize_col(1, node.left.end_col_offset)
+            right_start = normalize_col(1, node.right.col_offset)
+
+            # Find the operator between left and right
+            op_start = left_end
+            while (
+                op_start < right_start
+                and op_start < len(segment)
+                and segment[op_start].isspace()
+            ):
+                op_start += 1
+
+            op_end = op_start
+            while (
+                op_end < right_start
+                and op_end < len(segment)
+                and not segment[op_end].isspace()
+            ):
+                op_end += 1
+
+            if op_start < len(segment) and op_end > op_start:
+                return make_range_highlight(op_start, op_end)
+
+    # Comparison operations - highlight the first operator
+    elif isinstance(node, ast.Compare):
+        if hasattr(node.left, "end_col_offset") and node.comparators:
+            left_end = normalize_col(1, node.left.end_col_offset)
+            if hasattr(node.comparators[0], "col_offset"):
+                right_start = normalize_col(1, node.comparators[0].col_offset)
+
+                # Find the comparison operator
+                op_start = left_end
+                while (
+                    op_start < right_start
+                    and op_start < len(segment)
+                    and segment[op_start].isspace()
+                ):
+                    op_start += 1
+
+                op_end = op_start
+                while (
+                    op_end < right_start
+                    and op_end < len(segment)
+                    and not segment[op_end].isspace()
+                ):
+                    op_end += 1
+
+                if op_start < len(segment) and op_end > op_start:
+                    return make_range_highlight(op_start, op_end)
+
+    # Attribute access - highlight the attribute name
     elif isinstance(node, ast.Attribute):
-        if hasattr(node.value, "end_col_offset"):
+        if hasattr(node, "end_col_offset") and hasattr(node.value, "end_col_offset"):
+            # Highlight the attribute name part
             dot_pos = normalize_col(1, node.value.end_col_offset)
-            # Find the dot
+            attr_end = normalize_col(1, node.end_col_offset)
+
+            # Find the dot and attribute name
             while dot_pos < len(segment) and segment[dot_pos] != ".":
                 dot_pos += 1
-            return max(0, dot_pos - start_col)
 
-    # For subscripts, point to the opening bracket
+            if dot_pos < len(segment) and segment[dot_pos] == ".":
+                attr_start = dot_pos + 1
+                return make_range_highlight(attr_start, attr_end)
+
+    # Subscript operations - highlight the subscript part
     elif isinstance(node, ast.Subscript):
-        if hasattr(node.value, "end_col_offset"):
-            bracket_pos = normalize_col(1, node.value.end_col_offset)
+        if hasattr(node.value, "end_col_offset") and hasattr(node, "end_col_offset"):
+            bracket_start = normalize_col(1, node.value.end_col_offset)
+            subscript_end = normalize_col(1, node.end_col_offset)
+
             # Find the opening bracket
-            while bracket_pos < len(segment) and segment[bracket_pos] != "[":
-                bracket_pos += 1
-            return max(0, bracket_pos - start_col)
+            while bracket_start < len(segment) and segment[bracket_start] != "[":
+                bracket_start += 1
 
-    # For comparisons, point to the first operator
-    elif isinstance(node, ast.Compare):
-        if hasattr(node.left, "end_col_offset"):
-            op_pos = normalize_col(1, node.left.end_col_offset)
-            # Skip whitespace to find the comparison operator
-            while op_pos < len(segment) and segment[op_pos].isspace():
-                op_pos += 1
-            return max(0, op_pos - start_col)
+            if bracket_start < len(segment) and segment[bracket_start] == "[":
+                return make_range_highlight(bracket_start, subscript_end)
 
-    # Default: point to the start of the error range
-    return 0
+    # Name references - highlight the whole name
+    elif isinstance(node, ast.Name):
+        if hasattr(node, "col_offset") and hasattr(node, "end_col_offset"):
+            name_start = normalize_col(1, node.col_offset)
+            name_end = normalize_col(1, node.end_col_offset)
+            return make_range_highlight(name_start, name_end)
+
+    # Constants - highlight the literal value
+    elif isinstance(node, ast.Constant):
+        if hasattr(node, "col_offset") and hasattr(node, "end_col_offset"):
+            const_start = normalize_col(1, node.col_offset)
+            const_end = normalize_col(1, node.end_col_offset)
+            return make_range_highlight(const_start, const_end)
+
+    # List/tuple/dict literals - highlight the opening bracket/brace
+    elif isinstance(node, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
+        if hasattr(node, "col_offset"):
+            start_pos = normalize_col(1, node.col_offset)
+            if start_pos < len(segment):
+                bracket = segment[start_pos]
+                if bracket in "([{":
+                    return make_caret_highlight(start_pos)
+
+    # Boolean operations - highlight the operator (and/or)
+    elif isinstance(node, ast.BoolOp):
+        if hasattr(node, "col_offset") and len(node.values) >= 2:
+            # Try to find the boolean operator between first two values
+            if hasattr(node.values[0], "end_col_offset") and hasattr(
+                node.values[1], "col_offset"
+            ):
+                left_end = normalize_col(1, node.values[0].end_col_offset)
+                right_start = normalize_col(1, node.values[1].col_offset)
+
+                # Find 'and' or 'or' between the values
+                op_start = left_end
+                while (
+                    op_start < right_start
+                    and op_start < len(segment)
+                    and segment[op_start].isspace()
+                ):
+                    op_start += 1
+
+                if op_start < len(segment):
+                    if segment[op_start : op_start + 3] == "and":
+                        return make_range_highlight(op_start, op_start + 3)
+                    elif segment[op_start : op_start + 2] == "or":
+                        return make_range_highlight(op_start, op_start + 2)
+
+    # Unary operations - highlight the operator
+    elif isinstance(node, ast.UnaryOp):
+        if hasattr(node, "col_offset") and hasattr(node.operand, "col_offset"):
+            op_start = normalize_col(1, node.col_offset)
+            operand_start = normalize_col(1, node.operand.col_offset)
+
+            if op_start < operand_start:
+                return make_range_highlight(op_start, operand_start)
+
+    # For complex expressions or unsupported types, don't highlight specifically
+    return None
 
 
 def extract_chain(exc=None, **kwargs) -> list:
@@ -340,13 +465,13 @@ def extract_frames(tb, suppress_inner=False, exc=None) -> list:
                     "end_colno",
                     summary.colno + len((summary.line or "").rstrip()),
                 )
-                # Find exact caret position using AST parsing like CPython
+                # Find exact highlighting information using AST parsing
                 if codeline:
-                    caret_offset = _find_caret_position(
+                    highlight_info = _find_caret_position(
                         codeline, summary.colno, frameinfo["end_colno"]
                     )
-                    if caret_offset is not None:
-                        frameinfo["caret_offset"] = caret_offset
+                    if highlight_info is not None:
+                        frameinfo["highlight_info"] = highlight_info
 
             frames.append(frameinfo)
 

@@ -151,7 +151,9 @@ def marked(line, info, frinfo):
     # Use precise column offsets if available
     colno = frinfo.get("colno")
     end_colno = frinfo.get("end_colno")
-    if colno is not None:
+    highlight_info = frinfo.get("highlight_info")
+
+    if colno is not None and highlight_info is not None:
         # Calculate relative indices within code
         indent_len = len(indent)
         start_idx = max(0, colno - indent_len)
@@ -165,45 +167,84 @@ def marked(line, info, frinfo):
         end_idx = min(end_idx, len(code))
 
         before = code[:start_idx]
-        highlight = code[start_idx:end_idx]
-        after = code[end_idx:]  # Create the marked line with highlighting and caret
-        # If we have a single character at the start position, underline it
-        if start_idx < len(code):
-            # Split highlight into caret char and rest
-            if highlight and len(highlight) > 0:
-                # Check if we have precise caret positioning from AST analysis
-                caret_offset = frinfo.get("caret_offset", 0)
+        highlight_region = code[start_idx:end_idx]
+        after = code[end_idx:]
 
-                # Split the highlight into: before caret, caret char, after caret
-                prior_highlight = highlight[:caret_offset] if caret_offset > 0 else ""
-                caret_part = (
-                    highlight[caret_offset : caret_offset + 1]
-                    if caret_offset < len(highlight)
-                    else ""
-                )
-                rest_highlight = (
-                    highlight[caret_offset + 1 :]
-                    if caret_offset < len(highlight) - 1
-                    else ""
-                )
+        # Apply intelligent highlighting based on AST analysis
+        with E.span(
+            data_symbol=symbol,
+            data_tooltip=text,
+            class_="tracerite-tooltip",
+        ) as doc:
+            doc(indent, before)
 
-                # Add underlined caret character within the mark
-                with E.span(
-                    data_symbol=symbol,
-                    data_tooltip=text,
-                    class_="tracerite-tooltip",
-                ) as doc:
-                    doc(indent, before)
+            # Handle different highlight types
+            if highlight_info["type"] == "caret":
+                # Single character caret
+                offset = highlight_info["offset"]
+                if offset < len(highlight_region):
+                    prior = highlight_region[:offset]
+                    caret_char = highlight_region[offset : offset + 1]
+                    rest = highlight_region[offset + 1 :]
+
                     with doc.mark:
-                        doc(prior_highlight)
-                        if caret_part:
-                            doc.em(caret_part)
-                        doc(rest_highlight)
-                    doc(after)
-                doc(trailing)  # endline
-                return doc
+                        doc(prior)
+                        if caret_char:
+                            doc.em(caret_char)
+                        doc(rest)
+                else:
+                    doc.mark(highlight_region)
 
-        # Fallback to normal highlighting if no caret char
+            elif highlight_info["type"] == "range":
+                # Range highlighting within the error region
+                range_start = highlight_info["start"]
+                range_end = highlight_info["end"]
+
+                # Clamp to highlight region bounds
+                range_start = max(0, min(range_start, len(highlight_region)))
+                range_end = max(range_start, min(range_end, len(highlight_region)))
+
+                pre_range = highlight_region[:range_start]
+                range_part = highlight_region[range_start:range_end]
+                post_range = highlight_region[range_end:]
+
+                with doc.mark:
+                    doc(pre_range)
+                    if range_part:
+                        doc.em(range_part)
+                    doc(post_range)
+
+            elif highlight_info["type"] == "ranges":
+                # Multiple ranges (future expansion)
+                # For now, just highlight the whole region
+                doc.mark(highlight_region)
+            else:
+                # Unknown type, fallback to whole region
+                doc.mark(highlight_region)
+
+            doc(after)
+
+        doc(trailing)  # endline
+        return doc
+
+    elif colno is not None:
+        # Old-style column highlighting without AST info
+        indent_len = len(indent)
+        start_idx = max(0, colno - indent_len)
+        if end_colno is not None:
+            end_idx = max(start_idx, end_colno - indent_len)
+        else:
+            end_idx = len(code)
+
+        # Clamp to valid bounds
+        start_idx = min(start_idx, len(code))
+        end_idx = min(end_idx, len(code))
+
+        before = code[:start_idx]
+        highlight = code[start_idx:end_idx]
+        after = code[end_idx:]
+
+        # Simple fallback highlighting
         result = E(indent)(before).mark(
             E.span(highlight),
             data_symbol=symbol,

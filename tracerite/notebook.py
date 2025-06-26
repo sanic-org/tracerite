@@ -15,9 +15,11 @@ def _can_display_html():
 
 def load_ipython_extension(ipython):
     trace.ipython = ipython
+
     def showtraceback(*args, **kwargs):
         try:
             from IPython.display import display
+
             # TraceRite HTML output
             display(html_traceback(skip_until="<ipython-input-"))
         except Exception:
