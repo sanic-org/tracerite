@@ -272,7 +272,7 @@ def extract_chain(exc=None, **kwargs) -> list:
         chain.append(exc)
         if getattr(exc, "__suppress_context__", False):
             break
-        exc = getattr(exc, "__cause__") or getattr(exc, "__context__")
+        exc = exc.__cause__ or exc.__context__
     # Newest exception first
     return [extract_exception(e, **(kwargs if e is chain[0] else {})) for e in chain]
 
@@ -306,13 +306,13 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     except Exception:
         logger.exception("Error extracting traceback")
         frames = None
-    return dict(
-        type=type(e).__name__,
-        message=message,
-        summary=summary,
-        repr=repr(e),
-        frames=frames or [],
-    )
+    return {
+        "type": type(e).__name__,
+        "message": message,
+        "summary": summary,
+        "repr": repr(e),
+        "frames": frames or [],
+    }
 
 
 def extract_frames(tb, suppress_inner=False, exc=None) -> list:
@@ -367,7 +367,7 @@ def extract_frames(tb, suppress_inner=False, exc=None) -> list:
             start = lineno
             try:
                 # Get source lines around the error
-                with open(filename, "r", encoding="utf-8") as f:
+                with open(filename, encoding="utf-8") as f:
                     all_lines = f.readlines()
 
                 # Calculate range to show
@@ -443,19 +443,19 @@ def extract_frames(tb, suppress_inner=False, exc=None) -> list:
                 variables = extract_variables(summary.locals, lines)
 
             # Create frame info
-            frameinfo = dict(
-                id=f"tb-{i}",  # Use index as stable ID
-                relevance=relevance,
-                filename=filename,
-                location=location,
-                codeline=codeline.strip() if codeline else None,
-                lineno=lineno,
-                linenostart=start,
-                lines=lines,
-                function=function,
-                urls=urls,
-                variables=variables,
-            )
+            frameinfo = {
+                "id": f"tb-{i}",  # Use index as stable ID
+                "relevance": relevance,
+                "filename": filename,
+                "location": location,
+                "codeline": codeline.strip() if codeline else None,
+                "lineno": lineno,
+                "linenostart": start,
+                "lines": lines,
+                "function": function,
+                "urls": urls,
+                "variables": variables,
+            }
 
             # Add precise column positions if available (Python 3.11+)
             if hasattr(summary, "colno"):

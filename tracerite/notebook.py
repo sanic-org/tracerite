@@ -1,4 +1,6 @@
+import contextlib
 import sys
+
 from . import trace
 from .html import html_traceback
 from .logging import logger
@@ -38,8 +40,6 @@ def load_ipython_extension(ipython):
 
 
 def unload_ipython_extension(ipython):
-    try:
+    with contextlib.suppress(AttributeError):
         del ipython.showtraceback
-    except AttributeError:
-        pass
     trace.ipython = None

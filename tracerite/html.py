@@ -8,13 +8,13 @@ style = files(__package__).joinpath("style.css").read_text(encoding="UTF-8")
 
 detail_show = "{display: inherit}"
 
-symbols = dict(call="➤", warning="⚠️", error="💣", stop="🛑")
-tooltips = dict(
-    call="Function call",
-    warning="Bug may be here\n(call from user code)",
-    error="Exception {type} raised",
-    stop="Execution interrupted\n(BaseException)",
-)
+symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑"}
+tooltips = {
+    "call": "Function call",
+    "warning": "Bug may be here\n(call from user code)",
+    "error": "Exception {type} raised",
+    "stop": "Execution interrupted\n(BaseException)",
+}
 javascript = """const scrollto=id=>document.getElementById(id).scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"""
 
 
