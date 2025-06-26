@@ -5,6 +5,7 @@
   --tracerite-val: #8af;
   --tracerite-tab: #aaaa;
   --tracerite-highlight: #ff0;
+  --tracerite-caret: #f00;
   --tracerite-exception: gray;
   --tracerite-tab-hover: #ddd;
   --tracerite-tooltip: #000;
@@ -71,6 +72,10 @@
 }
 .tracerite .traceback-details mark span {
   background: var(--tracerite-highlight);
+}
+.tracerite .traceback-details mark u {
+  text-decoration: none;
+  color: var(--tracerite-caret);
 }
 .tracerite .traceback-details mark::after {
   display: inline-block;
