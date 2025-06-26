@@ -199,7 +199,8 @@ def marked(line, info, frinfo):
                         if caret_part:
                             doc.em(caret_part)
                         doc(rest_highlight)
-                    doc(after + trailing)
+                    doc(after)
+                doc(trailing)  # endline
                 return doc
 
         # Fallback to normal highlighting if no caret char
