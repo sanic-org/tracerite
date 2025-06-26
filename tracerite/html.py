@@ -166,33 +166,41 @@ def marked(line, info, frinfo):
 
         before = code[:start_idx]
         highlight = code[start_idx:end_idx]
-        after = code[end_idx:]        # Create the marked line with highlighting and caret
+        after = code[end_idx:]  # Create the marked line with highlighting and caret
         # If we have a single character at the start position, underline it
         if start_idx < len(code):
             # Split highlight into caret char and rest
             if highlight and len(highlight) > 0:
                 # Check if we have precise caret positioning from AST analysis
                 caret_offset = frinfo.get("caret_offset", 0)
-                
+
                 # Split the highlight into: before caret, caret char, after caret
                 prior_highlight = highlight[:caret_offset] if caret_offset > 0 else ""
-                caret_part = highlight[caret_offset:caret_offset+1] if caret_offset < len(highlight) else ""
-                rest_highlight = highlight[caret_offset+1:] if caret_offset < len(highlight) - 1 else ""
+                caret_part = (
+                    highlight[caret_offset : caret_offset + 1]
+                    if caret_offset < len(highlight)
+                    else ""
+                )
+                rest_highlight = (
+                    highlight[caret_offset + 1 :]
+                    if caret_offset < len(highlight) - 1
+                    else ""
+                )
 
-                result = E(indent)(before)
                 # Add underlined caret character within the mark
-                with result.mark(
+                with E.span(
                     data_symbol=symbol,
                     data_tooltip=text,
                     class_="tracerite-tooltip",
-                ):
-                    with result.span:
-                        result(prior_highlight)
+                ) as doc:
+                    doc(indent, before)
+                    with doc.mark:
+                        doc(prior_highlight)
                         if caret_part:
-                            result.u(caret_part)
-                        result(rest_highlight)
-                result(after + trailing)
-                return result
+                            doc.em(caret_part)
+                        doc(rest_highlight)
+                    doc(after + trailing)
+                return doc
 
         # Fallback to normal highlighting if no caret char
         result = E(indent)(before).mark(

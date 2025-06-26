@@ -68,16 +68,13 @@
 }
 
 .tracerite .traceback-details mark {
-  background: none;
-}
-.tracerite .traceback-details mark span {
   background: var(--tracerite-highlight);
 }
-.tracerite .traceback-details mark u {
-  text-decoration: none;
+.tracerite .traceback-details em {
+  font-style: normal;
   color: var(--tracerite-caret);
 }
-.tracerite .traceback-details mark::after {
+.tracerite .traceback-details .tracerite-tooltip::after {
   display: inline-block;
   content: attr(data-symbol);
   margin: -1ch;

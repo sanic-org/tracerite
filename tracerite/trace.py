@@ -21,7 +21,7 @@ def _find_caret_position(line, start_col, end_col):
     """
     Find the exact caret position within a line segment using AST parsing.
     Similar to CPython's _extract_caret_anchors_from_line_segment.
-    
+
     Returns the column offset for the caret within the error range, or None.
     """
     try:
@@ -29,43 +29,45 @@ def _find_caret_position(line, start_col, end_col):
         segment = line.strip()
         if not segment:
             return None
-            
+
         # Try to parse the segment as an expression
         try:
             # Wrap in parentheses to make it parseable as an expression
-            tree = ast.parse(f"({segment})", mode='eval')
+            tree = ast.parse(f"({segment})", mode="eval")
         except SyntaxError:
             try:
                 # Try as a statement
-                tree = ast.parse(segment, mode='exec')
+                tree = ast.parse(segment, mode="exec")
             except SyntaxError:
                 return None
-        
+
         # Find the best caret position based on the AST
-        if hasattr(tree, 'body') and tree.body:
-            if hasattr(tree, 'body') and len(tree.body) > 0:
-                if hasattr(tree.body[0], 'value'):
+        if hasattr(tree, "body") and tree.body:
+            if hasattr(tree, "body") and len(tree.body) > 0:
+                if hasattr(tree.body[0], "value"):
                     # Expression statement
                     node = tree.body[0].value
                 else:
                     node = tree.body[0]
             else:
                 return None
-        elif hasattr(tree, 'body'):
+        elif hasattr(tree, "body"):
             node = tree.body
         else:
             return None
-            
+
         # Calculate relative position within the segment
         indent_len = len(line) - len(line.lstrip())
         segment_start_col = start_col - indent_len
         segment_end_col = end_col - indent_len
-        
+
         # Find the most appropriate caret position
-        caret_col = _find_ast_caret_position(node, segment_start_col, segment_end_col, segment)
-        
+        caret_col = _find_ast_caret_position(
+            node, segment_start_col, segment_end_col, segment
+        )
+
         return caret_col if caret_col is not None else 0
-        
+
     except Exception:
         # Fallback: place caret at start of error range
         return 0
@@ -79,60 +81,60 @@ def _find_ast_caret_position(node, start_col, end_col, segment):
     lines = segment.splitlines()
     if not lines:
         return 0
-        
+
     def normalize_col(lineno, col_offset):
         """Convert byte offset to character offset"""
         if lineno <= 0 or lineno > len(lines):
             return col_offset
         line = lines[lineno - 1]
-        return len(line.encode('utf-8')[:col_offset].decode('utf-8', errors='replace'))
-    
+        return len(line.encode("utf-8")[:col_offset].decode("utf-8", errors="replace"))
+
     # For binary operations, point to the operator
     if isinstance(node, ast.BinOp):
         # The operator is between left and right operands
-        if hasattr(node.left, 'end_col_offset'):
+        if hasattr(node.left, "end_col_offset"):
             op_pos = normalize_col(1, node.left.end_col_offset)
             # Skip whitespace to find the actual operator
             while op_pos < len(segment) and segment[op_pos].isspace():
                 op_pos += 1
             return max(0, op_pos - start_col)
-    
+
     # For function calls, point to the opening parenthesis
     elif isinstance(node, ast.Call):
-        if hasattr(node.func, 'end_col_offset'):
+        if hasattr(node.func, "end_col_offset"):
             paren_pos = normalize_col(1, node.func.end_col_offset)
             # Find the opening parenthesis
-            while paren_pos < len(segment) and segment[paren_pos] != '(':
+            while paren_pos < len(segment) and segment[paren_pos] != "(":
                 paren_pos += 1
             return max(0, paren_pos - start_col)
-    
+
     # For attribute access, point to the dot
     elif isinstance(node, ast.Attribute):
-        if hasattr(node.value, 'end_col_offset'):
+        if hasattr(node.value, "end_col_offset"):
             dot_pos = normalize_col(1, node.value.end_col_offset)
             # Find the dot
-            while dot_pos < len(segment) and segment[dot_pos] != '.':
+            while dot_pos < len(segment) and segment[dot_pos] != ".":
                 dot_pos += 1
             return max(0, dot_pos - start_col)
-    
+
     # For subscripts, point to the opening bracket
     elif isinstance(node, ast.Subscript):
-        if hasattr(node.value, 'end_col_offset'):
+        if hasattr(node.value, "end_col_offset"):
             bracket_pos = normalize_col(1, node.value.end_col_offset)
             # Find the opening bracket
-            while bracket_pos < len(segment) and segment[bracket_pos] != '[':
+            while bracket_pos < len(segment) and segment[bracket_pos] != "[":
                 bracket_pos += 1
             return max(0, bracket_pos - start_col)
-    
+
     # For comparisons, point to the first operator
     elif isinstance(node, ast.Compare):
-        if hasattr(node.left, 'end_col_offset'):
+        if hasattr(node.left, "end_col_offset"):
             op_pos = normalize_col(1, node.left.end_col_offset)
             # Skip whitespace to find the comparison operator
             while op_pos < len(segment) and segment[op_pos].isspace():
                 op_pos += 1
             return max(0, op_pos - start_col)
-    
+
     # Default: point to the start of the error range
     return 0
 
@@ -340,7 +342,9 @@ def extract_frames(tb, suppress_inner=False, exc=None) -> list:
                 )
                 # Find exact caret position using AST parsing like CPython
                 if codeline:
-                    caret_offset = _find_caret_position(codeline, summary.colno, frameinfo["end_colno"])
+                    caret_offset = _find_caret_position(
+                        codeline, summary.colno, frameinfo["end_colno"]
+                    )
                     if caret_offset is not None:
                         frameinfo["caret_offset"] = caret_offset
 
