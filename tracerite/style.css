@@ -5,6 +5,7 @@
   --tracerite-val: #8af;
   --tracerite-tab: #aaaa;
   --tracerite-highlight: #ff0;
+  --tracerite-caret: #f00;
   --tracerite-exception: gray;
   --tracerite-tab-hover: #ddd;
   --tracerite-tooltip: #000;
@@ -67,12 +68,13 @@
 }
 
 .tracerite .traceback-details mark {
-  background: none;
-}
-.tracerite .traceback-details mark span {
   background: var(--tracerite-highlight);
 }
-.tracerite .traceback-details mark::after {
+.tracerite .traceback-details em {
+  font-style: normal;
+  color: var(--tracerite-caret);
+}
+.tracerite .traceback-details .tracerite-tooltip::after {
   display: inline-block;
   content: attr(data-symbol);
   margin: -1ch;
