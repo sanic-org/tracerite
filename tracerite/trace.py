@@ -270,9 +270,11 @@ def extract_chain(exc=None, **kwargs) -> list:
     exc = exc or sys.exc_info()[1]
     while exc:
         chain.append(exc)
-        if getattr(exc, "__suppress_context__", False):
-            break
-        exc = exc.__cause__ or exc.__context__
+        # Follow the explicit cause chain first, then context if no cause
+        # Don't break on __suppress_context__ as we still want to show explicit causes
+        exc = exc.__cause__ or (
+            exc.__context__ if not getattr(exc, "__suppress_context__", False) else None
+        )
     # Newest exception first
     return [extract_exception(e, **(kwargs if e is chain[0] else {})) for e in chain]
 

@@ -125,7 +125,7 @@ def _format_matrix(doc, v):
             if row[0] is None:
                 skiprow = True
                 continue
-            doc.tr
+            doc.tr()
             if skiprow:
                 skiprow = False
                 doc(class_="skippedabove")
