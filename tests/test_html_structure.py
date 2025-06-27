@@ -64,7 +64,7 @@ def test_marked_span_attributes():
     """Test that marked spans have correct attributes."""
     try:
         obj = "test"
-        obj.missing_method()  # AttributeError
+        obj.missing_method()  # type: ignore[attr-defined]  # AttributeError
     except AttributeError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -106,7 +106,7 @@ def test_em_tag_within_marks():
     """Test that <em> tags are properly nested within <mark> tags."""
     try:
         data = {"key": "value"}
-        _ = data.missing_attribute  # AttributeError
+        _ = data.missing_attribute  # type: ignore[attr-defined]  # AttributeError
     except AttributeError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -126,7 +126,7 @@ def test_em_tag_within_marks():
 def test_code_line_structure():
     """Test the structure of code line spans."""
     try:
-        _ = undefined_variable  # noqa: F821
+        _ = undefined_variable  # type: ignore[name-defined]  # noqa: F821
     except NameError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -170,7 +170,7 @@ def test_variable_inspector_structure():
 
     def function_with_locals():
         local_var = "test_value"
-        return local_var.missing_method()  # AttributeError
+        return local_var.missing_method()  # type: ignore[attr-defined]  # AttributeError
 
     try:
         function_with_locals()
@@ -253,7 +253,7 @@ def test_css_classes_consistency():
         for css_class in required_classes:
             assert (
                 f'class="{css_class}"' in html_str
-                or f'class="' in html_str
+                or 'class="' in html_str
                 and css_class in html_str
             )
 
@@ -264,7 +264,7 @@ def test_line_number_consistency():
     def test_function():
         x = 1
         y = 2
-        return x[y]  # TypeError
+        return x[y]  # type: ignore[index]  # TypeError
 
     try:
         test_function()

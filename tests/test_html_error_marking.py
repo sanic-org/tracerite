@@ -8,7 +8,7 @@ from tracerite import extract_chain, html_traceback
 def test_simple_name_error():
     """Test HTML output for NameError with variable highlighting."""
     try:
-        _ = undefined_variable  # This will cause a NameError
+        _ = undefined_variable  # type: ignore[name-defined]  # This will cause a NameError
     except NameError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -38,7 +38,7 @@ def test_attribute_error():
     """Test HTML output for AttributeError with attribute highlighting."""
     try:
         obj = "string"
-        obj.nonexistent_method()  # This will cause an AttributeError
+        obj.nonexistent_method()  # type: ignore[attr-defined]  # This will cause an AttributeError
     except AttributeError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -52,7 +52,7 @@ def test_attribute_error():
 def test_type_error_function_call():
     """Test HTML output for TypeError in function call with function name highlighting."""
     try:
-        int("not_a_number", "invalid_base")  # This will cause a TypeError
+        int("not_a_number", "invalid_base")  # type: ignore[call-overload]  # This will cause a TypeError
     except TypeError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -109,7 +109,7 @@ def test_zero_division_error():
 def test_comparison_error():
     """Test HTML output for TypeError in comparison with operator highlighting."""
     try:
-        _ = "string" < 42  # This will cause a TypeError
+        _ = "string" < 42  # type: ignore[operator]  # This will cause a TypeError
     except TypeError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -123,7 +123,7 @@ def test_nested_function_error():
     """Test HTML output for error in nested function calls."""
 
     def inner_function():
-        _ = undefined_var  # This will cause a NameError  # noqa: F821
+        _ = undefined_var  # type: ignore[name-defined]  # This will cause a NameError  # noqa: F821
 
     def outer_function():
         inner_function()
@@ -177,7 +177,7 @@ def test_syntax_error_like_construct():
     try:
         # Create a complex expression that will fail
         data = {"items": [1, 2, 3]}
-        _ = data["items"][5].nonexistent  # Multiple potential error points
+        _ = data["items"][5].nonexistent  # type: ignore[attr-defined]  # Multiple potential error points
     except (IndexError, AttributeError) as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -225,7 +225,7 @@ def test_multiple_frames_with_different_relevance():
 def test_tooltip_and_symbol_attributes():
     """Test that tooltip and symbol attributes are correctly set."""
     try:
-        _ = undefined_variable  # noqa: F821
+        _ = undefined_variable  # type: ignore[name-defined]  # noqa: F821
     except NameError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -277,7 +277,7 @@ def test_highlight_info_structure():
     """Test that highlight_info contains the expected structure."""
     try:
         obj = "test"
-        obj.missing_method()  # AttributeError
+        obj.missing_method()  # type: ignore[attr-defined]  # AttributeError
     except AttributeError as e:
         chain = extract_chain(e)
         frames = chain[0]["frames"]
@@ -299,7 +299,7 @@ def test_highlight_info_structure():
 def test_unary_operator_error():
     """Test HTML output for error in unary operation."""
     try:
-        _ = -"string"  # TypeError with unary operator
+        _ = -"string"  # type: ignore[operator]  # TypeError with unary operator
     except TypeError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -312,7 +312,7 @@ def test_unary_operator_error():
 def test_binary_operation_error():
     """Test HTML output for error in binary operation."""
     try:
-        _ = "string" + 42  # TypeError with binary operator
+        _ = "string" + 42  # type: ignore[operator]  # TypeError with binary operator
     except TypeError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -326,7 +326,7 @@ def test_em_tag_for_specific_highlighting():
     """Test that <em> tags are used for specific parts within marked regions."""
     try:
         obj = "test"
-        obj.missing_method()  # AttributeError
+        obj.missing_method()  # type: ignore[attr-defined]  # AttributeError
     except AttributeError as e:
         html = html_traceback(e)
         html_str = str(html)
@@ -394,7 +394,7 @@ def test_marked_content_accuracy():
         (lambda: exec("_ = undefined_var"), "undefined_var"),  # noqa: F821
         (lambda: [1, 2][5], "[5]"),
         (lambda: {"a": 1}["b"], '["b"]'),
-        (lambda: "str".nonexistent(), "nonexistent"),
+        (lambda: "str".nonexistent(), "nonexistent"),  # type: ignore[attr-defined]
         (lambda: 1 / 0, "/"),
     ]
 

@@ -1,3 +1,4 @@
+import contextlib
 import re
 import types
 from functools import reduce
@@ -75,10 +76,8 @@ def safe_vars(obj):
     """Like vars(), but also supports objects with slots."""
     ret = {}
     for attr in dir(obj):
-        try:
+        with contextlib.suppress(AttributeError):
             ret[attr] = object.__getattribute__(obj, attr)
-        except AttributeError:
-            pass  # Slots that haven't been set
     return ret
 
 

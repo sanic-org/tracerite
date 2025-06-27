@@ -228,37 +228,41 @@ def _find_ast_highlights(node, start_col, end_col, segment):
 
     # Boolean operations - highlight the operator (and/or)
     elif isinstance(node, ast.BoolOp):
-        if hasattr(node, "col_offset") and len(node.values) >= 2:
-            # Try to find the boolean operator between first two values
-            if hasattr(node.values[0], "end_col_offset") and hasattr(
-                node.values[1], "col_offset"
+        if (
+            hasattr(node, "col_offset")
+            and len(node.values) >= 2
+            and hasattr(node.values[0], "end_col_offset")
+            and hasattr(node.values[1], "col_offset")
+        ):
+            left_end = normalize_col(1, node.values[0].end_col_offset)
+            right_start = normalize_col(1, node.values[1].col_offset)
+
+            # Find 'and' or 'or' between the values
+            op_start = left_end
+            while (
+                op_start < right_start
+                and op_start < len(segment)
+                and segment[op_start].isspace()
             ):
-                left_end = normalize_col(1, node.values[0].end_col_offset)
-                right_start = normalize_col(1, node.values[1].col_offset)
+                op_start += 1
 
-                # Find 'and' or 'or' between the values
-                op_start = left_end
-                while (
-                    op_start < right_start
-                    and op_start < len(segment)
-                    and segment[op_start].isspace()
-                ):
-                    op_start += 1
-
-                if op_start < len(segment):
-                    if segment[op_start : op_start + 3] == "and":
-                        return make_range_highlight(op_start, op_start + 3)
-                    elif segment[op_start : op_start + 2] == "or":
-                        return make_range_highlight(op_start, op_start + 2)
+            if op_start < len(segment):
+                if segment[op_start : op_start + 3] == "and":
+                    return make_range_highlight(op_start, op_start + 3)
+                elif segment[op_start : op_start + 2] == "or":
+                    return make_range_highlight(op_start, op_start + 2)
 
     # Unary operations - highlight the operator
-    elif isinstance(node, ast.UnaryOp):
-        if hasattr(node, "col_offset") and hasattr(node.operand, "col_offset"):
-            op_start = normalize_col(1, node.col_offset)
-            operand_start = normalize_col(1, node.operand.col_offset)
+    elif (
+        isinstance(node, ast.UnaryOp)
+        and hasattr(node, "col_offset")
+        and hasattr(node.operand, "col_offset")
+    ):
+        op_start = normalize_col(1, node.col_offset)
+        operand_start = normalize_col(1, node.operand.col_offset)
 
-            if op_start < operand_start:
-                return make_range_highlight(op_start, operand_start)
+        if op_start < operand_start:
+            return make_range_highlight(op_start, operand_start)
 
     # For complex expressions or unsupported types, don't highlight specifically
     return None
@@ -346,9 +350,12 @@ def extract_frames(tb, suppress_inner=False, exc=None) -> list:
 
         for i, summary in enumerate(stack):
             # Check for traceback hiding
-            if hasattr(summary, "locals") and summary.locals:
-                if summary.locals.get("__tracebackhide__", False):
-                    continue
+            if (
+                hasattr(summary, "locals")
+                and summary.locals
+                and summary.locals.get("__tracebackhide__", False)
+            ):
+                continue
 
             filename = summary.filename
             lineno = summary.lineno
