@@ -466,20 +466,62 @@ def extract_frames(tb, suppress_inner=False, exc=None) -> list:
                 "variables": variables,
             }
 
-            # Add precise column positions if available (Python 3.11+)
-            if hasattr(summary, "colno"):
+            # Add precise column positions if available (Python 3.10+)
+            if hasattr(summary, "colno") and summary.colno is not None:
                 frameinfo["colno"] = summary.colno
-                frameinfo["end_colno"] = getattr(
-                    summary,
-                    "end_colno",
-                    summary.colno + len((summary.line or "").rstrip()),
-                )
-                # Find exact highlighting information using AST parsing
-                if codeline:
-                    highlight_info = _find_caret_position(
-                        codeline, summary.colno, frameinfo["end_colno"]
+                frameinfo["end_colno"] = getattr(summary, "end_colno", None)
+                frameinfo["end_lineno"] = getattr(summary, "end_lineno", None)
+
+                # Handle multi-line errors (Python 3.10+)
+                if (
+                    frameinfo["end_lineno"] is not None
+                    and frameinfo["end_lineno"] != lineno
+                ):
+                    # Multi-line error span
+                    frameinfo["is_multiline_error"] = True
+                    # Use the multiline highlighting function
+                    highlight_info = _find_multiline_highlights(
+                        lines,
+                        lineno,
+                        frameinfo["end_lineno"],
+                        summary.colno,
+                        frameinfo["end_colno"],
                     )
                     if highlight_info is not None:
+                        frameinfo["highlight_info"] = highlight_info
+                else:
+                    # Single-line error - use existing AST parsing
+                    end_colno = frameinfo["end_colno"]
+                    if end_colno is None:
+                        # Fallback for when end_colno is not available
+                        end_colno = summary.colno + len((summary.line or "").rstrip())
+
+                    if codeline:
+                        highlight_info = _find_caret_position(
+                            codeline, summary.colno, end_colno
+                        )
+                        if highlight_info is not None:
+                            frameinfo["highlight_info"] = highlight_info
+            else:
+                # For older Python versions (3.8-3.9) without column info,
+                # implement whitespace trimming highlighting
+                if codeline:
+                    stripped_line = codeline.strip()
+                    if stripped_line and codeline != stripped_line:
+                        # Calculate the amount of leading/trailing whitespace removed
+                        leading_spaces = len(codeline) - len(codeline.lstrip())
+                        trailing_spaces = (
+                            len(codeline.rstrip()) - len(stripped_line)
+                            if codeline.rstrip() != stripped_line
+                            else 0
+                        )
+
+                        highlight_info = {
+                            "type": "whitespace_trimmed",
+                            "leading_spaces": leading_spaces,
+                            "trailing_spaces": trailing_spaces,
+                            "trimmed_length": len(stripped_line),
+                        }
                         frameinfo["highlight_info"] = highlight_info
 
             frames.append(frameinfo)
@@ -492,3 +534,70 @@ def extract_frames(tb, suppress_inner=False, exc=None) -> list:
         return []
 
     return frames
+
+
+def _find_multiline_highlights(lines_text, start_line, end_line, start_col, end_col):
+    """
+    Find highlighting information for multi-line errors.
+    Returns a dict with highlighting info for each line in the error span.
+    """
+    if not lines_text:
+        return None
+
+    lines = lines_text.splitlines()
+    if not lines or start_line < 1:
+        return None
+
+    # Convert to 0-based indexing for array access
+    start_idx = start_line - 1
+    end_idx = min(end_line - 1, len(lines) - 1) if end_line else start_idx
+
+    highlights = []
+
+    for line_idx in range(start_idx, end_idx + 1):
+        if line_idx >= len(lines):
+            break
+
+        line = lines[line_idx]
+        line_num = line_idx + 1
+
+        if line_num == start_line and line_num == end_line:
+            # Single line case (shouldn't happen here, but handle it)
+            highlight = {
+                "line": line_num,
+                "type": "range",
+                "start": start_col or 0,
+                "end": end_col or len(line),
+            }
+        elif line_num == start_line:
+            # First line: highlight from start_col to end of line (trimmed)
+            trimmed_end = len(line.rstrip())
+            highlight = {
+                "line": line_num,
+                "type": "range",
+                "start": start_col or 0,
+                "end": trimmed_end,
+            }
+        elif line_num == end_line:
+            # Last line: highlight from start to end_col (with leading whitespace trimmed)
+            leading_spaces = len(line) - len(line.lstrip())
+            highlight = {
+                "line": line_num,
+                "type": "range",
+                "start": leading_spaces,
+                "end": end_col or len(line.rstrip()),
+            }
+        else:
+            # Middle lines: highlight the whole line (with whitespace trimmed)
+            leading_spaces = len(line) - len(line.lstrip())
+            trimmed_end = len(line.rstrip())
+            highlight = {
+                "line": line_num,
+                "type": "range",
+                "start": leading_spaces,
+                "end": trimmed_end,
+            }
+
+        highlights.append(highlight)
+
+    return {"type": "multiline", "highlights": highlights}
