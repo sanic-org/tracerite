@@ -90,8 +90,8 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
     else:
         doc.div.b(frinfo["location"] or E("Native function ").strong(function), ":")
     # Code printout
-    lines = frinfo["lines"].splitlines(keepends=True)
-    if not lines:
+    fragments = frinfo.get("fragments", [])
+    if not fragments:
         doc.p("Source code not available")
         if frinfo is info["frames"][-1]:
             doc(" but ").strong(info["type"])(" was raised from here")
@@ -99,9 +99,13 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
         with doc.pre, doc.code:
             start = frinfo["linenostart"]
             lineno = frinfo["lineno"]
-            for i, line in enumerate(lines, start=start):
-                with doc.span(class_="codeline", data_lineno=i):
-                    doc(marked(line, info, frinfo) if i == lineno else line)
+            for line_info in fragments:
+                line_num = line_info["line"]
+                abs_line = start + line_num - 1
+                with doc.span(class_="codeline", data_lineno=abs_line):
+                    _render_line_fragments(
+                        doc, line_info["fragments"], info, frinfo, abs_line == lineno
+                    )
 
 
 def variable_inspector(doc, variables):
@@ -140,128 +144,122 @@ def _format_matrix(doc, v):
                     doc.td(e)
 
 
-def marked(line, info, frinfo):
-    indent, code, trailing = split3(line)
-    symbol = symbols.get(frinfo["relevance"])
-    try:
-        text = tooltips[frinfo["relevance"]].format(**info, **frinfo)
-    except Exception:
-        text = repr(frinfo["relevance"])
+def _render_line_fragments(doc, fragments, info, frinfo, is_error_line):
+    """Render a line using the new fragment-based structure."""
+    if not fragments:
+        return
 
-    # Use precise column offsets if available
-    colno = frinfo.get("colno")
-    end_colno = frinfo.get("end_colno")
-    highlight_info = frinfo.get("highlight_info")
+    # If this is the error line, apply error styling
+    if is_error_line:
+        symbol = symbols.get(frinfo["relevance"])
+        try:
+            tooltip_text = tooltips[frinfo["relevance"]].format(**info, **frinfo)
+        except Exception:
+            tooltip_text = repr(frinfo["relevance"])
 
-    if colno is not None and highlight_info is not None:
-        # Calculate relative indices within code
-        indent_len = len(indent)
-        start_idx = max(0, colno - indent_len)
-        if end_colno is not None:
-            end_idx = max(start_idx, end_colno - indent_len)
-        else:
-            end_idx = len(code)
-
-        # Clamp to valid bounds
-        start_idx = min(start_idx, len(code))
-        end_idx = min(end_idx, len(code))
-
-        before = code[:start_idx]
-        highlight_region = code[start_idx:end_idx]
-        after = code[end_idx:]
-
-        # Apply intelligent highlighting based on AST analysis
-        with E.span(
+        with doc.span(
             data_symbol=symbol,
-            data_tooltip=text,
+            data_tooltip=tooltip_text,
             class_="tracerite-tooltip",
-        ) as doc:
-            doc(indent, before)
+        ):
+            for fragment in fragments:
+                _render_fragment(doc, fragment)
+    else:
+        # Regular line, just render fragments without error styling
+        for fragment in fragments:
+            _render_fragment(doc, fragment)
 
-            # Handle different highlight types
-            if highlight_info["type"] == "caret":
-                # Single character caret
-                offset = highlight_info["offset"]
-                if offset < len(highlight_region):
-                    prior = highlight_region[:offset]
-                    caret_char = highlight_region[offset : offset + 1]
-                    rest = highlight_region[offset + 1 :]
 
-                    with doc.mark:
-                        doc(prior)
-                        if caret_char:
-                            doc.em(caret_char)
-                        doc(rest)
-                else:
-                    doc.mark(highlight_region)
+def _render_fragment(doc, fragment):
+    """Render a single fragment with appropriate styling."""
+    code = fragment["code"]
 
-            elif highlight_info["type"] == "range":
-                # Range highlighting within the error region
-                range_start = highlight_info["start"]
-                range_end = highlight_info["end"]
+    # Determine if this fragment has highlighting
+    has_mark = "mark" in fragment
+    has_em = "em" in fragment
 
-                # Clamp to highlight region bounds
-                range_start = max(0, min(range_start, len(highlight_region)))
-                range_end = max(range_start, min(range_end, len(highlight_region)))
+    if has_mark and has_em:
+        # Both mark and em - handle nesting based on beg/mid/fin/solo
+        mark_type = fragment["mark"]
+        em_type = fragment["em"]
 
-                pre_range = highlight_region[:range_start]
-                range_part = highlight_region[range_start:range_end]
-                post_range = highlight_region[range_end:]
+        if mark_type == "solo":
+            # Complete mark tag
+            if em_type == "solo":
+                doc.mark(doc.em(code))
+            elif em_type == "beg":
+                doc.mark(doc("<em>"), code)
+            elif em_type == "mid":
+                doc.mark(code)
+            elif em_type == "fin":
+                doc.mark(code, doc("</em>"))
+        elif mark_type == "beg":
+            # Opening mark tag
+            if em_type == "solo":
+                doc("<mark>").em(code)
+            elif em_type == "beg":
+                doc("<mark><em>", code)
+            elif em_type == "mid":
+                doc("<mark>", code)
+            elif em_type == "fin":
+                doc("<mark>", code, "</em>")
+        elif mark_type == "mid":
+            # No mark tags
+            if em_type == "solo":
+                doc.em(code)
+            elif em_type == "beg":
+                doc("<em>", code)
+            elif em_type == "mid":
+                doc(code)
+            elif em_type == "fin":
+                doc(code, "</em>")
+        elif mark_type == "fin":
+            # Closing mark tag
+            if em_type == "solo":
+                doc.em(code)("</mark>")
+            elif em_type == "beg":
+                doc("<em>", code, "</mark>")
+            elif em_type == "mid":
+                doc(code, "</mark>")
+            elif em_type == "fin":
+                doc(code, "</em></mark>")
 
-                with doc.mark:
-                    doc(pre_range)
-                    if range_part:
-                        doc.em(range_part)
-                    doc(post_range)
+    elif has_mark:
+        # Just mark highlighting
+        mark_type = fragment["mark"]
+        if mark_type == "solo":
+            doc.mark(code)
+        elif mark_type == "beg":
+            doc("<mark>", code)
+        elif mark_type == "mid":
+            doc(code)
+        elif mark_type == "fin":
+            doc(code, "</mark>")
 
-            elif highlight_info["type"] == "ranges":
-                # Multiple ranges (future expansion)
-                # For now, just highlight the whole region
-                doc.mark(highlight_region)
-            else:
-                # Unknown type, fallback to whole region
-                doc.mark(highlight_region)
+    elif has_em:
+        # Just em highlighting
+        em_type = fragment["em"]
+        if em_type == "solo":
+            doc.em(code)
+        elif em_type == "beg":
+            doc("<em>", code)
+        elif em_type == "mid":
+            doc(code)
+        elif em_type == "fin":
+            doc(code, "</em>")
+    else:
+        # Regular fragment, check for special types
+        fragment_class = None
+        if "dedent" in fragment:
+            fragment_class = "dedent"
+        elif "indent" in fragment:
+            fragment_class = "indent"
+        elif "comment" in fragment:
+            fragment_class = "comment"
+        elif "trailing" in fragment:
+            fragment_class = "trailing"
 
-            doc(after)
-
-        doc(trailing)  # endline
-        return doc
-
-    elif colno is not None:
-        # Old-style column highlighting without AST info
-        indent_len = len(indent)
-        start_idx = max(0, colno - indent_len)
-        if end_colno is not None:
-            end_idx = max(start_idx, end_colno - indent_len)
+        if fragment_class:
+            doc.span(code, class_=fragment_class)
         else:
-            end_idx = len(code)
-
-        # Clamp to valid bounds
-        start_idx = min(start_idx, len(code))
-        end_idx = min(end_idx, len(code))
-
-        before = code[:start_idx]
-        highlight = code[start_idx:end_idx]
-        after = code[end_idx:]
-
-        # Simple fallback highlighting
-        result = E(indent)(before).mark(
-            E.span(highlight),
-            data_symbol=symbol,
-            data_tooltip=text,
-            class_="tracerite-tooltip",
-        )(after + trailing)
-
-        return result
-
-    # Fallback to full-line highlight
-    return E(indent).mark(
-        E.span(code), data_symbol=symbol, data_tooltip=text, class_="tracerite-tooltip"
-    )(trailing)
-
-
-def split3(s):
-    """Split s into indent, code and trailing whitespace"""
-    a, b, c = s.rstrip(), s.strip(), s.lstrip()
-    codelen = len(b)
-    return a[:-codelen], b, c[codelen:]
+            doc(code)

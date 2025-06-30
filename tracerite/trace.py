@@ -275,10 +275,10 @@ def extract_chain(exc=None, **kwargs) -> list:
     while exc:
         chain.append(exc)
         # Follow the explicit cause chain first, then context if no cause
-        # Don't break on __suppress_context__ as we still want to show explicit causes
-        exc = exc.__cause__ or (
-            exc.__context__ if not getattr(exc, "__suppress_context__", False) else None
-        )
+        exc = exc.__cause__ or exc.__context__
+        if exc and hasattr(exc, "__suppress_context__") and exc.__suppress_context__:
+            # If the context is suppressed, we stop here
+            break
     # Newest exception first
     return [extract_exception(e, **(kwargs if e is chain[0] else {})) for e in chain]
 
@@ -451,6 +451,32 @@ def extract_frames(tb, suppress_inner=False, exc=None) -> list:
             if hasattr(summary, "locals") and summary.locals:
                 variables = extract_variables(summary.locals, lines)
 
+            # Parse lines into fragments for enhanced highlighting
+            fragments = []
+            if lines:
+                # Determine error position for fragment parsing
+                error_line_in_context = (
+                    lineno - start + 1
+                )  # Convert to 1-based index within the lines context
+                start_col = getattr(summary, "colno", None)
+                end_col = getattr(summary, "end_colno", None)
+                end_line = getattr(summary, "end_lineno", None)
+
+                # Convert end_line to context-relative if it exists
+                if end_line is not None:
+                    end_line_in_context = end_line - start + 1
+                else:
+                    end_line_in_context = None
+
+                fragments = _parse_lines_to_fragments(
+                    lines,
+                    error_line_in_context,
+                    start_col,
+                    end_col,
+                    end_line_in_context,
+                    em_columns=None,  # TODO: Add AST analysis for emphasis
+                )
+
             # Create frame info
             frameinfo = {
                 "id": f"tb-{i}",  # Use index as stable ID
@@ -461,6 +487,7 @@ def extract_frames(tb, suppress_inner=False, exc=None) -> list:
                 "lineno": lineno,
                 "linenostart": start,
                 "lines": lines,
+                "fragments": fragments,  # New fragment-based structure
                 "function": function,
                 "urls": urls,
                 "variables": variables,
@@ -601,3 +628,324 @@ def _find_multiline_highlights(lines_text, start_line, end_line, start_col, end_
         highlights.append(highlight)
 
     return {"type": "multiline", "highlights": highlights}
+
+
+def _parse_lines_to_fragments(
+    lines_text, error_line, start_col=None, end_col=None, end_line=None, em_columns=None
+):
+    """
+    Parse lines of code into fragments with mark/em highlighting information.
+
+    Args:
+        lines_text: The multi-line string containing code
+        error_line: The line number where the error occurred (1-based)
+        start_col: Start column for highlighting (0-based, optional)
+        end_col: End column for highlighting (0-based, optional)
+        end_line: End line for multi-line errors (1-based, optional)
+        em_columns: Dict mapping line numbers to lists of column positions for emphasis
+
+    Returns:
+        List of line dictionaries with fragment information
+    """
+    if not lines_text:
+        return []
+
+    lines = lines_text.splitlines()
+    if not lines:
+        return []
+
+    # Calculate common indentation (dedent)
+    common_indent_len = 0
+    non_empty_lines = [line for line in lines if line.strip()]
+    if non_empty_lines:
+        common_indent_len = min(
+            len(line) - len(line.lstrip()) for line in non_empty_lines
+        )
+
+    result = []
+
+    for line_idx, line in enumerate(lines):
+        line_num = line_idx + 1
+
+        # Determine mark range for this line
+        mark_range = None
+        if start_col is not None and end_col is not None:
+            if end_line is not None and end_line != error_line:
+                # Multi-line error
+                if line_num == error_line:
+                    mark_range = (start_col, len(line.rstrip()))
+                elif line_num == end_line:
+                    mark_range = (len(line) - len(line.lstrip()), end_col)
+                elif error_line < line_num < end_line:
+                    mark_range = (len(line) - len(line.lstrip()), len(line.rstrip()))
+            elif line_num == error_line:
+                mark_range = (start_col, end_col)
+
+        # Get emphasis columns for this line
+        em_cols = em_columns.get(line_num, []) if em_columns else []
+
+        # Parse line into fragments
+        fragments = _parse_line_to_fragments(
+            line, common_indent_len, mark_range, em_cols
+        )
+
+        line_info = {"line": line_num, "fragments": fragments}
+        result.append(line_info)
+
+    return result
+
+
+def _parse_line_to_fragments(line, common_indent_len, mark_range, em_columns):
+    """Parse a single line into fragments with proper marking."""
+    if not line:
+        return []
+
+    fragments = []
+    pos = 0
+
+    # Handle dedent (common indentation)
+    if common_indent_len > 0 and len(line) > common_indent_len:
+        dedent_text = line[:common_indent_len]
+        fragments.append({"code": dedent_text, "dedent": "solo"})
+        pos = common_indent_len
+
+    # Handle additional indentation
+    remaining = line[pos:]
+    indent_match = re.match(r"^(\s+)", remaining)
+    if indent_match:
+        indent_text = indent_match.group(1)
+        fragments.append({"code": indent_text, "indent": "solo"})
+        pos += len(indent_text)
+        remaining = remaining[len(indent_text) :]
+
+    # Find comment
+    comment_start = _find_comment_start(remaining)
+    if comment_start is not None:
+        # Split at comment boundary, keeping original spacing
+        code_part = remaining[:comment_start]
+        comment_part = remaining[comment_start:]
+
+        # Remove trailing whitespace from code part for processing
+        code_part_trimmed = code_part.rstrip()
+        code_whitespace = code_part[len(code_part_trimmed) :]
+
+        # Parse code part with highlighting
+        if code_part_trimmed:
+            code_fragments = _create_highlighted_fragments(
+                code_part_trimmed, pos, mark_range, em_columns
+            )
+            fragments.extend(code_fragments)
+
+        # Add whitespace between code and comment
+        if code_whitespace:
+            fragments.append({"code": code_whitespace, "trailing": "solo"})
+
+        # Add comment
+        fragments.append({"code": comment_part, "comment": "solo"})
+
+    else:
+        # No comment, parse entire remaining as code
+        code_part_trimmed = remaining.rstrip()
+        trailing_whitespace = remaining[len(code_part_trimmed) :]
+
+        # Parse code part with highlighting
+        if code_part_trimmed:
+            code_fragments = _create_highlighted_fragments(
+                code_part_trimmed, pos, mark_range, em_columns
+            )
+            fragments.extend(code_fragments)
+
+        # Add trailing whitespace
+        if trailing_whitespace:
+            fragments.append({"code": trailing_whitespace, "trailing": "solo"})
+
+    return fragments
+
+
+def _find_comment_start(text):
+    """Find the start of a comment, ignoring # inside strings."""
+    in_string = False
+    string_char = None
+    escape_next = False
+
+    for i, char in enumerate(text):
+        if escape_next:
+            escape_next = False
+            continue
+        if char == "\\":
+            escape_next = True
+            continue
+        if not in_string and char == "#":
+            return i
+        if not in_string and char in ('"', "'"):
+            in_string = True
+            string_char = char
+        elif in_string and char == string_char:
+            in_string = False
+            string_char = None
+
+    return None
+
+
+def _create_highlighted_fragments(text, start_pos, mark_range, em_columns):
+    """Create fragments with mark/em highlighting using unified logic."""
+    if not text:
+        return []
+
+    # Convert columns to text-relative positions
+    mark_positions = set()
+    em_positions = set()
+
+    if mark_range:
+        mark_start, mark_end = mark_range
+        for i in range(len(text)):
+            abs_pos = start_pos + i
+            if mark_start <= abs_pos < mark_end:
+                mark_positions.add(i)
+
+    # Convert em_columns to positions and group consecutive ones
+    em_ranges = _columns_to_ranges(em_columns, start_pos, len(text))
+    for start, end in em_ranges:
+        for i in range(start - start_pos, end - start_pos):
+            if 0 <= i < len(text):
+                em_positions.add(i)
+
+    # Create fragments using unified logic
+    return _create_fragments_with_highlighting(text, mark_positions, em_positions)
+
+
+def _columns_to_ranges(columns, start_pos, text_len):
+    """Convert list of column positions to consecutive ranges."""
+    if not columns:
+        return []
+
+    # Filter and sort columns that are within our text range
+    valid_cols = sorted(
+        [col for col in columns if start_pos <= col < start_pos + text_len]
+    )
+    if not valid_cols:
+        return []
+
+    ranges = []
+    start = valid_cols[0]
+    end = start + 1
+
+    for col in valid_cols[1:]:
+        if col == end:
+            # Consecutive column, extend range
+            end = col + 1
+        else:
+            # Gap found, close current range and start new one
+            ranges.append((start, end))
+            start = col
+            end = col + 1
+
+    # Close the last range
+    ranges.append((start, end))
+    return ranges
+
+
+def _create_fragments_with_highlighting(text, mark_positions, em_positions):
+    """Create fragments with mark/em highlighting using beg/mid/fin/solo logic."""
+    if not text:
+        return []
+
+    # Find all boundaries (start/end of mark and em regions)
+    boundaries = {0, len(text)}
+
+    # Add mark boundaries
+    mark_ranges = _positions_to_ranges(mark_positions)
+    for start, end in mark_ranges:
+        boundaries.add(start)
+        boundaries.add(end)
+
+    # Add em boundaries
+    em_ranges = _positions_to_ranges(em_positions)
+    for start, end in em_ranges:
+        boundaries.add(start)
+        boundaries.add(end)
+
+    boundaries = sorted(boundaries)
+    fragments = []
+
+    for i in range(len(boundaries) - 1):
+        start = boundaries[i]
+        end = boundaries[i + 1]
+
+        if start >= len(text):
+            break
+
+        fragment_text = text[start:end]
+        if not fragment_text:
+            continue
+
+        fragment = {"code": fragment_text}
+
+        # Determine mark status
+        mark_status = _get_highlight_status(start, end, mark_ranges)
+        if mark_status:
+            fragment["mark"] = mark_status
+
+        # Determine em status
+        em_status = _get_highlight_status(start, end, em_ranges)
+        if em_status:
+            fragment["em"] = em_status
+
+        fragments.append(fragment)
+
+    return fragments
+
+
+def _get_highlight_status(frag_start, frag_end, ranges):
+    """Determine beg/mid/fin/solo status for a fragment within ranges."""
+    # Find overlapping ranges
+    overlapping = []
+    for range_start, range_end in ranges:
+        if frag_start < range_end and frag_end > range_start:
+            overlapping.append((range_start, range_end))
+
+    if not overlapping:
+        return None
+
+    # Use the first overlapping range (they should align with fragment boundaries)
+    range_start, range_end = overlapping[0]
+
+    is_start = frag_start <= range_start
+    is_end = frag_end >= range_end
+
+    if is_start and is_end:
+        return "solo"
+    elif is_start:
+        return "beg"
+    elif is_end:
+        return "fin"
+    else:
+        return "mid"
+
+
+def _positions_to_ranges(positions):
+    """Convert a set of positions to a list of (start, end) ranges."""
+    if not positions:
+        return []
+
+    sorted_positions = sorted(positions)
+    ranges = []
+    start = sorted_positions[0]
+    end = start + 1
+
+    for pos in sorted_positions[1:]:
+        if pos == end:
+            # Consecutive position, extend current range
+            end = pos + 1
+        else:
+            # Gap found, close current range and start new one
+            ranges.append((start, end))
+            start = pos
+            end = pos + 1
+
+    # Close the last range
+    ranges.append((start, end))
+    return ranges
+
+
+# Will be set to an instance if loaded as an IPython extension by %load_ext

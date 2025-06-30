@@ -3,12 +3,6 @@
 from tracerite import extract_chain, html_traceback
 
 
-def test_import():
-    """Test that basic imports work."""
-    assert extract_chain is not None
-    assert html_traceback is not None
-
-
 def test_extract_chain_with_simple_exception():
     """Test extract_chain with a simple exception."""
     try:
