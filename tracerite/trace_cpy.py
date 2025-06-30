@@ -3,6 +3,7 @@
 # and that are not available in earlier Python versions.
 
 # Unused functionality is removed and we run a formatter, but not our code here.
+# ruff: noqa
 
 """Extract, format and print information about Python stack traces."""
 
@@ -173,66 +174,65 @@ def _extract_caret_anchors_from_line_segment(segment):
         return next_valid_char(lineno, col) if force_valid else (lineno, col)
 
     statement = tree.body[0]
-    match statement:
-        case ast.Expr(expr):
-            match expr:
-                case ast.BinOp():
-                    # ast gives these locations for BinOp subexpressions
-                    # ( left_expr ) + ( right_expr )
-                    #   left^^^^^       right^^^^^
-                    lineno, col = setup_positions(expr.left)
+    if isinstance(statement, ast.Expr):
+        expr = statement.value
+        if isinstance(expr, ast.BinOp):
+            # ast gives these locations for BinOp subexpressions
+            # ( left_expr ) + ( right_expr )
+            #   left^^^^^       right^^^^^
+            lineno, col = setup_positions(expr.left)
 
-                    # First operator character is the first non-space/')' character
-                    lineno, col = increment_until(
-                        lineno, col, lambda x: not x.isspace() and x != ")"
-                    )
+            # First operator character is the first non-space/')' character
+            lineno, col = increment_until(
+                lineno, col, lambda x: not x.isspace() and x != ")"
+            )
 
-                    # binary op is 1 or 2 characters long, on the same line,
-                    # before the right subexpression
-                    right_col = col + 1
-                    if (
-                        right_col < len(lines[lineno])
-                        and (
-                            # operator char should not be in the right subexpression
-                            expr.right.lineno - 2 > lineno
-                            or right_col
-                            < normalize(expr.right.lineno - 2, expr.right.col_offset)
-                        )
-                        and not (ch := lines[lineno][right_col]).isspace()
-                        and ch not in "\\#"
-                    ):
-                        right_col += 1
+            # binary op is 1 or 2 characters long, on the same line,
+            # before the right subexpression
+            right_col = col + 1
+            if (
+                right_col < len(lines[lineno])
+                and (
+                    # operator char should not be in the right subexpression
+                    expr.right.lineno - 2 > lineno
+                    or right_col
+                    < normalize(expr.right.lineno - 2, expr.right.col_offset)
+                )
+                and not (ch := lines[lineno][right_col]).isspace()
+                and ch not in "\\#"
+            ):
+                right_col += 1
 
-                    # right_col can be invalid since it is exclusive
-                    return _Anchors(lineno, col, lineno, right_col)
-                case ast.Subscript():
-                    # ast gives these locations for value and slice subexpressions
-                    # ( value_expr ) [ slice_expr ]
-                    #   value^^^^^     slice^^^^^
-                    # subscript^^^^^^^^^^^^^^^^^^^^
+            # right_col can be invalid since it is exclusive
+            return _Anchors(lineno, col, lineno, right_col)
+        if isinstance(expr, ast.Subscript):
+            # ast gives these locations for value and slice subexpressions
+            # ( value_expr ) [ slice_expr ]
+            #   value^^^^^     slice^^^^^
+            # subscript^^^^^^^^^^^^^^^^^^^^
 
-                    # find left bracket
-                    left_lineno, left_col = setup_positions(expr.value)
-                    left_lineno, left_col = increment_until(
-                        left_lineno, left_col, lambda x: x == "["
-                    )
-                    # find right bracket (final character of expression)
-                    right_lineno, right_col = setup_positions(expr, force_valid=False)
-                    return _Anchors(left_lineno, left_col, right_lineno, right_col)
-                case ast.Call():
-                    # ast gives these locations for function call expressions
-                    # ( func_expr ) (args, kwargs)
-                    #   func^^^^^
-                    # call^^^^^^^^^^^^^^^^^^^^^^^^
+            # find left bracket
+            left_lineno, left_col = setup_positions(expr.value)
+            left_lineno, left_col = increment_until(
+                left_lineno, left_col, lambda x: x == "["
+            )
+            # find right bracket (final character of expression)
+            right_lineno, right_col = setup_positions(expr, force_valid=False)
+            return _Anchors(left_lineno, left_col, right_lineno, right_col)
+        if isinstance(expr, ast.Call):
+            # ast gives these locations for function call expressions
+            # ( func_expr ) (args, kwargs)
+            #   func^^^^^
+            # call^^^^^^^^^^^^^^^^^^^^^^^^
 
-                    # find left bracket
-                    left_lineno, left_col = setup_positions(expr.func)
-                    left_lineno, left_col = increment_until(
-                        left_lineno, left_col, lambda x: x == "("
-                    )
-                    # find right bracket (final character of expression)
-                    right_lineno, right_col = setup_positions(expr, force_valid=False)
-                    return _Anchors(left_lineno, left_col, right_lineno, right_col)
+            # find left bracket
+            left_lineno, left_col = setup_positions(expr.func)
+            left_lineno, left_col = increment_until(
+                left_lineno, left_col, lambda x: x == "("
+            )
+            # find right bracket (final character of expression)
+            right_lineno, right_col = setup_positions(expr, force_valid=False)
+            return _Anchors(left_lineno, left_col, right_lineno, right_col)
 
     return None
 
