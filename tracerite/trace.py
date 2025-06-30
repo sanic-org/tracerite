@@ -1,14 +1,14 @@
-import ast
 import inspect
 import re
 import sys
-import traceback as _traceback_module
 from pathlib import Path
+from secrets import token_urlsafe
 from textwrap import dedent
 from urllib.parse import quote
 
 from .inspector import extract_variables
 from .logging import logger
+from . import trace_cpy
 
 # Will be set to an instance if loaded as an IPython extension by %load_ext
 ipython = None
@@ -17,285 +17,40 @@ ipython = None
 libdir = re.compile(r"/usr/.*|.*(site-packages|dist-packages).*")
 
 
-def _find_caret_position(line, start_col, end_col):
-    """
-    Find the exact highlighting information within a line segment using AST parsing.
-    Returns information about what parts of the code should be highlighted.
-
-    Returns a dict with highlighting information, or None if no specific highlighting is appropriate.
-    The dict can contain:
-    - 'type': 'caret' for single character, 'range' for a range, 'ranges' for multiple ranges
-    - 'offset': single character offset (for 'caret' type)
-    - 'start', 'end': range bounds (for 'range' type)
-    - 'highlights': list of (start, end) tuples (for 'ranges' type)
-    """
-    try:
-        # Extract the segment that contains the error
-        segment = line.strip()
-        if not segment:
-            return None
-
-        # Try to parse the segment as an expression
-        try:
-            # Wrap in parentheses to make it parseable as an expression
-            tree = ast.parse(f"({segment})", mode="eval")
-        except SyntaxError:
-            try:
-                # Try as a statement
-                tree = ast.parse(segment, mode="exec")
-            except SyntaxError:
-                return None
-
-        # Find the best node to analyze
-        if hasattr(tree, "body") and tree.body:
-            if hasattr(tree, "body") and len(tree.body) > 0:
-                if hasattr(tree.body[0], "value"):
-                    # Expression statement
-                    node = tree.body[0].value
-                else:
-                    node = tree.body[0]
-            else:
-                return None
-        elif hasattr(tree, "body"):
-            node = tree.body
-        else:
-            return None
-
-        # Calculate relative position within the segment
-        indent_len = len(line) - len(line.lstrip())
-        segment_start_col = start_col - indent_len
-        segment_end_col = end_col - indent_len
-
-        # Find the most appropriate highlighting based on AST node type
-        highlight_info = _find_ast_highlights(
-            node, segment_start_col, segment_end_col, segment
-        )
-
-        return highlight_info
-
-    except Exception:
-        # Don't highlight if we can't parse properly
-        return None
-
-
-def _find_ast_highlights(node, start_col, end_col, segment):
-    """
-    Find the best highlighting information for an AST node.
-    Returns a dict with highlighting info, or None if no specific highlighting is appropriate.
-    """
-    lines = segment.splitlines()
-    if not lines:
-        return None
-
-    def normalize_col(lineno, col_offset):
-        """Convert byte offset to character offset"""
-        if lineno <= 0 or lineno > len(lines):
-            return col_offset
-        line = lines[lineno - 1]
-        return len(line.encode("utf-8")[:col_offset].decode("utf-8", errors="replace"))
-
-    def make_range_highlight(start, end):
-        """Create a range highlight relative to error start"""
-        return {
-            "type": "range",
-            "start": max(0, start - start_col),
-            "end": max(0, end - start_col),
-        }
-
-    def make_caret_highlight(pos):
-        """Create a single character caret highlight relative to error start"""
-        return {"type": "caret", "offset": max(0, pos - start_col)}
-
-    # Handle different AST node types appropriately
-
-    # Function calls - highlight the function name
-    if isinstance(node, ast.Call):
-        if hasattr(node.func, "col_offset") and hasattr(node.func, "end_col_offset"):
-            func_start = normalize_col(1, node.func.col_offset)
-            func_end = normalize_col(1, node.func.end_col_offset)
-            return make_range_highlight(func_start, func_end)
-        elif hasattr(node.func, "end_col_offset"):
-            # Fallback: highlight up to the opening parenthesis
-            paren_pos = normalize_col(1, node.func.end_col_offset)
-            while paren_pos < len(segment) and segment[paren_pos] != "(":
-                paren_pos += 1
-            if paren_pos < len(segment) and segment[paren_pos] == "(":
-                return make_caret_highlight(paren_pos)
-
-    # Binary operations - highlight just the operator
-    elif isinstance(node, ast.BinOp):
-        if hasattr(node.left, "end_col_offset") and hasattr(node.right, "col_offset"):
-            left_end = normalize_col(1, node.left.end_col_offset)
-            right_start = normalize_col(1, node.right.col_offset)
-
-            # Find the operator between left and right
-            op_start = left_end
-            while (
-                op_start < right_start
-                and op_start < len(segment)
-                and segment[op_start].isspace()
-            ):
-                op_start += 1
-
-            op_end = op_start
-            while (
-                op_end < right_start
-                and op_end < len(segment)
-                and not segment[op_end].isspace()
-            ):
-                op_end += 1
-
-            if op_start < len(segment) and op_end > op_start:
-                return make_range_highlight(op_start, op_end)
-
-    # Comparison operations - highlight the first operator
-    elif isinstance(node, ast.Compare):
-        if hasattr(node.left, "end_col_offset") and node.comparators:
-            left_end = normalize_col(1, node.left.end_col_offset)
-            if hasattr(node.comparators[0], "col_offset"):
-                right_start = normalize_col(1, node.comparators[0].col_offset)
-
-                # Find the comparison operator
-                op_start = left_end
-                while (
-                    op_start < right_start
-                    and op_start < len(segment)
-                    and segment[op_start].isspace()
-                ):
-                    op_start += 1
-
-                op_end = op_start
-                while (
-                    op_end < right_start
-                    and op_end < len(segment)
-                    and not segment[op_end].isspace()
-                ):
-                    op_end += 1
-
-                if op_start < len(segment) and op_end > op_start:
-                    return make_range_highlight(op_start, op_end)
-
-    # Attribute access - highlight the attribute name
-    elif isinstance(node, ast.Attribute):
-        if hasattr(node, "end_col_offset") and hasattr(node.value, "end_col_offset"):
-            # Highlight the attribute name part
-            dot_pos = normalize_col(1, node.value.end_col_offset)
-            attr_end = normalize_col(1, node.end_col_offset)
-
-            # Find the dot and attribute name
-            while dot_pos < len(segment) and segment[dot_pos] != ".":
-                dot_pos += 1
-
-            if dot_pos < len(segment) and segment[dot_pos] == ".":
-                attr_start = dot_pos + 1
-                return make_range_highlight(attr_start, attr_end)
-
-    # Subscript operations - highlight the subscript part
-    elif isinstance(node, ast.Subscript):
-        if hasattr(node.value, "end_col_offset") and hasattr(node, "end_col_offset"):
-            bracket_start = normalize_col(1, node.value.end_col_offset)
-            subscript_end = normalize_col(1, node.end_col_offset)
-
-            # Find the opening bracket
-            while bracket_start < len(segment) and segment[bracket_start] != "[":
-                bracket_start += 1
-
-            if bracket_start < len(segment) and segment[bracket_start] == "[":
-                return make_range_highlight(bracket_start, subscript_end)
-
-    # Name references - highlight the whole name
-    elif isinstance(node, ast.Name):
-        if hasattr(node, "col_offset") and hasattr(node, "end_col_offset"):
-            name_start = normalize_col(1, node.col_offset)
-            name_end = normalize_col(1, node.end_col_offset)
-            return make_range_highlight(name_start, name_end)
-
-    # Constants - highlight the literal value
-    elif isinstance(node, ast.Constant):
-        if hasattr(node, "col_offset") and hasattr(node, "end_col_offset"):
-            const_start = normalize_col(1, node.col_offset)
-            const_end = normalize_col(1, node.end_col_offset)
-            return make_range_highlight(const_start, const_end)
-
-    # List/tuple/dict literals - highlight the opening bracket/brace
-    elif isinstance(node, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
-        if hasattr(node, "col_offset"):
-            start_pos = normalize_col(1, node.col_offset)
-            if start_pos < len(segment):
-                bracket = segment[start_pos]
-                if bracket in "([{":
-                    return make_caret_highlight(start_pos)
-
-    # Boolean operations - highlight the operator (and/or)
-    elif isinstance(node, ast.BoolOp):
-        if (
-            hasattr(node, "col_offset")
-            and len(node.values) >= 2
-            and hasattr(node.values[0], "end_col_offset")
-            and hasattr(node.values[1], "col_offset")
-        ):
-            left_end = normalize_col(1, node.values[0].end_col_offset)
-            right_start = normalize_col(1, node.values[1].col_offset)
-
-            # Find 'and' or 'or' between the values
-            op_start = left_end
-            while (
-                op_start < right_start
-                and op_start < len(segment)
-                and segment[op_start].isspace()
-            ):
-                op_start += 1
-
-            if op_start < len(segment):
-                if segment[op_start : op_start + 3] == "and":
-                    return make_range_highlight(op_start, op_start + 3)
-                elif segment[op_start : op_start + 2] == "or":
-                    return make_range_highlight(op_start, op_start + 2)
-
-    # Unary operations - highlight the operator
-    elif (
-        isinstance(node, ast.UnaryOp)
-        and hasattr(node, "col_offset")
-        and hasattr(node.operand, "col_offset")
-    ):
-        op_start = normalize_col(1, node.col_offset)
-        operand_start = normalize_col(1, node.operand.col_offset)
-
-        if op_start < operand_start:
-            return make_range_highlight(op_start, operand_start)
-
-    # For complex expressions or unsupported types, don't highlight specifically
-    return None
-
-
 def extract_chain(exc=None, **kwargs) -> list:
     """Extract information on current exception."""
     chain = []
     exc = exc or sys.exc_info()[1]
     while exc:
         chain.append(exc)
-        # Follow the explicit cause chain first, then context if no cause
-        exc = exc.__cause__ or exc.__context__
-        if exc and hasattr(exc, "__suppress_context__") and exc.__suppress_context__:
-            # If the context is suppressed, we stop here
+        if getattr(exc, "__suppress_context__", False):
             break
+        exc = exc.__cause__ or exc.__context__
     # Newest exception first
     return [extract_exception(e, **(kwargs if e is chain[0] else {})) for e in chain]
 
 
 def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
-    tb = e.__traceback__
+    raw_tb = e.__traceback__
     try:
-        tb = inspect.getinnerframes(tb)
+        tb = inspect.getinnerframes(raw_tb)
     except IndexError:  # Bug in inspect internals, find_source()
         logger.exception("Bug in inspect?")
         tb = []
+        raw_tb = None
     if skip_until:
         for i, frame in enumerate(tb):
             if skip_until in frame.filename:
                 skip_outmost = i
                 break
     tb = tb[skip_outmost:]
+    
+    # Also skip the same number of frames from raw_tb
+    if raw_tb and skip_outmost > 0:
+        for _ in range(skip_outmost):
+            if raw_tb:
+                raw_tb = raw_tb.tb_next
+    
     # Header and exception message
     message = getattr(e, "message", "") or str(e)
     summary = message.split("\n", 1)[0]
@@ -308,7 +63,7 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     try:
         # KeyboardErrors and such need not be reported all the way
         suppress = not isinstance(e, Exception)
-        frames = extract_frames(tb, suppress_inner=suppress, exc=e)
+        frames = extract_frames(tb, raw_tb, suppress_inner=suppress)
     except Exception:
         logger.exception("Error extracting traceback")
         frames = None
@@ -321,152 +76,150 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     }
 
 
-def extract_frames(tb, suppress_inner=False, exc=None) -> list:
-    if not exc:
+def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
+    if not tb:
         return []
-
     frames = []
-
-    try:
-        # Use TracebackException to get enhanced traceback information
-        te = _traceback_module.TracebackException.from_exception(
-            exc, capture_locals=True
-        )
-        stack = te.stack
-
-        if not stack:
-            return []
-
-        # Find the frame that should be highlighted as the bug location
-        # - The innermost non-library frame, or if not found, the innermost frame
-        bug_frame_idx = None
-        for i in reversed(range(len(stack))):
-            summary = stack[i]
-            if summary.line and not libdir.fullmatch(summary.filename):
-                bug_frame_idx = i
-                break
-        if bug_frame_idx is None:
-            bug_frame_idx = len(stack) - 1
-
-        for i, summary in enumerate(stack):
-            # Check for traceback hiding
-            if (
-                hasattr(summary, "locals")
-                and summary.locals
-                and summary.locals.get("__tracebackhide__", False)
-            ):
-                continue
-
-            filename = summary.filename
-            lineno = summary.lineno
-            function = summary.name
-            codeline = summary.line
-
-            # Determine relevance
-            if i == len(stack) - 1:
-                # Exception was raised here
-                relevance = "stop" if suppress_inner else "error"
-            elif i == bug_frame_idx:
-                relevance = "warning"
-            else:
-                relevance = "call"
-
-            # Extract source code lines
+    
+    # Create mapping from frames to position information
+    position_map = {}
+    if raw_tb:
+        try:
+            for frame_obj, positions in trace_cpy._walk_tb_with_full_positions(raw_tb):
+                position_map[frame_obj] = positions
+        except Exception:
+            logger.exception("Error extracting position information")
+    
+    # Choose a frame to open by default
+    # - The innermost non-library frame (libdir regex), or if not found,
+    # - The innermost frame
+    bug_in_frame = next(
+        (
+            f
+            for f in reversed(tb)
+            if f.code_context and not libdir.fullmatch(f.filename)
+        ),
+        tb[-1],
+    ).frame
+    
+    for frame, filename, lineno, function, codeline, _ in tb:
+        if frame.f_globals.get("__tracebackhide__", False):
+            continue
+        if frame.f_locals.get("__tracebackhide__", False):
+            continue
+        if frame is tb[-1][0]:
+            # Exception was raised here, show an error bomb normally, but
+            # stop for KeyboardInterrupt, CancelledError (BaseException)
+            relevance = "stop" if suppress_inner else "error"
+        elif frame is bug_in_frame:
+            relevance = "warning"
+        else:
+            relevance = "call"
+        # Extract source code lines
+        lines = []
+        try:
+            lines, start = inspect.getsourcelines(frame)
+            if start == 0:
+                start = 1  # Zero is always returned for modules; fix that.
+            # Limit lines shown
+            lines = lines[max(0, lineno - start - 15) : max(0, lineno - start + 3)]
+            start += max(0, lineno - start - 15)
+            # Deindent
+            lines = dedent("".join(lines))
+        except OSError:
             lines = ""
-            start = lineno
+            # Skip non-Python modules unless particularly relevant
+            if relevance == "call":
+                continue
+        urls = {}
+        # Format location
+        location = None
+        try:
+            ipython_in = ipython.compile._filename_map[filename]
+            location = f"In [{ipython_in}]"
+            filename = None
+        except (AttributeError, KeyError):
+            pass
+        # Format filename
+        if filename and Path(filename).is_file():
+            fn = Path(filename).resolve()
+            urls["VS Code"] = f"vscode://file/{quote(fn.as_posix())}:{lineno}"
+            cwd = Path.cwd()
+            # Use relative path if in current working directory
+            if cwd in fn.parents:
+                fn = fn.relative_to(cwd)
+                if ipython is not None:
+                    urls["Jupyter"] = f"/edit/{quote(fn.as_posix())}"
+            filename = fn.as_posix()  # Use forward slashes
+        # Shorten filename to use as displayable location
+        if not location and filename is not None:
+            split = 0
+            if len(filename) > 40:
+                split = filename.rfind("/", 10, len(filename) - 20) + 1
+            location = filename[split:]
+
+        if function == "<module>":
+            function = None
+        else:
+            # Add class name to methods (if self or cls is the first local variable)
             try:
-                # Get source lines around the error
-                with open(filename, encoding="utf-8") as f:
-                    all_lines = f.readlines()
+                cls = next(
+                    v.__class__ if n == "self" else v
+                    for n, v in frame.f_locals.items()
+                    if n in ("self", "cls") and v is not None
+                )
+                function = f"{cls.__name__}.{function}"
+            except StopIteration:
+                pass
+            # Remove long module paths (keep last two items)
+            function = ".".join(function.split(".")[-2:])
 
-                # Calculate range to show
-                start_idx = max(0, lineno - 16)  # Show 15 lines before
-                end_idx = min(len(all_lines), lineno + 3)  # Show 2 lines after
+        # Parse lines into fragments for enhanced highlighting
+        fragments = []
+        if lines:
+            # Determine error position for fragment parsing
+            error_line_in_context = (
+                lineno - start + 1
+            )  # Convert to 1-based index within the lines context
 
-                selected_lines = all_lines[start_idx:end_idx]
-                lines = dedent("".join(selected_lines))
-                start = start_idx + 1
+            # Get position information from trace_cpy
+            start_col = None
+            end_col = None
+            end_line = None
+            
+            if frame in position_map:
+                positions = position_map[frame]
+                # positions is tuple: (lineno, end_lineno, colno, end_colno)
+                if len(positions) >= 4:
+                    pos_lineno, pos_end_lineno, pos_colno, pos_end_colno = positions
+                    
+                    # Use position data if available
+                    if pos_colno is not None:
+                        start_col = pos_colno
+                    if pos_end_colno is not None:
+                        end_col = pos_end_colno
+                    if pos_end_lineno is not None and pos_end_lineno != lineno:
+                        # Convert to context-relative line number
+                        end_line = pos_end_lineno - start + 1
 
-            except (OSError, UnicodeDecodeError):
-                # If we can't read the file, at least show the single line from the traceback
-                if codeline:
-                    lines = codeline
-                    start = lineno
-                else:
-                    lines = ""
-                # Skip non-Python modules unless particularly relevant
-                if relevance == "call" and not lines:
-                    continue
-
-            urls = {}
-            location = None
-
-            # Guard ipython.compile usage
-            if ipython is not None and hasattr(ipython, "compile"):
-                try:
-                    ipython_in = ipython.compile._filename_map.get(filename)
-                    if ipython_in is not None:
-                        location = f"In [{ipython_in}]"
-                        filename = None
-                except Exception:
-                    pass
-
-            # Format filename and create URLs
-            if filename and Path(filename).is_file():
-                fn = Path(filename).resolve()
-                urls["VS Code"] = f"vscode://file/{quote(fn.as_posix())}:{lineno}"
-                cwd = Path.cwd()
-                # Use relative path if in current working directory
-                if cwd in fn.parents:
-                    fn = fn.relative_to(cwd)
-                    if ipython is not None:
-                        urls["Jupyter"] = f"/edit/{quote(fn.as_posix())}"
-                filename = fn.as_posix()  # Use forward slashes
-
-            # Shorten filename to use as displayable location
-            if location is None and filename is not None:
-                split = 0
-                if len(filename) > 40:
-                    split = filename.rfind("/", 10, len(filename) - 20) + 1
-                location = filename[split:]
-
-            # Format function name
-            if function == "<module>":
-                function = None
-            elif function and hasattr(summary, "locals") and summary.locals:
-                # Add class name to methods (if self or cls is the first local variable)
-                try:
-                    for n, v in summary.locals.items():
-                        if n in ("self", "cls") and v is not None:
-                            cls = v.__class__ if n == "self" else v
-                            function = f"{cls.__name__}.{function}"
-                            break
-                except Exception:
-                    pass
-                # Remove long module paths (keep last two items)
-                function = ".".join(function.split(".")[-2:])
-
-            # Extract variables from locals
-            variables = []
-            if hasattr(summary, "locals") and summary.locals:
-                variables = extract_variables(summary.locals, lines)
-
-            # Parse lines into fragments for enhanced highlighting
-            fragments = []
-            if lines:
-                # Determine error position for fragment parsing
-                error_line_in_context = (
-                    lineno - start + 1
-                )  # Convert to 1-based index within the lines context
-                start_col = getattr(summary, "colno", None)
-                end_col = getattr(summary, "end_colno", None)
-                end_line = getattr(summary, "end_lineno", None)
-
-                # Convert end_line to context-relative if it exists
-                if end_line is not None:
-                    end_line_in_context = end_line - start + 1
-                else:
-                    end_line_in_context = None
+            # Parse fragments with position information
+            if start_col is None and end_col is None:
+                # No column info available, use the mark_error_line approach
+                fragments = _parse_lines_to_fragments(
+                    lines,
+                    error_line_in_context,
+                    start_col=None,
+                    end_col=None,
+                    end_line=None,
+                    em_columns=None,
+                    mark_error_line=True,
+                )
+            else:
+                # Use the enhanced column information
+                # Default end_line to error_line if not set
+                end_line_in_context = (
+                    end_line if end_line is not None else error_line_in_context
+                )
 
                 fragments = _parse_lines_to_fragments(
                     lines,
@@ -474,164 +227,38 @@ def extract_frames(tb, suppress_inner=False, exc=None) -> list:
                     start_col,
                     end_col,
                     end_line_in_context,
-                    em_columns=None,  # TODO: Add AST analysis for emphasis
+                    em_columns=None,
                 )
 
-            # Create frame info
-            frameinfo = {
-                "id": f"tb-{i}",  # Use index as stable ID
+        frames.append(
+            {
+                "id": f"tb-{token_urlsafe(12)}",
                 "relevance": relevance,
                 "filename": filename,
                 "location": location,
-                "codeline": codeline.strip() if codeline else None,
+                "codeline": codeline[0].strip() if codeline else None,
                 "lineno": lineno,
                 "linenostart": start,
                 "lines": lines,
                 "fragments": fragments,  # New fragment-based structure
                 "function": function,
                 "urls": urls,
-                "variables": variables,
+                "variables": extract_variables(frame.f_locals, lines),
             }
-
-            # Add precise column positions if available (Python 3.10+)
-            if hasattr(summary, "colno") and summary.colno is not None:
-                frameinfo["colno"] = summary.colno
-                frameinfo["end_colno"] = getattr(summary, "end_colno", None)
-                frameinfo["end_lineno"] = getattr(summary, "end_lineno", None)
-
-                # Handle multi-line errors (Python 3.10+)
-                if (
-                    frameinfo["end_lineno"] is not None
-                    and frameinfo["end_lineno"] != lineno
-                ):
-                    # Multi-line error span
-                    frameinfo["is_multiline_error"] = True
-                    # Use the multiline highlighting function
-                    highlight_info = _find_multiline_highlights(
-                        lines,
-                        lineno,
-                        frameinfo["end_lineno"],
-                        summary.colno,
-                        frameinfo["end_colno"],
-                    )
-                    if highlight_info is not None:
-                        frameinfo["highlight_info"] = highlight_info
-                else:
-                    # Single-line error - use existing AST parsing
-                    end_colno = frameinfo["end_colno"]
-                    if end_colno is None:
-                        # Fallback for when end_colno is not available
-                        end_colno = summary.colno + len((summary.line or "").rstrip())
-
-                    if codeline:
-                        highlight_info = _find_caret_position(
-                            codeline, summary.colno, end_colno
-                        )
-                        if highlight_info is not None:
-                            frameinfo["highlight_info"] = highlight_info
-            else:
-                # For older Python versions (3.8-3.9) without column info,
-                # implement whitespace trimming highlighting
-                if codeline:
-                    stripped_line = codeline.strip()
-                    if stripped_line and codeline != stripped_line:
-                        # Calculate the amount of leading/trailing whitespace removed
-                        leading_spaces = len(codeline) - len(codeline.lstrip())
-                        trailing_spaces = (
-                            len(codeline.rstrip()) - len(stripped_line)
-                            if codeline.rstrip() != stripped_line
-                            else 0
-                        )
-
-                        highlight_info = {
-                            "type": "whitespace_trimmed",
-                            "leading_spaces": leading_spaces,
-                            "trailing_spaces": trailing_spaces,
-                            "trimmed_length": len(stripped_line),
-                        }
-                        frameinfo["highlight_info"] = highlight_info
-
-            frames.append(frameinfo)
-
-            if suppress_inner and i == bug_frame_idx:
-                break
-
-    except Exception:
-        logger.exception("Error extracting frames from TracebackException")
-        return []
-
+        )
+        if suppress_inner and frame is bug_in_frame:
+            break
     return frames
 
 
-def _find_multiline_highlights(lines_text, start_line, end_line, start_col, end_col):
-    """
-    Find highlighting information for multi-line errors.
-    Returns a dict with highlighting info for each line in the error span.
-    """
-    if not lines_text:
-        return None
-
-    lines = lines_text.splitlines()
-    if not lines or start_line < 1:
-        return None
-
-    # Convert to 0-based indexing for array access
-    start_idx = start_line - 1
-    end_idx = min(end_line - 1, len(lines) - 1) if end_line else start_idx
-
-    highlights = []
-
-    for line_idx in range(start_idx, end_idx + 1):
-        if line_idx >= len(lines):
-            break
-
-        line = lines[line_idx]
-        line_num = line_idx + 1
-
-        if line_num == start_line and line_num == end_line:
-            # Single line case (shouldn't happen here, but handle it)
-            highlight = {
-                "line": line_num,
-                "type": "range",
-                "start": start_col or 0,
-                "end": end_col or len(line),
-            }
-        elif line_num == start_line:
-            # First line: highlight from start_col to end of line (trimmed)
-            trimmed_end = len(line.rstrip())
-            highlight = {
-                "line": line_num,
-                "type": "range",
-                "start": start_col or 0,
-                "end": trimmed_end,
-            }
-        elif line_num == end_line:
-            # Last line: highlight from start to end_col (with leading whitespace trimmed)
-            leading_spaces = len(line) - len(line.lstrip())
-            highlight = {
-                "line": line_num,
-                "type": "range",
-                "start": leading_spaces,
-                "end": end_col or len(line.rstrip()),
-            }
-        else:
-            # Middle lines: highlight the whole line (with whitespace trimmed)
-            leading_spaces = len(line) - len(line.lstrip())
-            trimmed_end = len(line.rstrip())
-            highlight = {
-                "line": line_num,
-                "type": "range",
-                "start": leading_spaces,
-                "end": trimmed_end,
-            }
-
-        highlights.append(highlight)
-
-    return {"type": "multiline", "highlights": highlights}
-
-
 def _parse_lines_to_fragments(
-    lines_text, error_line, start_col=None, end_col=None, end_line=None, em_columns=None
+    lines_text,
+    error_line,
+    start_col=None,
+    end_col=None,
+    end_line=None,
+    em_columns=None,
+    mark_error_line=False,
 ):
     """
     Parse lines of code into fragments with mark/em highlighting information.
@@ -643,6 +270,7 @@ def _parse_lines_to_fragments(
         end_col: End column for highlighting (0-based, optional)
         end_line: End line for multi-line errors (1-based, optional)
         em_columns: Dict mapping line numbers to lists of column positions for emphasis
+        mark_error_line: If True and no column info, mark the entire error line
 
     Returns:
         List of line dictionaries with fragment information
@@ -650,13 +278,13 @@ def _parse_lines_to_fragments(
     if not lines_text:
         return []
 
-    lines = lines_text.splitlines()
+    lines = lines_text.splitlines(keepends=True)
     if not lines:
         return []
 
     # Calculate common indentation (dedent)
     common_indent_len = 0
-    non_empty_lines = [line for line in lines if line.strip()]
+    non_empty_lines = [line.rstrip("\r\n") for line in lines if line.strip()]
     if non_empty_lines:
         common_indent_len = min(
             len(line) - len(line.lstrip()) for line in non_empty_lines
@@ -670,21 +298,38 @@ def _parse_lines_to_fragments(
         # Determine mark range for this line
         mark_range = None
         if start_col is not None and end_col is not None:
+            # Work with the line content without line endings for range calculations
+            line_content = line.rstrip("\r\n")
             if end_line is not None and end_line != error_line:
                 # Multi-line error
                 if line_num == error_line:
-                    mark_range = (start_col, len(line.rstrip()))
+                    mark_range = (start_col, len(line_content.rstrip()))
                 elif line_num == end_line:
-                    mark_range = (len(line) - len(line.lstrip()), end_col)
+                    mark_range = (
+                        len(line_content) - len(line_content.lstrip()),
+                        end_col,
+                    )
                 elif error_line < line_num < end_line:
-                    mark_range = (len(line) - len(line.lstrip()), len(line.rstrip()))
+                    mark_range = (
+                        len(line_content) - len(line_content.lstrip()),
+                        len(line_content.rstrip()),
+                    )
             elif line_num == error_line:
                 mark_range = (start_col, end_col)
+        elif mark_error_line and line_num == error_line:
+            # Mark the entire error line when no column info is available
+            line_content = line.rstrip("\r\n")
+            # Mark from first non-whitespace to last non-whitespace character
+            leading_spaces = len(line_content) - len(line_content.lstrip())
+            trimmed_end = len(line_content.rstrip())
+            if trimmed_end > leading_spaces:
+                mark_range = (leading_spaces, trimmed_end)
 
         # Get emphasis columns for this line
         em_cols = em_columns.get(line_num, []) if em_columns else []
 
-        # Parse line into fragments
+        # Parse line into fragments - always create fragments for all lines
+        # regardless of whether they have marking/highlighting
         fragments = _parse_line_to_fragments(
             line, common_indent_len, mark_range, em_cols
         )
@@ -700,17 +345,34 @@ def _parse_line_to_fragments(line, common_indent_len, mark_range, em_columns):
     if not line:
         return []
 
+    # Separate line content from line ending
+    line_ending = ""
+    if line.endswith("\r\n"):
+        line_content = line[:-2]
+        line_ending = "\r\n"
+    elif line.endswith("\n"):
+        line_content = line[:-1]
+        line_ending = "\n"
+    elif line.endswith("\r"):
+        line_content = line[:-1]
+        line_ending = "\r"
+    else:
+        line_content = line
+
+    if not line_content and not line_ending:
+        return []
+
     fragments = []
     pos = 0
 
     # Handle dedent (common indentation)
-    if common_indent_len > 0 and len(line) > common_indent_len:
-        dedent_text = line[:common_indent_len]
+    if common_indent_len > 0 and len(line_content) > common_indent_len:
+        dedent_text = line_content[:common_indent_len]
         fragments.append({"code": dedent_text, "dedent": "solo"})
         pos = common_indent_len
 
     # Handle additional indentation
-    remaining = line[pos:]
+    remaining = line_content[pos:]
     indent_match = re.match(r"^(\s+)", remaining)
     if indent_match:
         indent_text = indent_match.group(1)
@@ -740,8 +402,9 @@ def _parse_line_to_fragments(line, common_indent_len, mark_range, em_columns):
         if code_whitespace:
             fragments.append({"code": code_whitespace, "trailing": "solo"})
 
-        # Add comment
-        fragments.append({"code": comment_part, "comment": "solo"})
+        # Add comment with line ending
+        comment_with_ending = comment_part + line_ending
+        fragments.append({"code": comment_with_ending, "comment": "solo"})
 
     else:
         # No comment, parse entire remaining as code
@@ -755,9 +418,10 @@ def _parse_line_to_fragments(line, common_indent_len, mark_range, em_columns):
             )
             fragments.extend(code_fragments)
 
-        # Add trailing whitespace
-        if trailing_whitespace:
-            fragments.append({"code": trailing_whitespace, "trailing": "solo"})
+        # Add trailing whitespace and line ending
+        trailing_content = trailing_whitespace + line_ending
+        if trailing_content:
+            fragments.append({"code": trailing_content, "trailing": "solo"})
 
     return fragments
 
@@ -946,6 +610,3 @@ def _positions_to_ranges(positions):
     # Close the last range
     ranges.append((start, end))
     return ranges
-
-
-# Will be set to an instance if loaded as an IPython extension by %load_ext

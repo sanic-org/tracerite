@@ -1,6 +1,6 @@
 from importlib.resources import files
 
-from html5tagger import E
+from html5tagger import HTML, E
 
 from .trace import extract_chain
 
@@ -69,7 +69,7 @@ def _exception(doc, info, *, local_urls=False):
                     continue
                 with doc.div(class_="traceback-details", id=frinfo["id"]):
                     traceback_detail(doc, info, frinfo, local_urls=local_urls)
-                    variable_inspector(doc, frinfo["variables"])
+                    # variable_inspector(doc, frinfo["variables"])
 
 
 def _tab_header(doc, frinfo):
@@ -98,14 +98,51 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
     else:
         with doc.pre, doc.code:
             start = frinfo["linenostart"]
-            lineno = frinfo["lineno"]
+            frinfo["lineno"]
             for line_info in fragments:
                 line_num = line_info["line"]
                 abs_line = start + line_num - 1
+                fragments = line_info["fragments"]
+
+                # Render content fragments inside the codeline span
                 with doc.span(class_="codeline", data_lineno=abs_line):
-                    _render_line_fragments(
-                        doc, line_info["fragments"], info, frinfo, abs_line == lineno
-                    )
+                    for fragment in fragments:
+                        if "trailing" in fragment:
+                            break
+                        _render_fragment(doc, fragment)
+                    else:
+                        fragment = None
+                # Render trailing fragment outside the span
+                if fragment:
+                    _render_fragment(doc, fragment)
+
+
+def _render_line_fragments(doc, fragments, info, frinfo, is_error_line):
+    """Render a line using the fragment-based structure."""
+    for fragment in fragments:
+        _render_fragment(doc, fragment)
+
+
+def _render_fragment(doc, fragment):
+    """Render a single fragment with appropriate styling."""
+    code = fragment["code"]
+
+    mark = fragment.get("mark")
+    em = fragment.get("em")
+    # Render opening tags for "mark" and "em" if applicable
+    if mark in ["solo", "beg"]:
+        doc(HTML("<mark>"))
+    if em in ["solo", "beg"]:
+        doc(HTML("<em>"))
+
+    # Render the code
+    doc(code)
+
+    # Render closing tags for "mark" and "em" if applicable
+    if em in ["fin", "solo"]:
+        doc(HTML("</em>"))
+    if mark in ["fin", "solo"]:
+        doc(HTML("</mark>"))
 
 
 def variable_inspector(doc, variables):
@@ -113,9 +150,9 @@ def variable_inspector(doc, variables):
         return
     with doc.table(class_="inspector key-value"):
         for n, t, v in variables:
-            doc.tr.td.span(n, class_="var")(": ").span(t, class_="type")(
-                "\xa0=\xa0"
-            ).td(class_="val")
+            doc.tr.td.span(n, class_="var")(": ").span(t, class_="type")(" = ").td(
+                class_="val"
+            )
             if isinstance(v, str):
                 doc(v)
             else:
@@ -142,124 +179,3 @@ def _format_matrix(doc, v):
                     doc.td(e, class_="skippedleft")
                 else:
                     doc.td(e)
-
-
-def _render_line_fragments(doc, fragments, info, frinfo, is_error_line):
-    """Render a line using the new fragment-based structure."""
-    if not fragments:
-        return
-
-    # If this is the error line, apply error styling
-    if is_error_line:
-        symbol = symbols.get(frinfo["relevance"])
-        try:
-            tooltip_text = tooltips[frinfo["relevance"]].format(**info, **frinfo)
-        except Exception:
-            tooltip_text = repr(frinfo["relevance"])
-
-        with doc.span(
-            data_symbol=symbol,
-            data_tooltip=tooltip_text,
-            class_="tracerite-tooltip",
-        ):
-            for fragment in fragments:
-                _render_fragment(doc, fragment)
-    else:
-        # Regular line, just render fragments without error styling
-        for fragment in fragments:
-            _render_fragment(doc, fragment)
-
-
-def _render_fragment(doc, fragment):
-    """Render a single fragment with appropriate styling."""
-    code = fragment["code"]
-
-    # Determine if this fragment has highlighting
-    has_mark = "mark" in fragment
-    has_em = "em" in fragment
-
-    if has_mark and has_em:
-        # Both mark and em - handle nesting based on beg/mid/fin/solo
-        mark_type = fragment["mark"]
-        em_type = fragment["em"]
-
-        if mark_type == "solo":
-            # Complete mark tag
-            if em_type == "solo":
-                doc.mark(doc.em(code))
-            elif em_type == "beg":
-                doc.mark(doc("<em>"), code)
-            elif em_type == "mid":
-                doc.mark(code)
-            elif em_type == "fin":
-                doc.mark(code, doc("</em>"))
-        elif mark_type == "beg":
-            # Opening mark tag
-            if em_type == "solo":
-                doc("<mark>").em(code)
-            elif em_type == "beg":
-                doc("<mark><em>", code)
-            elif em_type == "mid":
-                doc("<mark>", code)
-            elif em_type == "fin":
-                doc("<mark>", code, "</em>")
-        elif mark_type == "mid":
-            # No mark tags
-            if em_type == "solo":
-                doc.em(code)
-            elif em_type == "beg":
-                doc("<em>", code)
-            elif em_type == "mid":
-                doc(code)
-            elif em_type == "fin":
-                doc(code, "</em>")
-        elif mark_type == "fin":
-            # Closing mark tag
-            if em_type == "solo":
-                doc.em(code)("</mark>")
-            elif em_type == "beg":
-                doc("<em>", code, "</mark>")
-            elif em_type == "mid":
-                doc(code, "</mark>")
-            elif em_type == "fin":
-                doc(code, "</em></mark>")
-
-    elif has_mark:
-        # Just mark highlighting
-        mark_type = fragment["mark"]
-        if mark_type == "solo":
-            doc.mark(code)
-        elif mark_type == "beg":
-            doc("<mark>", code)
-        elif mark_type == "mid":
-            doc(code)
-        elif mark_type == "fin":
-            doc(code, "</mark>")
-
-    elif has_em:
-        # Just em highlighting
-        em_type = fragment["em"]
-        if em_type == "solo":
-            doc.em(code)
-        elif em_type == "beg":
-            doc("<em>", code)
-        elif em_type == "mid":
-            doc(code)
-        elif em_type == "fin":
-            doc(code, "</em>")
-    else:
-        # Regular fragment, check for special types
-        fragment_class = None
-        if "dedent" in fragment:
-            fragment_class = "dedent"
-        elif "indent" in fragment:
-            fragment_class = "indent"
-        elif "comment" in fragment:
-            fragment_class = "comment"
-        elif "trailing" in fragment:
-            fragment_class = "trailing"
-
-        if fragment_class:
-            doc.span(code, class_=fragment_class)
-        else:
-            doc(code)
