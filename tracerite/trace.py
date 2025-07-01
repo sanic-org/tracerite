@@ -358,64 +358,100 @@ def _parse_lines_to_fragments(
     if not lines_text:
         return []
 
+
+def _calculate_mark_range(
+    line_num, line_content, error_line, start_col, end_col, end_line, mark_error_line
+):
+    """Calculate mark range for a given line."""
+    if start_col is not None and end_col is not None:
+        if end_line is not None and end_line != error_line:
+            # Multi-line error
+            if line_num == error_line:
+                return (start_col, len(line_content.rstrip()))
+            elif line_num == end_line:
+                return (len(line_content) - len(line_content.lstrip()), end_col)
+            elif error_line < line_num < end_line:
+                return (
+                    len(line_content) - len(line_content.lstrip()),
+                    len(line_content.rstrip()),
+                )
+        elif line_num == error_line:
+            return (start_col, end_col)
+    elif mark_error_line and line_num == error_line:
+        # Mark the entire error line when no column info is available
+        leading_spaces = len(line_content) - len(line_content.lstrip())
+        trimmed_end = len(line_content.rstrip())
+        if trimmed_end > leading_spaces:
+            return (leading_spaces, trimmed_end)
+    return None
+
+
+def _calculate_common_indent(lines):
+    """Calculate common indentation across all non-empty lines."""
+    non_empty_lines = [line.rstrip("\r\n") for line in lines if line.strip()]
+    if non_empty_lines:
+        return min(len(line) - len(line.lstrip()) for line in non_empty_lines)
+    return 0
+
+
+def _parse_lines_to_fragments(
+    lines_text,
+    error_line,
+    start_col=None,
+    end_col=None,
+    end_line=None,
+    em_columns=None,
+    mark_error_line=False,
+):
+    """
+    Parse lines of code into fragments with mark/em highlighting information.
+
+    Args:
+        lines_text: The multi-line string containing code
+        error_line: The line number where the error occurred (1-based)
+        start_col: Start column for highlighting (0-based, optional)
+        end_col: End column for highlighting (0-based, optional)
+        end_line: End line for multi-line errors (1-based, optional)
+        em_columns: Dict mapping line numbers to lists of column positions for emphasis
+        mark_error_line: If True and no column info, mark the entire error line
+
+    Returns:
+        List of line dictionaries with fragment information
+    """
+    if not lines_text:
+        return []
+
     lines = lines_text.splitlines(keepends=True)
     if not lines:
         return []
 
-    # Calculate common indentation (dedent)
-    common_indent_len = 0
-    non_empty_lines = [line.rstrip("\r\n") for line in lines if line.strip()]
-    if non_empty_lines:
-        common_indent_len = min(
-            len(line) - len(line.lstrip()) for line in non_empty_lines
-        )
-
+    common_indent_len = _calculate_common_indent(lines)
     result = []
 
     for line_idx, line in enumerate(lines):
         line_num = line_idx + 1
+        line_content = line.rstrip("\r\n")
 
-        # Determine mark range for this line
-        mark_range = None
-        if start_col is not None and end_col is not None:
-            # Work with the line content without line endings for range calculations
-            line_content = line.rstrip("\r\n")
-            if end_line is not None and end_line != error_line:
-                # Multi-line error
-                if line_num == error_line:
-                    mark_range = (start_col, len(line_content.rstrip()))
-                elif line_num == end_line:
-                    mark_range = (
-                        len(line_content) - len(line_content.lstrip()),
-                        end_col,
-                    )
-                elif error_line < line_num < end_line:
-                    mark_range = (
-                        len(line_content) - len(line_content.lstrip()),
-                        len(line_content.rstrip()),
-                    )
-            elif line_num == error_line:
-                mark_range = (start_col, end_col)
-        elif mark_error_line and line_num == error_line:
-            # Mark the entire error line when no column info is available
-            line_content = line.rstrip("\r\n")
-            # Mark from first non-whitespace to last non-whitespace character
-            leading_spaces = len(line_content) - len(line_content.lstrip())
-            trimmed_end = len(line_content.rstrip())
-            if trimmed_end > leading_spaces:
-                mark_range = (leading_spaces, trimmed_end)
+        # Calculate mark range for this line
+        mark_range = _calculate_mark_range(
+            line_num,
+            line_content,
+            error_line,
+            start_col,
+            end_col,
+            end_line,
+            mark_error_line,
+        )
 
         # Get emphasis columns for this line
         em_cols = em_columns.get(line_num, []) if em_columns else []
 
-        # Parse line into fragments - always create fragments for all lines
-        # regardless of whether they have marking/highlighting
+        # Parse line into fragments
         fragments = _parse_line_to_fragments(
             line, common_indent_len, mark_range, em_cols
         )
 
-        line_info = {"line": line_num, "fragments": fragments}
-        result.append(line_info)
+        result.append({"line": line_num, "fragments": fragments})
 
     return result
 
