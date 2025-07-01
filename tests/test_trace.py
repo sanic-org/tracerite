@@ -2,7 +2,17 @@
 
 from tracerite import extract_chain
 
-from .errorcases import binomial_operator, max_type_error_case, multiline_marking
+from .errorcases import (
+    binomial_operator,
+    chained_from_and_without,
+    max_type_error_case,
+    multiline_marking,
+    multiline_marking_comment,
+    reraise_context,
+    reraise_suppressed_context,
+    unrelated_error_in_except,
+    unrelated_error_in_finally,
+)
 
 
 def test_em_columns_binary_operator():
@@ -146,3 +156,259 @@ def test_em_columns_structure():
 
                     # Should also have other markings like 'mark' for error highlighting
                     # but em is independent of mark
+
+
+def test_em_columns_multiline_marking_comment():
+    """Test that em_columns work for multiline operator with comments."""
+    try:
+        multiline_marking_comment()
+    except Exception as e:
+        chain = extract_chain(e)
+        assert chain is not None
+        assert len(chain) > 0
+
+        frame = chain[0]["frames"][-1]
+
+        # Check that we have fragments
+        assert "fragments" in frame
+        fragments = frame["fragments"]
+        assert isinstance(fragments, list)
+        assert len(fragments) > 0
+
+        # For multiline operators with comments, check that we have emphasis somewhere
+        found_em_fragment = False
+        for line_info in fragments:
+            for fragment in line_info["fragments"]:
+                if "em" in fragment:
+                    found_em_fragment = True
+                    break
+            if found_em_fragment:
+                break
+
+        # We should find emphasized fragments for multiline operators with comments too
+        assert found_em_fragment, (
+            "No emphasized fragment found for multiline operator with comment"
+        )
+
+
+def test_em_columns_max_type_error():
+    """Test that em_columns work for function call type errors."""
+    try:
+        max_type_error_case()
+    except Exception as e:
+        chain = extract_chain(e)
+        assert chain is not None
+        assert len(chain) > 0
+
+        frame = chain[0]["frames"][-1]
+
+        # Check that we have fragments
+        assert "fragments" in frame
+        fragments = frame["fragments"]
+        assert isinstance(fragments, list)
+        assert len(fragments) > 0
+
+        # Look for emphasized fragments in function calls
+        found_em_fragment = False
+        for line_info in fragments:
+            for fragment in line_info["fragments"]:
+                if "em" in fragment:
+                    found_em_fragment = True
+                    # The emphasized fragment should contain part of the function call
+                    assert "code" in fragment
+                    break
+            if found_em_fragment:
+                break
+
+        # We should find emphasized fragments for function calls
+        assert found_em_fragment, "No emphasized fragment found for function call"
+
+
+def test_em_columns_reraise_context():
+    """Test that em_columns work for reraise with context."""
+    try:
+        reraise_context()
+    except Exception as e:
+        chain = extract_chain(e)
+        assert chain is not None
+        assert len(chain) > 0
+
+        # Check that we have at least one frame with fragments
+        found_fragments = False
+        for exc_info in chain:
+            for frame in exc_info["frames"]:
+                if "fragments" in frame and frame["fragments"]:
+                    found_fragments = True
+                    break
+            if found_fragments:
+                break
+
+        assert found_fragments, "No fragments found in reraise context"
+
+
+def test_em_columns_reraise_suppressed_context():
+    """Test that em_columns work for reraise with suppressed context."""
+    try:
+        reraise_suppressed_context()
+    except Exception as e:
+        chain = extract_chain(e)
+        assert chain is not None
+        assert len(chain) > 0
+
+        # Check that we have at least one frame with fragments
+        found_fragments = False
+        for exc_info in chain:
+            for frame in exc_info["frames"]:
+                if "fragments" in frame and frame["fragments"]:
+                    found_fragments = True
+                    break
+            if found_fragments:
+                break
+
+        assert found_fragments, "No fragments found in reraise suppressed context"
+
+
+def test_em_columns_chained_exceptions():
+    """Test that em_columns work for chained exceptions."""
+    try:
+        chained_from_and_without()
+    except Exception as e:
+        chain = extract_chain(e)
+        assert chain is not None
+        assert len(chain) > 0
+
+        # Check that we have at least one frame with fragments
+        found_fragments = False
+        for exc_info in chain:
+            for frame in exc_info["frames"]:
+                if "fragments" in frame and frame["fragments"]:
+                    found_fragments = True
+                    break
+            if found_fragments:
+                break
+
+        assert found_fragments, "No fragments found in chained exceptions"
+
+
+def test_em_columns_unrelated_error_except():
+    """Test that em_columns work for unrelated errors in except blocks."""
+    try:
+        unrelated_error_in_except()
+    except Exception as e:
+        chain = extract_chain(e)
+        assert chain is not None
+        assert len(chain) > 0
+
+        frame = chain[0]["frames"][-1]
+
+        # Check that we have fragments
+        assert "fragments" in frame
+        fragments = frame["fragments"]
+        assert isinstance(fragments, list)
+        assert len(fragments) > 0
+
+        # Look for emphasized fragments in division by zero
+        found_em_fragment = False
+        for line_info in fragments:
+            for fragment in line_info["fragments"]:
+                if "em" in fragment:
+                    found_em_fragment = True
+                    # The emphasized fragment should contain the division operator
+                    assert "code" in fragment
+                    break
+            if found_em_fragment:
+                break
+
+        # We should find emphasized fragments for division operator
+        assert found_em_fragment, "No emphasized fragment found for division operator"
+
+
+def test_em_columns_unrelated_error_finally():
+    """Test that em_columns work for unrelated errors in finally blocks."""
+    try:
+        unrelated_error_in_finally()
+    except Exception as e:
+        chain = extract_chain(e)
+        assert chain is not None
+        assert len(chain) > 0
+
+        frame = chain[0]["frames"][-1]
+
+        # Check that we have fragments
+        assert "fragments" in frame
+        fragments = frame["fragments"]
+        assert isinstance(fragments, list)
+        assert len(fragments) > 0
+
+        # Look for emphasized fragments in division by zero
+        found_em_fragment = False
+        for line_info in fragments:
+            for fragment in line_info["fragments"]:
+                if "em" in fragment:
+                    found_em_fragment = True
+                    # The emphasized fragment should contain the division operator
+                    assert "code" in fragment
+                    break
+            if found_em_fragment:
+                break
+
+        # We should find emphasized fragments for division operator
+        assert found_em_fragment, "No emphasized fragment found for division operator"
+
+
+def test_em_columns_comprehensive_structure():
+    """Test that em_columns work across different error types and maintain structure."""
+    test_functions = [
+        binomial_operator,
+        multiline_marking,
+        multiline_marking_comment,
+        max_type_error_case,
+        unrelated_error_in_except,
+        unrelated_error_in_finally,
+    ]
+
+    for test_func in test_functions:
+        try:
+            test_func()
+        except Exception as e:
+            chain = extract_chain(e)
+            assert chain is not None, f"Chain is None for {test_func.__name__}"
+            assert len(chain) > 0, f"Empty chain for {test_func.__name__}"
+
+            # Check that at least one frame has proper fragment structure
+            found_valid_structure = False
+            for exc_info in chain:
+                for frame in exc_info["frames"]:
+                    if "fragments" in frame and frame["fragments"]:
+                        fragments = frame["fragments"]
+                        # Verify fragment structure
+                        for line_info in fragments:
+                            assert "line" in line_info, (
+                                f"Missing line in fragment for {test_func.__name__}"
+                            )
+                            assert "fragments" in line_info, (
+                                f"Missing fragments in line_info for {test_func.__name__}"
+                            )
+                            assert isinstance(line_info["line"], int), (
+                                f"Invalid line type for {test_func.__name__}"
+                            )
+                            assert isinstance(line_info["fragments"], list), (
+                                f"Invalid fragments type for {test_func.__name__}"
+                            )
+
+                            for fragment in line_info["fragments"]:
+                                assert "code" in fragment, (
+                                    f"Missing code in fragment for {test_func.__name__}"
+                                )
+                                assert isinstance(fragment["code"], str), (
+                                    f"Invalid code type for {test_func.__name__}"
+                                )
+
+                        found_valid_structure = True
+                        break
+                if found_valid_structure:
+                    break
+
+            assert found_valid_structure, (
+                f"No valid fragment structure found for {test_func.__name__}"
+            )

@@ -343,6 +343,11 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
                                 em_columns[right_line].append(
                                     anchors.right_start_offset
                                 )
+                        else:
+                            # Fallback for complex multiline cases: look for operators line by line
+                            _fallback_multiline_operator_detection(
+                                segment_lines, segment_start, em_columns
+                            )
             except Exception:
                 logger.exception("Error extracting caret anchors")
 
@@ -528,13 +533,19 @@ def _parse_line_to_fragments(line, common_indent_len, mark_range, em_columns):
             )
             fragments.extend(code_fragments)
 
-        # Add whitespace between code and comment
-        if code_whitespace:
-            fragments.append({"code": code_whitespace, "trailing": "solo"})
+        # Split comment into comment text and trailing whitespace
+        comment_trimmed = comment_part.rstrip()
+        comment_trailing = comment_part[len(comment_trimmed) :]
 
-        # Add comment with line ending
-        comment_with_ending = comment_part + line_ending
-        fragments.append({"code": comment_with_ending, "comment": "solo"})
+        # Add comment with whitespace between code and comment (but not trailing whitespace after comment)
+        comment_with_leading_space = code_whitespace + comment_trimmed
+        if comment_with_leading_space:
+            fragments.append({"code": comment_with_leading_space, "comment": "solo"})
+
+        # Add trailing whitespace after comment and line ending as the final trailing fragment
+        trailing_content = comment_trailing + line_ending
+        if trailing_content:
+            fragments.append({"code": trailing_content, "trailing": "solo"})
 
     else:
         # No comment, parse entire remaining as code
@@ -740,3 +751,30 @@ def _positions_to_ranges(positions):
     # Close the last range
     ranges.append((start, end))
     return ranges
+
+
+def _fallback_multiline_operator_detection(segment_lines, segment_start, em_columns):
+    """
+    Fallback approach to find operators in multiline segments where
+    caret anchor extraction fails. Looks for standalone operators in each line.
+    """
+    import re
+
+    # Common binary operators that might appear on their own line
+    operator_pattern = re.compile(r"^\s*([+\-*/=<>!&|%^]+)\s*(?:#.*)?$")
+
+    for line_idx, line_content in enumerate(segment_lines):
+        match = operator_pattern.match(line_content.rstrip("\r\n"))
+        if match:
+            operator = match.group(1)
+            operator_start = match.start(1)
+
+            # Convert to absolute line number (1-based)
+            abs_line = segment_start + line_idx + 1
+
+            # Add emphasis for each character of the operator
+            if abs_line not in em_columns:
+                em_columns[abs_line] = []
+
+            for i in range(len(operator)):
+                em_columns[abs_line].append(operator_start + i)
