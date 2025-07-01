@@ -16,6 +16,9 @@ ipython = None
 # Locations considered to be bug-free
 libdir = re.compile(r"/usr/.*|.*(site-packages|dist-packages).*")
 
+# Pattern for detecting standalone operators in multiline segments
+OPERATOR_PATTERN = re.compile(r"^\s*([+\-*/=<>!&|%^]+)\s*(?:#.*)?$")
+
 
 def extract_chain(exc=None, **kwargs) -> list:
     """Extract information on current exception."""
@@ -26,6 +29,19 @@ def extract_chain(exc=None, **kwargs) -> list:
         exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
     # Newest exception first
     return [extract_exception(e, **(kwargs if e is chain[0] else {})) for e in chain]
+
+
+def _create_summary(message):
+    """Create a truncated summary of the exception message."""
+    summary = message.split("\n", 1)[0]
+    if len(summary) <= 100:
+        return summary
+
+    if len(message) > 1000:
+        # Sometimes the useful bit is at the end of a very long message
+        return f"{message[:40]} ··· {message[-40:]}"
+    else:
+        return f"{summary[:60]} ···"
 
 
 def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
@@ -51,13 +67,7 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
 
     # Header and exception message
     message = getattr(e, "message", "") or str(e)
-    summary = message.split("\n", 1)[0]
-    if len(summary) > 100:
-        if len(message) > 1000:
-            # Sometimes the useful bit is at the end of a very long message
-            summary = f"{message[:40]} ··· {message[-40:]}"
-        else:
-            summary = f"{summary[:60]} ···"
+    summary = _create_summary(message)
     try:
         # KeyboardErrors and such need not be reported all the way
         suppress = not isinstance(e, Exception)
@@ -746,13 +756,8 @@ def _fallback_multiline_operator_detection(segment_lines, segment_start, em_colu
     Fallback approach to find operators in multiline segments where
     caret anchor extraction fails. Looks for standalone operators in each line.
     """
-    import re
-
-    # Common binary operators that might appear on their own line
-    operator_pattern = re.compile(r"^\s*([+\-*/=<>!&|%^]+)\s*(?:#.*)?$")
-
     for line_idx, line_content in enumerate(segment_lines):
-        match = operator_pattern.match(line_content.rstrip("\r\n"))
+        match = OPERATOR_PATTERN.match(line_content.rstrip("\r\n"))
         if match:
             operator = match.group(1)
             operator_start = match.start(1)
