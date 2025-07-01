@@ -113,7 +113,8 @@ def format_location(filename, lineno):
     return filename, location, urls
 
 
-def determine_function_name(frame, function):
+def _get_qualified_function_name(frame, function):
+    """Get qualified function name with class prefix if available."""
     if function == "<module>":
         return None
     try:
@@ -128,16 +129,117 @@ def determine_function_name(frame, function):
     return ".".join(function.split(".")[-2:])
 
 
-def determine_relevance(frame, tb, bug_in_frame, suppress_inner):
-    if frame is tb[-1][0]:
+def _get_frame_relevance(is_last_frame, is_bug_frame, suppress_inner):
+    """Determine frame relevance: error, warning, call, or stop."""
+    if is_last_frame:
         return "stop" if suppress_inner else "error"
-    elif frame is bug_in_frame:
+    elif is_bug_frame:
         return "warning"
     return "call"
 
 
-def build_position_map(raw_tb):
+def _extract_emphasis_columns(
+    lines, error_line_in_context, end_line, start_col, end_col, start
+):
+    """Extract emphasis columns using caret anchors from the code segment."""
+    em_columns = {}
+
+    if not (end_line and start_col is not None and end_col is not None):
+        return em_columns
+
+    try:
+        lines_list = lines.splitlines(keepends=True)
+        segment_start = error_line_in_context - 1  # Convert to 0-based index
+        segment_end = end_line if end_line else error_line_in_context
+
+        if not (
+            0 <= segment_start < len(lines_list) and segment_end <= len(lines_list)
+        ):
+            return em_columns
+
+        segment_lines = lines_list[segment_start:segment_end]
+        segment = "".join(segment_lines)
+
+        # For single-line errors, try to extract just the expression part
+        if len(segment_lines) == 1:
+            anchors = _extract_single_line_anchors(
+                segment_lines[0], start_col, end_col, segment_start, em_columns
+            )
+            if not anchors:
+                # Fallback to full segment approach
+                _extract_full_segment_anchors(segment, segment_start, em_columns)
+        else:
+            # Multi-line segment
+            _extract_full_segment_anchors(segment, segment_start, em_columns)
+            if not em_columns:
+                # Fallback for complex multiline cases
+                _fallback_multiline_operator_detection(
+                    segment_lines, segment_start, em_columns
+                )
+
+    except Exception:
+        logger.exception("Error extracting caret anchors")
+
+    return em_columns
+
+
+def _extract_single_line_anchors(
+    line_content, start_col, end_col, segment_start, em_columns
+):
+    """Extract anchors for single-line errors."""
+    line_content = line_content.rstrip("\r\n")
+    if not (start_col < len(line_content) and end_col <= len(line_content)):
+        return False
+
+    expression_segment = line_content[start_col:end_col]
+    anchors = trace_cpy._extract_caret_anchors_from_line_segment(expression_segment)
+
+    if not anchors:
+        return False
+
+    left_line = segment_start + 1  # Convert back to 1-based line number in context
+    left_col = start_col + anchors.left_end_offset
+
+    # Add emphasis columns for the anchor positions
+    if left_line not in em_columns:
+        em_columns[left_line] = []
+    em_columns[left_line].append(left_col)
+
+    # For operators that span multiple characters (like subscripts)
+    if anchors.right_start_offset > anchors.left_end_offset + 1:
+        right_col = start_col + anchors.right_start_offset - 1
+        for col in range(left_col + 1, right_col + 1):
+            em_columns[left_line].append(col)
+
+    return True
+
+
+def _extract_full_segment_anchors(segment, segment_start, em_columns):
+    """Extract anchors from full segment (fallback or multi-line)."""
+    anchors = trace_cpy._extract_caret_anchors_from_line_segment(segment)
+    if not anchors:
+        return
+
+    # Convert anchors to em_columns format
+    left_line = anchors.left_end_lineno + segment_start + 1  # Convert back to 1-based
+    right_line = anchors.right_start_lineno + segment_start + 1
+
+    # Add emphasis columns for the anchor positions
+    if left_line not in em_columns:
+        em_columns[left_line] = []
+    em_columns[left_line].append(anchors.left_end_offset)
+
+    if right_line not in em_columns:
+        em_columns[right_line] = []
+    if right_line != left_line or anchors.right_start_offset != anchors.left_end_offset:
+        em_columns[right_line].append(anchors.right_start_offset)
+
+
+def _build_position_map(raw_tb):
+    """Build mapping from frame objects to position tuples."""
     position_map = {}
+    if not raw_tb:
+        return position_map
     try:
         for frame_obj, positions in trace_cpy._walk_tb_with_full_positions(raw_tb):
             position_map[frame_obj] = positions
@@ -146,7 +248,8 @@ def build_position_map(raw_tb):
     return position_map
 
 
-def find_bug_in_frame(tb):
+def _find_bug_frame(tb):
+    """Find the most relevant user code frame in the traceback."""
     return next(
         (
             f
@@ -161,24 +264,8 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
     if not tb:
         return []
 
-    # Map frame -> (lineno, end_lineno, colno, end_colno)
-    position_map = {}
-    if raw_tb:
-        try:
-            for frame_obj, positions in trace_cpy._walk_tb_with_full_positions(raw_tb):
-                position_map[frame_obj] = positions
-        except Exception:
-            logger.exception("Error extracting position information")
-
-    # Determine relevant frame
-    bug_in_frame = next(
-        (
-            f
-            for f in reversed(tb)
-            if f.code_context and not libdir.fullmatch(f.filename)
-        ),
-        tb[-1],
-    ).frame
+    position_map = _build_position_map(raw_tb)
+    bug_in_frame = _find_bug_frame(tb)
 
     frames = []
     for frame, filename, lineno, function, codeline, _ in tb:
@@ -187,170 +274,28 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         ):
             continue
 
-        relevance = (
-            "stop"
-            if frame is tb[-1][0] and suppress_inner
-            else "error"
-            if frame is tb[-1][0]
-            else "warning"
-            if frame is bug_in_frame
-            else "call"
-        )
+        is_last_frame = frame is tb[-1][0]
+        is_bug_frame = frame is bug_in_frame
+        relevance = _get_frame_relevance(is_last_frame, is_bug_frame, suppress_inner)
 
         lines, start = extract_source_lines(frame, lineno)
         if not lines and relevance == "call":
             continue
 
         filename, location, urls = format_location(filename, lineno)
+        function = _get_qualified_function_name(frame, function)
 
-        if function and function != "<module>":
-            try:
-                cls = next(
-                    v.__class__ if n == "self" else v
-                    for n, v in frame.f_locals.items()
-                    if n in ("self", "cls") and v is not None
-                )
-                function = f"{cls.__name__}.{function}"
-            except StopIteration:
-                pass
-            function = ".".join(function.split(".")[-2:])
-        else:
-            function = None
-
+        # Extract position information
         pos = position_map.get(frame, [None] * 4)
-        pos_end_lineno = pos[1]
-        start_col = pos[2]
-        end_col = pos[3]
+        pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
 
         error_line_in_context = lineno - start + 1
         end_line = pos_end_lineno - start + 1 if pos_end_lineno else None
 
-        # Extract emphasis columns using caret anchors from the segment
-        em_columns = {}
-        if pos_end_lineno and start_col is not None and end_col is not None:
-            try:
-                # Extract the segment from start line to end line
-                lines_list = lines.splitlines(keepends=True)
-                segment_start = error_line_in_context - 1  # Convert to 0-based index
-                segment_end = end_line if end_line else error_line_in_context
-
-                if 0 <= segment_start < len(lines_list) and segment_end <= len(
-                    lines_list
-                ):
-                    segment_lines = lines_list[segment_start:segment_end]
-                    segment = "".join(segment_lines)
-
-                    # For single-line errors, try to extract just the expression part
-                    if (
-                        len(segment_lines) == 1
-                        and start_col is not None
-                        and end_col is not None
-                    ):
-                        line_content = segment_lines[0].rstrip("\r\n")
-                        if start_col < len(line_content) and end_col <= len(
-                            line_content
-                        ):
-                            expression_segment = line_content[start_col:end_col]
-
-                            anchors = (
-                                trace_cpy._extract_caret_anchors_from_line_segment(
-                                    expression_segment
-                                )
-                            )
-                            if anchors:
-                                # Anchors are relative to the expression segment
-                                # Need to adjust for position within the original line and context
-                                left_line = (
-                                    segment_start + 1
-                                )  # Convert back to 1-based line number in context
-                                left_col = start_col + anchors.left_end_offset
-
-                                # Add emphasis columns for the anchor positions
-                                if left_line not in em_columns:
-                                    em_columns[left_line] = []
-                                em_columns[left_line].append(left_col)
-
-                                # For operators that span multiple characters (like subscripts),
-                                # we may want to emphasize the range
-                                if (
-                                    anchors.right_start_offset
-                                    > anchors.left_end_offset + 1
-                                ):
-                                    # Multi-character operator (like '[idx]' or '(args)')
-                                    right_col = (
-                                        start_col + anchors.right_start_offset - 1
-                                    )
-                                    for col in range(left_col + 1, right_col + 1):
-                                        em_columns[left_line].append(col)
-                            else:
-                                # Fallback to the original full segment approach
-                                anchors = (
-                                    trace_cpy._extract_caret_anchors_from_line_segment(
-                                        segment
-                                    )
-                                )
-                                if anchors:
-                                    # Convert anchors to em_columns format
-                                    # Anchors are relative to the segment, need to adjust for absolute line numbers
-                                    left_line = (
-                                        anchors.left_end_lineno + segment_start + 1
-                                    )  # Convert back to 1-based
-                                    right_line = (
-                                        anchors.right_start_lineno + segment_start + 1
-                                    )
-
-                                    # Add emphasis columns for the anchor positions
-                                    if left_line not in em_columns:
-                                        em_columns[left_line] = []
-                                    em_columns[left_line].append(
-                                        anchors.left_end_offset
-                                    )
-
-                                    if right_line not in em_columns:
-                                        em_columns[right_line] = []
-                                    if (
-                                        right_line != left_line
-                                        or anchors.right_start_offset
-                                        != anchors.left_end_offset
-                                    ):
-                                        em_columns[right_line].append(
-                                            anchors.right_start_offset
-                                        )
-                    else:
-                        # Multi-line segment
-                        anchors = trace_cpy._extract_caret_anchors_from_line_segment(
-                            segment
-                        )
-                        if anchors:
-                            # Convert anchors to em_columns format
-                            # Anchors are relative to the segment, need to adjust for absolute line numbers
-                            left_line = (
-                                anchors.left_end_lineno + segment_start + 1
-                            )  # Convert back to 1-based
-                            right_line = anchors.right_start_lineno + segment_start + 1
-
-                            # Add emphasis columns for the anchor positions
-                            if left_line not in em_columns:
-                                em_columns[left_line] = []
-                            em_columns[left_line].append(anchors.left_end_offset)
-
-                            if right_line not in em_columns:
-                                em_columns[right_line] = []
-                            if (
-                                right_line != left_line
-                                or anchors.right_start_offset != anchors.left_end_offset
-                            ):
-                                em_columns[right_line].append(
-                                    anchors.right_start_offset
-                                )
-                        else:
-                            # Fallback for complex multiline cases: look for operators line by line
-                            _fallback_multiline_operator_detection(
-                                segment_lines, segment_start, em_columns
-                            )
-            except Exception:
-                logger.exception("Error extracting caret anchors")
-
+        # Build emphasis columns and fragments
+        em_columns = _extract_emphasis_columns(
+            lines, error_line_in_context, end_line, start_col, end_col, start
+        )
         fragments = _parse_lines_to_fragments(
             lines,
             error_line_in_context,
@@ -380,7 +325,7 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
             }
         )
 
-        if suppress_inner and frame is bug_in_frame:
+        if suppress_inner and is_bug_frame:
             break
 
     return frames
@@ -608,46 +553,60 @@ def _create_highlighted_fragments(text, start_pos, mark_range, em_columns):
             if mark_start <= abs_pos < mark_end:
                 mark_positions.add(i)
 
-    # Convert em_columns to positions and group consecutive ones
-    em_ranges = _columns_to_ranges(em_columns, start_pos, len(text))
-    for start, end in em_ranges:
-        for i in range(start - start_pos, end - start_pos):
-            if 0 <= i < len(text):
-                em_positions.add(i)
+    # Convert em_columns to positions
+    if em_columns:
+        valid_cols = [
+            col for col in em_columns if start_pos <= col < start_pos + len(text)
+        ]
+        for col in valid_cols:
+            rel_pos = col - start_pos
+            if 0 <= rel_pos < len(text):
+                em_positions.add(rel_pos)
 
     # Create fragments using unified logic
     return _create_fragments_with_highlighting(text, mark_positions, em_positions)
 
 
-def _columns_to_ranges(columns, start_pos, text_len):
-    """Convert list of column positions to consecutive ranges."""
-    if not columns:
+def _positions_to_consecutive_ranges(positions):
+    """Convert a set/list of positions to consecutive (start, end) ranges."""
+    if not positions:
         return []
 
-    # Filter and sort columns that are within our text range
-    valid_cols = sorted(
-        [col for col in columns if start_pos <= col < start_pos + text_len]
-    )
-    if not valid_cols:
-        return []
-
+    sorted_positions = sorted(set(positions))
     ranges = []
-    start = valid_cols[0]
+    start = sorted_positions[0]
     end = start + 1
 
-    for col in valid_cols[1:]:
-        if col == end:
-            # Consecutive column, extend range
-            end = col + 1
+    for pos in sorted_positions[1:]:
+        if pos == end:
+            # Consecutive position, extend current range
+            end = pos + 1
         else:
             # Gap found, close current range and start new one
             ranges.append((start, end))
-            start = col
-            end = col + 1
+            start = pos
+            end = pos + 1
 
     # Close the last range
     ranges.append((start, end))
     return ranges
+
+
+def _get_highlight_boundaries(text, mark_positions, em_positions):
+    """Get all boundaries for highlighting (start/end of mark and em regions)."""
+    boundaries = {0, len(text)}
+
+    # Add mark boundaries
+    for start, end in _positions_to_consecutive_ranges(mark_positions):
+        boundaries.add(start)
+        boundaries.add(end)
+
+    # Add em boundaries
+    for start, end in _positions_to_consecutive_ranges(em_positions):
+        boundaries.add(start)
+        boundaries.add(end)
+
+    return sorted(boundaries)
 
 
 def _create_fragments_with_highlighting(text, mark_positions, em_positions):
@@ -655,24 +614,12 @@ def _create_fragments_with_highlighting(text, mark_positions, em_positions):
     if not text:
         return []
 
-    # Find all boundaries (start/end of mark and em regions)
-    boundaries = {0, len(text)}
+    # Get all boundaries and create fragments
+    boundaries = _get_highlight_boundaries(text, mark_positions, em_positions)
+    mark_ranges = _positions_to_consecutive_ranges(mark_positions)
+    em_ranges = _positions_to_consecutive_ranges(em_positions)
 
-    # Add mark boundaries
-    mark_ranges = _positions_to_ranges(mark_positions)
-    for start, end in mark_ranges:
-        boundaries.add(start)
-        boundaries.add(end)
-
-    # Add em boundaries
-    em_ranges = _positions_to_ranges(em_positions)
-    for start, end in em_ranges:
-        boundaries.add(start)
-        boundaries.add(end)
-
-    boundaries = sorted(boundaries)
     fragments = []
-
     for i in range(len(boundaries) - 1):
         start = boundaries[i]
         end = boundaries[i + 1]
@@ -726,31 +673,6 @@ def _get_highlight_status(frag_start, frag_end, ranges):
         return "fin"
     else:
         return "mid"
-
-
-def _positions_to_ranges(positions):
-    """Convert a set of positions to a list of (start, end) ranges."""
-    if not positions:
-        return []
-
-    sorted_positions = sorted(positions)
-    ranges = []
-    start = sorted_positions[0]
-    end = start + 1
-
-    for pos in sorted_positions[1:]:
-        if pos == end:
-            # Consecutive position, extend current range
-            end = pos + 1
-        else:
-            # Gap found, close current range and start new one
-            ranges.append((start, end))
-            start = pos
-            end = pos + 1
-
-    # Close the last range
-    ranges.append((start, end))
-    return ranges
 
 
 def _fallback_multiline_operator_detection(segment_lines, segment_start, em_columns):
