@@ -1,6 +1,7 @@
 import inspect
 import re
 import sys
+from contextlib import suppress
 from pathlib import Path
 from secrets import token_urlsafe
 from textwrap import dedent
@@ -15,9 +16,6 @@ ipython = None
 
 # Locations considered to be bug-free
 libdir = re.compile(r"/usr/.*|.*(site-packages|dist-packages).*")
-
-# Pattern for detecting standalone operators in multiline segments
-OPERATOR_PATTERN = re.compile(r"^\s*([+\-*/=<>!&|%^]+)\s*(?:#.*)?$")
 
 
 def extract_chain(exc=None, **kwargs) -> list:
@@ -158,91 +156,47 @@ def _extract_emphasis_columns(
         return em_columns
 
     try:
-        lines_list = lines.splitlines(keepends=True)
+        all_lines = lines.splitlines(keepends=True)
         segment_start = error_line_in_context - 1  # Convert to 0-based index
         segment_end = end_line if end_line else error_line_in_context
 
-        if not (
-            0 <= segment_start < len(lines_list) and segment_end <= len(lines_list)
-        ):
+        if not (0 <= segment_start < len(all_lines) and segment_end <= len(all_lines)):
             return em_columns
 
-        segment_lines = lines_list[segment_start:segment_end]
-        segment = "".join(segment_lines)
+        # Extract the segment using CPython's approach
+        relevant_lines = all_lines[segment_start:segment_end]
+        segment = "".join(relevant_lines)
 
-        # For single-line errors, try to extract just the expression part
-        if len(segment_lines) == 1:
-            anchors = _extract_single_line_anchors(
-                segment_lines[0], start_col, end_col, segment_start, em_columns
-            )
-            if not anchors:
-                # Fallback to full segment approach
-                _extract_full_segment_anchors(segment, segment_start, em_columns)
-        else:
-            # Multi-line segment
-            _extract_full_segment_anchors(segment, segment_start, em_columns)
-            if not em_columns:
-                # Fallback for complex multiline cases
-                _fallback_multiline_operator_detection(
-                    segment_lines, segment_start, em_columns
-                )
+        # Trim segment using start_col and end_col
+        segment = segment[
+            start_col : len(segment) - (len(relevant_lines[-1]) - end_col)
+        ]
+        # Attempt to parse for anchors
+        anchors = None
+        with suppress(Exception):
+            anchors = trace_cpy._extract_caret_anchors_from_line_segment(segment)
+        if not anchors:
+            return None
 
+        l0, l1, c0, c1 = (
+            anchors.left_end_lineno,
+            anchors.right_start_lineno,
+            anchors.left_end_offset,
+            anchors.right_start_offset,
+        )
+        # We get 0-based line numbers and offsets within the segment,
+        # so we need to adjust them to match the original code.
+        if l0 == 0:
+            c0 += start_col
+        if l1 == 0:
+            c1 += start_col
+        l0 += segment_start
+        l1 += segment_start
+        return l0, l1, c0, c1
     except Exception:
         logger.exception("Error extracting caret anchors")
 
     return em_columns
-
-
-def _extract_single_line_anchors(
-    line_content, start_col, end_col, segment_start, em_columns
-):
-    """Extract anchors for single-line errors."""
-    line_content = line_content.rstrip("\r\n")
-    if not (start_col < len(line_content) and end_col <= len(line_content)):
-        return False
-
-    expression_segment = line_content[start_col:end_col]
-    anchors = trace_cpy._extract_caret_anchors_from_line_segment(expression_segment)
-
-    if not anchors:
-        return False
-
-    left_line = segment_start + 1  # Convert back to 1-based line number in context
-    left_col = start_col + anchors.left_end_offset
-
-    # Add emphasis columns for the anchor positions
-    if left_line not in em_columns:
-        em_columns[left_line] = []
-    em_columns[left_line].append(left_col)
-
-    # For operators that span multiple characters (like subscripts)
-    if anchors.right_start_offset > anchors.left_end_offset + 1:
-        right_col = start_col + anchors.right_start_offset - 1
-        for col in range(left_col + 1, right_col + 1):
-            em_columns[left_line].append(col)
-
-    return True
-
-
-def _extract_full_segment_anchors(segment, segment_start, em_columns):
-    """Extract anchors from full segment (fallback or multi-line)."""
-    anchors = trace_cpy._extract_caret_anchors_from_line_segment(segment)
-    if not anchors:
-        return
-
-    # Convert anchors to em_columns format
-    left_line = anchors.left_end_lineno + segment_start + 1  # Convert back to 1-based
-    right_line = anchors.right_start_lineno + segment_start + 1
-
-    # Add emphasis columns for the anchor positions
-    if left_line not in em_columns:
-        em_columns[left_line] = []
-    em_columns[left_line].append(anchors.left_end_offset)
-
-    if right_line not in em_columns:
-        em_columns[right_line] = []
-    if right_line != left_line or anchors.right_start_offset != anchors.left_end_offset:
-        em_columns[right_line].append(anchors.right_start_offset)
 
 
 def _build_position_map(raw_tb):
@@ -341,61 +295,6 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
     return frames
 
 
-def _parse_lines_to_fragments(
-    lines_text,
-    error_line,
-    start_col=None,
-    end_col=None,
-    end_line=None,
-    em_columns=None,
-    mark_error_line=False,
-):
-    """
-    Parse lines of code into fragments with mark/em highlighting information.
-
-    Args:
-        lines_text: The multi-line string containing code
-        error_line: The line number where the error occurred (1-based)
-        start_col: Start column for highlighting (0-based, optional)
-        end_col: End column for highlighting (0-based, optional)
-        end_line: End line for multi-line errors (1-based, optional)
-        em_columns: Dict mapping line numbers to lists of column positions for emphasis
-        mark_error_line: If True and no column info, mark the entire error line
-
-    Returns:
-        List of line dictionaries with fragment information
-    """
-    if not lines_text:
-        return []
-
-
-def _calculate_mark_range(
-    line_num, line_content, error_line, start_col, end_col, end_line, mark_error_line
-):
-    """Calculate mark range for a given line."""
-    if start_col is not None and end_col is not None:
-        if end_line is not None and end_line != error_line:
-            # Multi-line error
-            if line_num == error_line:
-                return (start_col, len(line_content.rstrip()))
-            elif line_num == end_line:
-                return (len(line_content) - len(line_content.lstrip()), end_col)
-            elif error_line < line_num < end_line:
-                return (
-                    len(line_content) - len(line_content.lstrip()),
-                    len(line_content.rstrip()),
-                )
-        elif line_num == error_line:
-            return (start_col, end_col)
-    elif mark_error_line and line_num == error_line:
-        # Mark the entire error line when no column info is available
-        leading_spaces = len(line_content) - len(line_content.lstrip())
-        trimmed_end = len(line_content.rstrip())
-        if trimmed_end > leading_spaces:
-            return (leading_spaces, trimmed_end)
-    return None
-
-
 def _calculate_common_indent(lines):
     """Calculate common indentation across all non-empty lines."""
     non_empty_lines = [line.rstrip("\r\n") for line in lines if line.strip()]
@@ -404,6 +303,150 @@ def _calculate_common_indent(lines):
     return 0
 
 
+def _convert_4tuple_to_positions(start_line, end_line, start_col, end_col, lines):
+    """Convert 4-tuple (line1, line2, col1, col2) to absolute character positions."""
+    positions = set()
+
+    if start_line is None or end_line is None or start_col is None or end_col is None:
+        return positions
+
+    # Calculate absolute positions
+    char_pos = 0
+    for line_idx, line in enumerate(lines):
+        if start_line <= line_idx <= end_line:
+            line_content = line.rstrip("\r\n")
+
+            if line_idx == start_line == end_line:
+                # Single line case
+                for col in range(max(0, start_col), min(len(line_content), end_col)):
+                    positions.add(char_pos + col)
+            elif line_idx == start_line:
+                # First line of multi-line
+                for col in range(max(0, start_col), len(line_content)):
+                    positions.add(char_pos + col)
+            elif line_idx == end_line:
+                # Last line of multi-line
+                for col in range(0, min(len(line_content), end_col)):
+                    positions.add(char_pos + col)
+            else:
+                # Middle lines of multi-line
+                for col in range(len(line_content)):
+                    positions.add(char_pos + col)
+
+        char_pos += len(line)
+
+    return positions
+
+
+def _create_unified_fragments(
+    lines_text, common_indent_len, mark_positions, em_positions
+):
+    """Create fragments with unified mark/em highlighting."""
+    lines = lines_text.splitlines(keepends=True)
+    result = []
+
+    for line_idx, line in enumerate(lines):
+        line_num = line_idx + 1
+        fragments = _parse_line_to_fragments_unified(
+            line,
+            common_indent_len,
+            mark_positions,
+            em_positions,
+            sum(len(lines[i]) for i in range(line_idx)),  # char offset for this line
+        )
+        result.append({"line": line_num, "fragments": fragments})
+
+    return result
+
+
+def _parse_line_to_fragments_unified(
+    line, common_indent_len, mark_positions, em_positions, line_char_offset
+):
+    """Parse a single line into fragments using unified highlighting."""
+    if not line:
+        return []
+
+    line_content, line_ending = _split_line_content(line)
+    if not line_content and not line_ending:
+        return []
+
+    # Process indentation
+    fragments, remaining, pos = _process_indentation(line_content, common_indent_len)
+
+    # Find comment split
+    comment_start = _find_comment_start(remaining)
+
+    if comment_start is not None:
+        # Handle line with comment
+        code_part = remaining[:comment_start]
+        comment_part = remaining[comment_start:]
+
+        # Process code part (with trimming)
+        code_trimmed = code_part.rstrip()
+        code_whitespace = code_part[len(code_trimmed) :]
+
+        if code_trimmed:
+            fragments.extend(
+                _create_highlighted_fragments_unified(
+                    code_trimmed, line_char_offset + pos, mark_positions, em_positions
+                )
+            )
+
+        # Process comment part
+        comment_trimmed = comment_part.rstrip()
+        comment_trailing = comment_part[len(comment_trimmed) :]
+
+        comment_with_leading_space = code_whitespace + comment_trimmed
+        if comment_with_leading_space:
+            fragments.append({"code": comment_with_leading_space, "comment": "solo"})
+
+        # Add trailing content
+        trailing_content = comment_trailing + line_ending
+        if trailing_content:
+            fragments.append({"code": trailing_content, "trailing": "solo"})
+    else:
+        # Handle line without comment
+        code_trimmed = remaining.rstrip()
+        trailing_whitespace = remaining[len(code_trimmed) :]
+
+        if code_trimmed:
+            fragments.extend(
+                _create_highlighted_fragments_unified(
+                    code_trimmed, line_char_offset + pos, mark_positions, em_positions
+                )
+            )
+
+        trailing_content = trailing_whitespace + line_ending
+        if trailing_content:
+            fragments.append({"code": trailing_content, "trailing": "solo"})
+
+    return fragments
+
+
+def _create_highlighted_fragments_unified(
+    text, start_pos, mark_positions, em_positions
+):
+    """Create fragments with mark/em highlighting using unified position sets."""
+    if not text:
+        return []
+
+    # Convert absolute positions to text-relative positions
+    text_mark_positions = set()
+    text_em_positions = set()
+
+    for i in range(len(text)):
+        abs_pos = start_pos + i
+        if abs_pos in mark_positions:
+            text_mark_positions.add(i)
+        if abs_pos in em_positions:
+            text_em_positions.add(i)
+
+    # Create fragments using existing logic
+    return _create_fragments_with_highlighting(
+        text, text_mark_positions, text_em_positions
+    )
+
+
 def _parse_lines_to_fragments(
     lines_text,
     error_line,
@@ -422,7 +465,7 @@ def _parse_lines_to_fragments(
         start_col: Start column for highlighting (0-based, optional)
         end_col: End column for highlighting (0-based, optional)
         end_line: End line for multi-line errors (1-based, optional)
-        em_columns: Dict mapping line numbers to lists of column positions for emphasis
+        em_columns: Either None or 4-tuple (left_end_lineno, right_start_lineno, left_end_offset, right_start_offset)
         mark_error_line: If True and no column info, mark the entire error line
 
     Returns:
@@ -436,34 +479,46 @@ def _parse_lines_to_fragments(
         return []
 
     common_indent_len = _calculate_common_indent(lines)
-    result = []
 
-    for line_idx, line in enumerate(lines):
-        line_num = line_idx + 1
-        line_content = line.rstrip("\r\n")
+    # Convert both mark and em to position sets using unified logic
+    mark_positions = set()
+    em_positions = set()
 
-        # Calculate mark range for this line
-        mark_range = _calculate_mark_range(
-            line_num,
-            line_content,
-            error_line,
-            start_col,
-            end_col,
-            end_line,
-            mark_error_line,
+    # Handle mark positions
+    if start_col is not None and end_col is not None:
+        mark_end_line = end_line or error_line
+        mark_positions = _convert_4tuple_to_positions(
+            error_line - 1, mark_end_line - 1, start_col, end_col, lines
+        )
+    elif mark_error_line:
+        # Mark entire error line
+        error_line_idx = error_line - 1
+        if 0 <= error_line_idx < len(lines):
+            line_content = lines[error_line_idx].rstrip("\r\n")
+            leading_spaces = len(line_content) - len(line_content.lstrip())
+            trimmed_end = len(line_content.rstrip())
+            if trimmed_end > leading_spaces:
+                char_pos = sum(len(lines[i]) for i in range(error_line_idx))
+                for col in range(leading_spaces, trimmed_end):
+                    mark_positions.add(char_pos + col)
+
+    # Handle em positions (4-tuple format)
+    if em_columns is not None:
+        left_end_lineno, right_start_lineno, left_end_offset, right_start_offset = (
+            em_columns
+        )
+        em_positions = _convert_4tuple_to_positions(
+            left_end_lineno,
+            right_start_lineno,
+            left_end_offset,
+            right_start_offset,
+            lines,
         )
 
-        # Get emphasis columns for this line
-        em_cols = em_columns.get(line_num, []) if em_columns else []
-
-        # Parse line into fragments
-        fragments = _parse_line_to_fragments(
-            line, common_indent_len, mark_range, em_cols
-        )
-
-        result.append({"line": line_num, "fragments": fragments})
-
-    return result
+    # Create fragments using unified highlighting
+    return _create_unified_fragments(
+        lines_text, common_indent_len, mark_positions, em_positions
+    )
 
 
 def _split_line_content(line):
@@ -501,93 +556,6 @@ def _process_indentation(line_content, common_indent_len):
     return fragments, remaining, pos
 
 
-def _create_content_fragments(content, start_pos, mark_range, em_columns, content_type):
-    """Create fragments for content with optional highlighting."""
-    if not content:
-        return []
-
-    if content_type == "comment":
-        return [{"code": content, "comment": "solo"}]
-    elif content_type == "trailing":
-        return [{"code": content, "trailing": "solo"}]
-    else:  # code content
-        return _create_highlighted_fragments(content, start_pos, mark_range, em_columns)
-
-
-def _parse_line_to_fragments(line, common_indent_len, mark_range, em_columns):
-    """Parse a single line into fragments with proper marking."""
-    if not line:
-        return []
-
-    line_content, line_ending = _split_line_content(line)
-    if not line_content and not line_ending:
-        return []
-
-    # Process indentation
-    fragments, remaining, pos = _process_indentation(line_content, common_indent_len)
-
-    # Find comment split
-    comment_start = _find_comment_start(remaining)
-
-    if comment_start is not None:
-        # Handle line with comment
-        code_part = remaining[:comment_start]
-        comment_part = remaining[comment_start:]
-
-        # Process code part (with trimming)
-        code_trimmed = code_part.rstrip()
-        code_whitespace = code_part[len(code_trimmed) :]
-
-        if code_trimmed:
-            fragments.extend(
-                _create_content_fragments(
-                    code_trimmed, pos, mark_range, em_columns, "code"
-                )
-            )
-
-        # Process comment part
-        comment_trimmed = comment_part.rstrip()
-        comment_trailing = comment_part[len(comment_trimmed) :]
-
-        comment_with_leading_space = code_whitespace + comment_trimmed
-        if comment_with_leading_space:
-            fragments.extend(
-                _create_content_fragments(
-                    comment_with_leading_space, pos, mark_range, em_columns, "comment"
-                )
-            )
-
-        # Add trailing content
-        trailing_content = comment_trailing + line_ending
-        if trailing_content:
-            fragments.extend(
-                _create_content_fragments(
-                    trailing_content, pos, mark_range, em_columns, "trailing"
-                )
-            )
-    else:
-        # Handle line without comment
-        code_trimmed = remaining.rstrip()
-        trailing_whitespace = remaining[len(code_trimmed) :]
-
-        if code_trimmed:
-            fragments.extend(
-                _create_content_fragments(
-                    code_trimmed, pos, mark_range, em_columns, "code"
-                )
-            )
-
-        trailing_content = trailing_whitespace + line_ending
-        if trailing_content:
-            fragments.extend(
-                _create_content_fragments(
-                    trailing_content, pos, mark_range, em_columns, "trailing"
-                )
-            )
-
-    return fragments
-
-
 def _find_comment_start(text):
     """Find the start of a comment, ignoring # inside strings."""
     in_string = False
@@ -611,36 +579,6 @@ def _find_comment_start(text):
             string_char = None
 
     return None
-
-
-def _create_highlighted_fragments(text, start_pos, mark_range, em_columns):
-    """Create fragments with mark/em highlighting using unified logic."""
-    if not text:
-        return []
-
-    # Convert columns to text-relative positions
-    mark_positions = set()
-    em_positions = set()
-
-    if mark_range:
-        mark_start, mark_end = mark_range
-        for i in range(len(text)):
-            abs_pos = start_pos + i
-            if mark_start <= abs_pos < mark_end:
-                mark_positions.add(i)
-
-    # Convert em_columns to positions
-    if em_columns:
-        valid_cols = [
-            col for col in em_columns if start_pos <= col < start_pos + len(text)
-        ]
-        for col in valid_cols:
-            rel_pos = col - start_pos
-            if 0 <= rel_pos < len(text):
-                em_positions.add(rel_pos)
-
-    # Create fragments using unified logic
-    return _create_fragments_with_highlighting(text, mark_positions, em_positions)
 
 
 def _positions_to_consecutive_ranges(positions):
@@ -749,25 +687,3 @@ def _get_highlight_status(frag_start, frag_end, ranges):
         return "fin"
     else:
         return "mid"
-
-
-def _fallback_multiline_operator_detection(segment_lines, segment_start, em_columns):
-    """
-    Fallback approach to find operators in multiline segments where
-    caret anchor extraction fails. Looks for standalone operators in each line.
-    """
-    for line_idx, line_content in enumerate(segment_lines):
-        match = OPERATOR_PATTERN.match(line_content.rstrip("\r\n"))
-        if match:
-            operator = match.group(1)
-            operator_start = match.start(1)
-
-            # Convert to absolute line number (1-based)
-            abs_line = segment_start + line_idx + 1
-
-            # Add emphasis for each character of the operator
-            if abs_line not in em_columns:
-                em_columns[abs_line] = []
-
-            for i in range(len(operator)):
-                em_columns[abs_line].append(operator_start + i)
