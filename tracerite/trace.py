@@ -420,28 +420,20 @@ def _parse_lines_to_fragments(
     return result
 
 
-def _parse_line_to_fragments(line, common_indent_len, mark_range, em_columns):
-    """Parse a single line into fragments with proper marking."""
-    if not line:
-        return []
-
-    # Separate line content from line ending
-    line_ending = ""
+def _split_line_content(line):
+    """Split line into content and line ending."""
     if line.endswith("\r\n"):
-        line_content = line[:-2]
-        line_ending = "\r\n"
+        return line[:-2], "\r\n"
     elif line.endswith("\n"):
-        line_content = line[:-1]
-        line_ending = "\n"
+        return line[:-1], "\n"
     elif line.endswith("\r"):
-        line_content = line[:-1]
-        line_ending = "\r"
+        return line[:-1], "\r"
     else:
-        line_content = line
+        return line, ""
 
-    if not line_content and not line_ending:
-        return []
 
+def _process_indentation(line_content, common_indent_len):
+    """Process dedent and additional indentation, return fragments and remaining content."""
     fragments = []
     pos = 0
 
@@ -460,54 +452,92 @@ def _parse_line_to_fragments(line, common_indent_len, mark_range, em_columns):
         pos += len(indent_text)
         remaining = remaining[len(indent_text) :]
 
-    # Find comment
+    return fragments, remaining, pos
+
+
+def _create_content_fragments(content, start_pos, mark_range, em_columns, content_type):
+    """Create fragments for content with optional highlighting."""
+    if not content:
+        return []
+
+    if content_type == "comment":
+        return [{"code": content, "comment": "solo"}]
+    elif content_type == "trailing":
+        return [{"code": content, "trailing": "solo"}]
+    else:  # code content
+        return _create_highlighted_fragments(content, start_pos, mark_range, em_columns)
+
+
+def _parse_line_to_fragments(line, common_indent_len, mark_range, em_columns):
+    """Parse a single line into fragments with proper marking."""
+    if not line:
+        return []
+
+    line_content, line_ending = _split_line_content(line)
+    if not line_content and not line_ending:
+        return []
+
+    # Process indentation
+    fragments, remaining, pos = _process_indentation(line_content, common_indent_len)
+
+    # Find comment split
     comment_start = _find_comment_start(remaining)
+
     if comment_start is not None:
-        # Split at comment boundary, keeping original spacing
+        # Handle line with comment
         code_part = remaining[:comment_start]
         comment_part = remaining[comment_start:]
 
-        # Remove trailing whitespace from code part for processing
-        code_part_trimmed = code_part.rstrip()
-        code_whitespace = code_part[len(code_part_trimmed) :]
+        # Process code part (with trimming)
+        code_trimmed = code_part.rstrip()
+        code_whitespace = code_part[len(code_trimmed) :]
 
-        # Parse code part with highlighting
-        if code_part_trimmed:
-            code_fragments = _create_highlighted_fragments(
-                code_part_trimmed, pos, mark_range, em_columns
+        if code_trimmed:
+            fragments.extend(
+                _create_content_fragments(
+                    code_trimmed, pos, mark_range, em_columns, "code"
+                )
             )
-            fragments.extend(code_fragments)
 
-        # Split comment into comment text and trailing whitespace
+        # Process comment part
         comment_trimmed = comment_part.rstrip()
         comment_trailing = comment_part[len(comment_trimmed) :]
 
-        # Add comment with whitespace between code and comment (but not trailing whitespace after comment)
         comment_with_leading_space = code_whitespace + comment_trimmed
         if comment_with_leading_space:
-            fragments.append({"code": comment_with_leading_space, "comment": "solo"})
+            fragments.extend(
+                _create_content_fragments(
+                    comment_with_leading_space, pos, mark_range, em_columns, "comment"
+                )
+            )
 
-        # Add trailing whitespace after comment and line ending as the final trailing fragment
+        # Add trailing content
         trailing_content = comment_trailing + line_ending
         if trailing_content:
-            fragments.append({"code": trailing_content, "trailing": "solo"})
-
-    else:
-        # No comment, parse entire remaining as code
-        code_part_trimmed = remaining.rstrip()
-        trailing_whitespace = remaining[len(code_part_trimmed) :]
-
-        # Parse code part with highlighting
-        if code_part_trimmed:
-            code_fragments = _create_highlighted_fragments(
-                code_part_trimmed, pos, mark_range, em_columns
+            fragments.extend(
+                _create_content_fragments(
+                    trailing_content, pos, mark_range, em_columns, "trailing"
+                )
             )
-            fragments.extend(code_fragments)
+    else:
+        # Handle line without comment
+        code_trimmed = remaining.rstrip()
+        trailing_whitespace = remaining[len(code_trimmed) :]
 
-        # Add trailing whitespace and line ending
+        if code_trimmed:
+            fragments.extend(
+                _create_content_fragments(
+                    code_trimmed, pos, mark_range, em_columns, "code"
+                )
+            )
+
         trailing_content = trailing_whitespace + line_ending
         if trailing_content:
-            fragments.append({"code": trailing_content, "trailing": "solo"})
+            fragments.extend(
+                _create_content_fragments(
+                    trailing_content, pos, mark_range, em_columns, "trailing"
+                )
+            )
 
     return fragments
 
