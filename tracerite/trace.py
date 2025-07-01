@@ -6,9 +6,9 @@ from secrets import token_urlsafe
 from textwrap import dedent
 from urllib.parse import quote
 
+from . import trace_cpy
 from .inspector import extract_variables
 from .logging import logger
-from . import trace_cpy
 
 # Will be set to an instance if loaded as an IPython extension by %load_ext
 ipython = None
@@ -23,9 +23,7 @@ def extract_chain(exc=None, **kwargs) -> list:
     exc = exc or sys.exc_info()[1]
     while exc:
         chain.append(exc)
-        if getattr(exc, "__suppress_context__", False):
-            break
-        exc = exc.__cause__ or exc.__context__
+        exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
     # Newest exception first
     return [extract_exception(e, **(kwargs if e is chain[0] else {})) for e in chain]
 
@@ -44,13 +42,13 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
                 skip_outmost = i
                 break
     tb = tb[skip_outmost:]
-    
+
     # Also skip the same number of frames from raw_tb
     if raw_tb and skip_outmost > 0:
         for _ in range(skip_outmost):
             if raw_tb:
                 raw_tb = raw_tb.tb_next
-    
+
     # Header and exception message
     message = getattr(e, "message", "") or str(e)
     summary = message.split("\n", 1)[0]
@@ -71,17 +69,99 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         "type": type(e).__name__,
         "message": message,
         "summary": summary,
+        "has": ("cause" if e.__cause__ else "context" if e.__context__ else "none"),
         "repr": repr(e),
         "frames": frames or [],
     }
 
 
+def extract_source_lines(frame, lineno):
+    try:
+        lines, start = inspect.getsourcelines(frame)
+        if start == 0:
+            start = 1
+        lines = lines[max(0, lineno - start - 15) : max(0, lineno - start + 3)]
+        start += max(0, lineno - start - 15)
+        return dedent("".join(lines)), start
+    except OSError:
+        return "", 1
+
+
+def format_location(filename, lineno):
+    urls = {}
+    location = None
+    try:
+        ipython_in = ipython.compile._filename_map[filename]
+        location = f"In [{ipython_in}]"
+        filename = None
+    except (AttributeError, KeyError):
+        pass
+    if filename and Path(filename).is_file():
+        fn = Path(filename).resolve()
+        urls["VS Code"] = f"vscode://file/{quote(fn.as_posix())}:{lineno}"
+        cwd = Path.cwd()
+        if cwd in fn.parents:
+            fn = fn.relative_to(cwd)
+            if ipython is not None:
+                urls["Jupyter"] = f"/edit/{quote(fn.as_posix())}"
+        filename = fn.as_posix()
+    if not location and filename:
+        split = (
+            filename.rfind("/", 10, len(filename) - 20) + 1 if len(filename) > 40 else 0
+        )
+        location = filename[split:]
+    return filename, location, urls
+
+
+def determine_function_name(frame, function):
+    if function == "<module>":
+        return None
+    try:
+        cls = next(
+            v.__class__ if n == "self" else v
+            for n, v in frame.f_locals.items()
+            if n in ("self", "cls") and v is not None
+        )
+        function = f"{cls.__name__}.{function}"
+    except StopIteration:
+        pass
+    return ".".join(function.split(".")[-2:])
+
+
+def determine_relevance(frame, tb, bug_in_frame, suppress_inner):
+    if frame is tb[-1][0]:
+        return "stop" if suppress_inner else "error"
+    elif frame is bug_in_frame:
+        return "warning"
+    return "call"
+
+
+def build_position_map(raw_tb):
+    position_map = {}
+    try:
+        for frame_obj, positions in trace_cpy._walk_tb_with_full_positions(raw_tb):
+            position_map[frame_obj] = positions
+    except Exception:
+        logger.exception("Error extracting position information")
+    return position_map
+
+
+def find_bug_in_frame(tb):
+    return next(
+        (
+            f
+            for f in reversed(tb)
+            if f.code_context and not libdir.fullmatch(f.filename)
+        ),
+        tb[-1],
+    ).frame
+
+
 def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
     if not tb:
         return []
-    frames = []
-    
-    # Create mapping from frames to position information
+
+    # Map frame -> (lineno, end_lineno, colno, end_colno)
     position_map = {}
     if raw_tb:
         try:
@@ -89,10 +169,8 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
                 position_map[frame_obj] = positions
         except Exception:
             logger.exception("Error extracting position information")
-    
-    # Choose a frame to open by default
-    # - The innermost non-library frame (libdir regex), or if not found,
-    # - The innermost frame
+
+    # Determine relevant frame
     bug_in_frame = next(
         (
             f
@@ -101,67 +179,31 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         ),
         tb[-1],
     ).frame
-    
-    for frame, filename, lineno, function, codeline, _ in tb:
-        if frame.f_globals.get("__tracebackhide__", False):
-            continue
-        if frame.f_locals.get("__tracebackhide__", False):
-            continue
-        if frame is tb[-1][0]:
-            # Exception was raised here, show an error bomb normally, but
-            # stop for KeyboardInterrupt, CancelledError (BaseException)
-            relevance = "stop" if suppress_inner else "error"
-        elif frame is bug_in_frame:
-            relevance = "warning"
-        else:
-            relevance = "call"
-        # Extract source code lines
-        lines = []
-        try:
-            lines, start = inspect.getsourcelines(frame)
-            if start == 0:
-                start = 1  # Zero is always returned for modules; fix that.
-            # Limit lines shown
-            lines = lines[max(0, lineno - start - 15) : max(0, lineno - start + 3)]
-            start += max(0, lineno - start - 15)
-            # Deindent
-            lines = dedent("".join(lines))
-        except OSError:
-            lines = ""
-            # Skip non-Python modules unless particularly relevant
-            if relevance == "call":
-                continue
-        urls = {}
-        # Format location
-        location = None
-        try:
-            ipython_in = ipython.compile._filename_map[filename]
-            location = f"In [{ipython_in}]"
-            filename = None
-        except (AttributeError, KeyError):
-            pass
-        # Format filename
-        if filename and Path(filename).is_file():
-            fn = Path(filename).resolve()
-            urls["VS Code"] = f"vscode://file/{quote(fn.as_posix())}:{lineno}"
-            cwd = Path.cwd()
-            # Use relative path if in current working directory
-            if cwd in fn.parents:
-                fn = fn.relative_to(cwd)
-                if ipython is not None:
-                    urls["Jupyter"] = f"/edit/{quote(fn.as_posix())}"
-            filename = fn.as_posix()  # Use forward slashes
-        # Shorten filename to use as displayable location
-        if not location and filename is not None:
-            split = 0
-            if len(filename) > 40:
-                split = filename.rfind("/", 10, len(filename) - 20) + 1
-            location = filename[split:]
 
-        if function == "<module>":
-            function = None
-        else:
-            # Add class name to methods (if self or cls is the first local variable)
+    frames = []
+    for frame, filename, lineno, function, codeline, _ in tb:
+        if frame.f_globals.get("__tracebackhide__") or frame.f_locals.get(
+            "__tracebackhide__"
+        ):
+            continue
+
+        relevance = (
+            "stop"
+            if frame is tb[-1][0] and suppress_inner
+            else "error"
+            if frame is tb[-1][0]
+            else "warning"
+            if frame is bug_in_frame
+            else "call"
+        )
+
+        lines, start = extract_source_lines(frame, lineno)
+        if not lines and relevance == "call":
+            continue
+
+        filename, location, urls = format_location(filename, lineno)
+
+        if function and function != "<module>":
             try:
                 cls = next(
                     v.__class__ if n == "self" else v
@@ -171,64 +213,147 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
                 function = f"{cls.__name__}.{function}"
             except StopIteration:
                 pass
-            # Remove long module paths (keep last two items)
             function = ".".join(function.split(".")[-2:])
+        else:
+            function = None
 
-        # Parse lines into fragments for enhanced highlighting
-        fragments = []
-        if lines:
-            # Determine error position for fragment parsing
-            error_line_in_context = (
-                lineno - start + 1
-            )  # Convert to 1-based index within the lines context
+        pos = position_map.get(frame, [None] * 4)
+        pos_end_lineno = pos[1]
+        start_col = pos[2]
+        end_col = pos[3]
 
-            # Get position information from trace_cpy
-            start_col = None
-            end_col = None
-            end_line = None
-            
-            if frame in position_map:
-                positions = position_map[frame]
-                # positions is tuple: (lineno, end_lineno, colno, end_colno)
-                if len(positions) >= 4:
-                    pos_lineno, pos_end_lineno, pos_colno, pos_end_colno = positions
-                    
-                    # Use position data if available
-                    if pos_colno is not None:
-                        start_col = pos_colno
-                    if pos_end_colno is not None:
-                        end_col = pos_end_colno
-                    if pos_end_lineno is not None and pos_end_lineno != lineno:
-                        # Convert to context-relative line number
-                        end_line = pos_end_lineno - start + 1
+        error_line_in_context = lineno - start + 1
+        end_line = pos_end_lineno - start + 1 if pos_end_lineno else None
 
-            # Parse fragments with position information
-            if start_col is None and end_col is None:
-                # No column info available, use the mark_error_line approach
-                fragments = _parse_lines_to_fragments(
-                    lines,
-                    error_line_in_context,
-                    start_col=None,
-                    end_col=None,
-                    end_line=None,
-                    em_columns=None,
-                    mark_error_line=True,
-                )
-            else:
-                # Use the enhanced column information
-                # Default end_line to error_line if not set
-                end_line_in_context = (
-                    end_line if end_line is not None else error_line_in_context
-                )
+        # Extract emphasis columns using caret anchors from the segment
+        em_columns = {}
+        if pos_end_lineno and start_col is not None and end_col is not None:
+            try:
+                # Extract the segment from start line to end line
+                lines_list = lines.splitlines(keepends=True)
+                segment_start = error_line_in_context - 1  # Convert to 0-based index
+                segment_end = end_line if end_line else error_line_in_context
 
-                fragments = _parse_lines_to_fragments(
-                    lines,
-                    error_line_in_context,
-                    start_col,
-                    end_col,
-                    end_line_in_context,
-                    em_columns=None,
-                )
+                if 0 <= segment_start < len(lines_list) and segment_end <= len(
+                    lines_list
+                ):
+                    segment_lines = lines_list[segment_start:segment_end]
+                    segment = "".join(segment_lines)
+
+                    # For single-line errors, try to extract just the expression part
+                    if (
+                        len(segment_lines) == 1
+                        and start_col is not None
+                        and end_col is not None
+                    ):
+                        line_content = segment_lines[0].rstrip("\r\n")
+                        if start_col < len(line_content) and end_col <= len(
+                            line_content
+                        ):
+                            expression_segment = line_content[start_col:end_col]
+
+                            anchors = (
+                                trace_cpy._extract_caret_anchors_from_line_segment(
+                                    expression_segment
+                                )
+                            )
+                            if anchors:
+                                # Anchors are relative to the expression segment
+                                # Need to adjust for position within the original line and context
+                                left_line = (
+                                    segment_start + 1
+                                )  # Convert back to 1-based line number in context
+                                left_col = start_col + anchors.left_end_offset
+
+                                # Add emphasis columns for the anchor positions
+                                if left_line not in em_columns:
+                                    em_columns[left_line] = []
+                                em_columns[left_line].append(left_col)
+
+                                # For operators that span multiple characters (like subscripts),
+                                # we may want to emphasize the range
+                                if (
+                                    anchors.right_start_offset
+                                    > anchors.left_end_offset + 1
+                                ):
+                                    # Multi-character operator (like '[idx]' or '(args)')
+                                    right_col = (
+                                        start_col + anchors.right_start_offset - 1
+                                    )
+                                    for col in range(left_col + 1, right_col + 1):
+                                        em_columns[left_line].append(col)
+                            else:
+                                # Fallback to the original full segment approach
+                                anchors = (
+                                    trace_cpy._extract_caret_anchors_from_line_segment(
+                                        segment
+                                    )
+                                )
+                                if anchors:
+                                    # Convert anchors to em_columns format
+                                    # Anchors are relative to the segment, need to adjust for absolute line numbers
+                                    left_line = (
+                                        anchors.left_end_lineno + segment_start + 1
+                                    )  # Convert back to 1-based
+                                    right_line = (
+                                        anchors.right_start_lineno + segment_start + 1
+                                    )
+
+                                    # Add emphasis columns for the anchor positions
+                                    if left_line not in em_columns:
+                                        em_columns[left_line] = []
+                                    em_columns[left_line].append(
+                                        anchors.left_end_offset
+                                    )
+
+                                    if right_line not in em_columns:
+                                        em_columns[right_line] = []
+                                    if (
+                                        right_line != left_line
+                                        or anchors.right_start_offset
+                                        != anchors.left_end_offset
+                                    ):
+                                        em_columns[right_line].append(
+                                            anchors.right_start_offset
+                                        )
+                    else:
+                        # Multi-line segment
+                        anchors = trace_cpy._extract_caret_anchors_from_line_segment(
+                            segment
+                        )
+                        if anchors:
+                            # Convert anchors to em_columns format
+                            # Anchors are relative to the segment, need to adjust for absolute line numbers
+                            left_line = (
+                                anchors.left_end_lineno + segment_start + 1
+                            )  # Convert back to 1-based
+                            right_line = anchors.right_start_lineno + segment_start + 1
+
+                            # Add emphasis columns for the anchor positions
+                            if left_line not in em_columns:
+                                em_columns[left_line] = []
+                            em_columns[left_line].append(anchors.left_end_offset)
+
+                            if right_line not in em_columns:
+                                em_columns[right_line] = []
+                            if (
+                                right_line != left_line
+                                or anchors.right_start_offset != anchors.left_end_offset
+                            ):
+                                em_columns[right_line].append(
+                                    anchors.right_start_offset
+                                )
+            except Exception:
+                logger.exception("Error extracting caret anchors")
+
+        fragments = _parse_lines_to_fragments(
+            lines,
+            error_line_in_context,
+            start_col,
+            end_col,
+            end_line,
+            em_columns=em_columns,
+        )
 
         frames.append(
             {
@@ -238,16 +363,21 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
                 "location": location,
                 "codeline": codeline[0].strip() if codeline else None,
                 "lineno": lineno,
+                "end_lineno": pos_end_lineno or lineno,
+                "colno": start_col,
+                "end_colno": end_col,
                 "linenostart": start,
                 "lines": lines,
-                "fragments": fragments,  # New fragment-based structure
+                "fragments": fragments,
                 "function": function,
                 "urls": urls,
                 "variables": extract_variables(frame.f_locals, lines),
             }
         )
+
         if suppress_inner and frame is bug_in_frame:
             break
+
     return frames
 
 

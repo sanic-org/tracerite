@@ -17,6 +17,12 @@ tooltips = {
 }
 javascript = """const scrollto=id=>document.getElementById(id).scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"""
 
+chainmsg = {
+    "cause": "The above exception was raised from",
+    "context": "The above exception was raised while handling",
+    "none": "",  # Shouldn't happen between any two exceptions (only at the initial i.e. last in chain)
+}
+
 
 def html_traceback(
     exc=None, chain=None, *, include_js_css=True, local_urls=False, **extract_args
@@ -26,10 +32,13 @@ def html_traceback(
         if include_js_css:
             doc._script(javascript)
             doc._style(style)
+        msg = None
         for e in chain:
-            if e is not chain[0]:
-                doc.p("The above exception occurred after catching", class_="after")
+            if msg:
+                doc.p(msg, class_="after")
+            msg = chainmsg[e["has"]]
             _exception(doc, e, local_urls=local_urls)
+
         with doc.script:
             for e in reversed(chain):
                 for info in e["frames"]:
@@ -67,9 +76,13 @@ def _exception(doc, info, *, local_urls=False):
                     with doc.div(class_="traceback-details"):
                         doc.p("...")
                     continue
-                with doc.div(class_="traceback-details", id=frinfo["id"]):
+                with doc.div(
+                    class_="traceback-details",
+                    data_function=frinfo["function"],
+                    id=frinfo["id"],
+                ):
                     traceback_detail(doc, info, frinfo, local_urls=local_urls)
-                    # variable_inspector(doc, frinfo["variables"])
+                    variable_inspector(doc, frinfo["variables"])
 
 
 def _tab_header(doc, frinfo):
@@ -98,7 +111,6 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
     else:
         with doc.pre, doc.code:
             start = frinfo["linenostart"]
-            frinfo["lineno"]
             for line_info in fragments:
                 line_num = line_info["line"]
                 abs_line = start + line_num - 1
@@ -109,12 +121,28 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
                     for fragment in fragments:
                         if "trailing" in fragment:
                             break
-                        _render_fragment(doc, fragment)
+
+                        # Prepare tooltip attributes for mark fragments on final line
+                        tooltip_attrs = {}
+                        if line_num == frinfo["end_lineno"]:
+                            relevance = frinfo["relevance"]
+                            symbol = symbols.get(relevance, frinfo["relevance"])
+                            try:
+                                text = tooltips[relevance].format(**info, **frinfo)
+                            except Exception:
+                                text = repr(relevance)
+                            tooltip_attrs = {
+                                "class": "tracerite-tooltip",
+                                "data-symbol": symbol,
+                                "data-tooltip": text,
+                            }
+
+                        _render_fragment(doc, fragment, tooltip_attrs)
                     else:
                         fragment = None
                 # Render trailing fragment outside the span
                 if fragment:
-                    _render_fragment(doc, fragment)
+                    _render_fragment(doc, fragment, {})
 
 
 def _render_line_fragments(doc, fragments, info, frinfo, is_error_line):
@@ -123,15 +151,18 @@ def _render_line_fragments(doc, fragments, info, frinfo, is_error_line):
         _render_fragment(doc, fragment)
 
 
-def _render_fragment(doc, fragment):
+def _render_fragment(doc, fragment, tooltip_attrs=None):
     """Render a single fragment with appropriate styling."""
     code = fragment["code"]
+    tooltip_attrs = tooltip_attrs or {}
 
     mark = fragment.get("mark")
     em = fragment.get("em")
+
     # Render opening tags for "mark" and "em" if applicable
     if mark in ["solo", "beg"]:
-        doc(HTML("<mark>"))
+        # Apply tooltip attributes if this is a mark fragment that should have them
+        doc(HTML(str(E.mark(**tooltip_attrs)).removesuffix("</mark>")))
     if em in ["solo", "beg"]:
         doc(HTML("<em>"))
 

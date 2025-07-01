@@ -100,3 +100,9 @@ warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
 strict_equality = true
+
+[dependency-groups]
+dev = [
+    "beautifulsoup4>=4.13.4",
+    "jupyterlab>=4.3.8",
+]

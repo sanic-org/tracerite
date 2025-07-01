@@ -1,11 +1,11 @@
 lint:
-    uv run ruff check .
-    uv run ruff format --check .
+    uv run ruff check tracerite tests
+    uv run ruff format --check tracerite tests
     #uv run mypy tracerite
 
 format:
-    uv run ruff check --fix .
-    uv run ruff format .
+    uv run ruff format tracerite tests
+    uv run ruff check --fix --unsafe-fixes tracerite tests
 
 clean:
     rm -rf .coverage coverage.xml htmlcov
