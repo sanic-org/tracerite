@@ -43,10 +43,7 @@ At the beginning of your Notebook:
 
 ### Setup Development Environment
 
-1. Install uv:
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   ```
+1. Install uv: See [UV installation guide](https://docs.astral.sh/uv/getting-started/installation/) for platform-specific instructions.
 
 2. Clone the repository and set up the development environment:
    ```bash
@@ -55,13 +52,10 @@ At the beginning of your Notebook:
    uv sync --extra dev
    ```
 
-### Development Commands
+The project uses Just project runner for task management:
 
-- **Format code**: `uv run ruff format .`
-- **Lint code**: `uv run ruff check .`
-- **Type check**: `uv run mypy tracerite`
-- **Run tests**: `uv run pytest`
-- **Build package**: `uv build`
+- **Run tests**: `just test` - Run comprehensive test suite across Python versions 3.8-3.13 with coverage
+- **All checks**: `just all` - Format code and run all tests
 
 ## Background
 
