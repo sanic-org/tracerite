@@ -95,7 +95,9 @@ def _tab_header(doc, frinfo):
 def traceback_detail(doc, info, frinfo, *, local_urls):
     function = frinfo["function"]
     if frinfo["filename"]:
-        doc.div.b(frinfo["filename"])(f":{frinfo['lineno']}")
+        doc.div.b(frinfo["filename"])(
+            f":{frinfo['range'].lfirst if frinfo['range'] else '?'}"
+        )
         urls = frinfo["urls"]
         if local_urls and urls:
             for name, href in urls.items():
@@ -124,7 +126,7 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
 
                         # Prepare tooltip attributes for mark fragments on final line
                         tooltip_attrs = {}
-                        if line_num == frinfo["end_lineno"]:
+                        if frinfo["range"] and line_num == frinfo["range"].lfinal:
                             relevance = frinfo["relevance"]
                             symbol = symbols.get(relevance, frinfo["relevance"])
                             try:

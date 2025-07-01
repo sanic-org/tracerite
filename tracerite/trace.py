@@ -1,6 +1,7 @@
 import inspect
 import re
 import sys
+from collections import namedtuple
 from contextlib import suppress
 from pathlib import Path
 from secrets import token_urlsafe
@@ -10,6 +11,9 @@ from urllib.parse import quote
 from . import trace_cpy
 from .inspector import extract_variables
 from .logging import logger
+
+# Position range: lines are 1-based inclusive, columns are 0-based exclusive
+Range = namedtuple("Range", ["lfirst", "lfinal", "cbeg", "cend"])
 
 # Will be set to an instance if loaded as an IPython extension by %load_ext
 ipython = None
@@ -149,19 +153,21 @@ def _get_frame_relevance(is_last_frame, is_bug_frame, suppress_inner):
 def _extract_emphasis_columns(
     lines, error_line_in_context, end_line, start_col, end_col, start
 ):
-    """Extract emphasis columns using caret anchors from the code segment."""
-    em_columns = {}
+    """Extract emphasis columns using caret anchors from the code segment.
 
+    Returns Range with 1-based inclusive line numbers and 0-based exclusive columns,
+    or None if no anchors found.
+    """
     if not (end_line and start_col is not None and end_col is not None):
-        return em_columns
+        return None
 
     try:
         all_lines = lines.splitlines(keepends=True)
-        segment_start = error_line_in_context - 1  # Convert to 0-based index
+        segment_start = error_line_in_context - 1  # Convert to 0-based for indexing
         segment_end = end_line if end_line else error_line_in_context
 
         if not (0 <= segment_start < len(all_lines) and segment_end <= len(all_lines)):
-            return em_columns
+            return None
 
         # Extract the segment using CPython's approach
         relevant_lines = all_lines[segment_start:segment_end]
@@ -190,13 +196,16 @@ def _extract_emphasis_columns(
             c0 += start_col
         if l1 == 0:
             c1 += start_col
-        l0 += segment_start
-        l1 += segment_start
-        return l0, l1, c0, c1
+
+        # Convert to 1-based inclusive line numbers for consistency
+        lfirst = l0 + segment_start + 1
+        lfinal = l1 + segment_start + 1
+
+        return Range(lfirst, lfinal, c0, c1)
     except Exception:
         logger.exception("Error extracting caret anchors")
 
-    return em_columns
+    return None
 
 
 def _build_position_map(raw_tb):
@@ -256,18 +265,17 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         error_line_in_context = lineno - start + 1
         end_line = pos_end_lineno - start + 1 if pos_end_lineno else None
 
-        # Build emphasis columns and fragments
-        em_columns = _extract_emphasis_columns(
+        # Create mark range (1-based inclusive lines, 0-based exclusive columns)
+        mark_range = None
+        if start_col is not None and end_col is not None:
+            mark_lfinal = end_line or error_line_in_context
+            mark_range = Range(error_line_in_context, mark_lfinal, start_col, end_col)
+
+        # Build emphasis range and fragments
+        em_range = _extract_emphasis_columns(
             lines, error_line_in_context, end_line, start_col, end_col, start
         )
-        fragments = _parse_lines_to_fragments(
-            lines,
-            error_line_in_context,
-            start_col,
-            end_col,
-            end_line,
-            em_columns=em_columns,
-        )
+        fragments = _parse_lines_to_fragments(lines, mark_range, em_range)
 
         frames.append(
             {
@@ -276,10 +284,9 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
                 "filename": filename,
                 "location": location,
                 "codeline": codeline[0].strip() if codeline else None,
-                "lineno": lineno,
-                "end_lineno": pos_end_lineno or lineno,
-                "colno": start_col,
-                "end_colno": end_col,
+                "range": Range(lineno, pos_end_lineno or lineno, start_col, end_col)
+                if start_col is not None
+                else None,
                 "linenostart": start,
                 "lines": lines,
                 "fragments": fragments,
@@ -303,30 +310,36 @@ def _calculate_common_indent(lines):
     return 0
 
 
-def _convert_4tuple_to_positions(start_line, end_line, start_col, end_col, lines):
-    """Convert 4-tuple (line1, line2, col1, col2) to absolute character positions."""
+def _convert_range_to_positions(range_obj, lines):
+    """Convert Range (1-based inclusive lines, 0-based exclusive columns) to absolute character positions."""
     positions = set()
 
-    if start_line is None or end_line is None or start_col is None or end_col is None:
+    if not range_obj:
         return positions
+
+    # Convert to 0-based line indices for processing
+    start_line_idx = range_obj.lfirst - 1
+    end_line_idx = range_obj.lfinal - 1
 
     # Calculate absolute positions
     char_pos = 0
     for line_idx, line in enumerate(lines):
-        if start_line <= line_idx <= end_line:
+        if start_line_idx <= line_idx <= end_line_idx:
             line_content = line.rstrip("\r\n")
 
-            if line_idx == start_line == end_line:
+            if line_idx == start_line_idx == end_line_idx:
                 # Single line case
-                for col in range(max(0, start_col), min(len(line_content), end_col)):
+                for col in range(
+                    max(0, range_obj.cbeg), min(len(line_content), range_obj.cend)
+                ):
                     positions.add(char_pos + col)
-            elif line_idx == start_line:
+            elif line_idx == start_line_idx:
                 # First line of multi-line
-                for col in range(max(0, start_col), len(line_content)):
+                for col in range(max(0, range_obj.cbeg), len(line_content)):
                     positions.add(char_pos + col)
-            elif line_idx == end_line:
+            elif line_idx == end_line_idx:
                 # Last line of multi-line
-                for col in range(0, min(len(line_content), end_col)):
+                for col in range(0, min(len(line_content), range_obj.cend)):
                     positions.add(char_pos + col)
             else:
                 # Middle lines of multi-line
@@ -447,26 +460,14 @@ def _create_highlighted_fragments_unified(
     )
 
 
-def _parse_lines_to_fragments(
-    lines_text,
-    error_line,
-    start_col=None,
-    end_col=None,
-    end_line=None,
-    em_columns=None,
-    mark_error_line=False,
-):
+def _parse_lines_to_fragments(lines_text, mark_range=None, em_range=None):
     """
     Parse lines of code into fragments with mark/em highlighting information.
 
     Args:
         lines_text: The multi-line string containing code
-        error_line: The line number where the error occurred (1-based)
-        start_col: Start column for highlighting (0-based, optional)
-        end_col: End column for highlighting (0-based, optional)
-        end_line: End line for multi-line errors (1-based, optional)
-        em_columns: Either None or 4-tuple (left_end_lineno, right_start_lineno, left_end_offset, right_start_offset)
-        mark_error_line: If True and no column info, mark the entire error line
+        mark_range: Range object for mark highlighting (or None)
+        em_range: Range object for em highlighting (or None)
 
     Returns:
         List of line dictionaries with fragment information
@@ -481,39 +482,8 @@ def _parse_lines_to_fragments(
     common_indent_len = _calculate_common_indent(lines)
 
     # Convert both mark and em to position sets using unified logic
-    mark_positions = set()
-    em_positions = set()
-
-    # Handle mark positions
-    if start_col is not None and end_col is not None:
-        mark_end_line = end_line or error_line
-        mark_positions = _convert_4tuple_to_positions(
-            error_line - 1, mark_end_line - 1, start_col, end_col, lines
-        )
-    elif mark_error_line:
-        # Mark entire error line
-        error_line_idx = error_line - 1
-        if 0 <= error_line_idx < len(lines):
-            line_content = lines[error_line_idx].rstrip("\r\n")
-            leading_spaces = len(line_content) - len(line_content.lstrip())
-            trimmed_end = len(line_content.rstrip())
-            if trimmed_end > leading_spaces:
-                char_pos = sum(len(lines[i]) for i in range(error_line_idx))
-                for col in range(leading_spaces, trimmed_end):
-                    mark_positions.add(char_pos + col)
-
-    # Handle em positions (4-tuple format)
-    if em_columns is not None:
-        left_end_lineno, right_start_lineno, left_end_offset, right_start_offset = (
-            em_columns
-        )
-        em_positions = _convert_4tuple_to_positions(
-            left_end_lineno,
-            right_start_lineno,
-            left_end_offset,
-            right_start_offset,
-            lines,
-        )
+    mark_positions = _convert_range_to_positions(mark_range, lines)
+    em_positions = _convert_range_to_positions(em_range, lines)
 
     # Create fragments using unified highlighting
     return _create_unified_fragments(

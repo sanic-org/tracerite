@@ -121,9 +121,10 @@ def test_em_columns_not_empty():
         chain = extract_chain(e)
         frame = chain[0]["frames"][-1]
 
-        # Check that we have position information
-        assert frame.get("colno") is not None
-        assert frame.get("end_colno") is not None
+        # Check that we have position information in the Range format
+        assert frame.get("range") is not None
+        assert frame["range"].cbeg is not None
+        assert frame["range"].cend is not None
 
         # Count emphasized fragments
         em_count = 0
