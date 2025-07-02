@@ -10,9 +10,9 @@ detail_show = "{display: inherit}"
 
 symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑"}
 tooltips = {
-    "call": "Function call",
-    "warning": "Bug may be here\n(call from user code)",
-    "error": "Exception {type} raised",
+    "call": "Call",
+    "warning": "Call from your code",
+    "error": "{type}",
     "stop": "Execution interrupted\n(BaseException)",
 }
 javascript = """const scrollto=id=>document.getElementById(id).scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"""
@@ -125,6 +125,8 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
                     symbol = symbols.get(relevance, frinfo["relevance"])
                     try:
                         text = tooltips[relevance].format(**info, **frinfo)
+                        # Replace newlines with spaces for HTML attribute
+                        text = text.replace("\n", " ")
                     except Exception:
                         text = repr(relevance)
                     tooltip_attrs = {
@@ -160,9 +162,15 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
 
                     # Render the tooltip span around the actual code content
                     if tooltip_attrs and non_trailing_fragments:
-                        with doc.span(**tooltip_attrs):
+                        with doc.span(
+                            class_="tracerite-tooltip",
+                            data_tooltip=tooltip_attrs["data-tooltip"],
+                        ):
                             for fragment in non_trailing_fragments:
                                 _render_fragment(doc, fragment)
+                        # Add separate symbol and tooltip text elements
+                        doc.span(class_="tracerite-symbol", data_symbol=tooltip_attrs["data-symbol"])
+                        doc.span(class_="tracerite-tooltip-text", data_tooltip=tooltip_attrs["data-tooltip"])
                     else:
                         for fragment in non_trailing_fragments:
                             _render_fragment(doc, fragment)

@@ -22,6 +22,14 @@
   overflow: hidden;
   font: inherit;
 }
+
+/* Allow tooltip containers to overflow for proper tooltip display */
+.tracerite .tracerite-tooltip,
+.tracerite .tracerite-tooltip *,
+.tracerite .traceback-details,
+.tracerite .traceback-details pre {
+  overflow: visible;
+}
 .tracerite code {
   background: none;
 }
@@ -77,34 +85,52 @@
   font-style: normal;
   color: var(--tracerite-caret);
 }
-.tracerite .traceback-details .tracerite-tooltip::after {
+/* Symbol element - display symbol with specific styling */
+.tracerite .traceback-details .tracerite-symbol {
   display: inline-block;
-  content: attr(data-symbol);
-  margin: -1ch;
-  transform: translate(2em, 0) scale(1.8);
+  margin-left: 0.5ch;
+  padding: 0.1em;
+  font-size: 1.5em;
+  vertical-align: middle;
   color: var(--tracerite-highlight);
-  -webkit-text-stroke: .05em black;
+  text-shadow: 
+    -.02em -.02em 0 var(--tracerite-tooltip),
+    .02em -.02em 0 var(--tracerite-tooltip),
+    -.02em .02em 0 var(--tracerite-tooltip),
+    .02em .02em 0 var(--tracerite-tooltip);
 }
-.tracerite .tracerite-tooltip {
-  position: relative;
+
+/* Display symbol using pseudo-element and data attribute */
+.tracerite .traceback-details .tracerite-symbol::before {
+  content: attr(data-symbol);
 }
-.tracerite .tracerite-tooltip::before {
-  position: absolute;
+
+/* Tooltip text element - display text with different styling */
+.tracerite .traceback-details .tracerite-tooltip-text {
+  display: inline-block;
+  margin-left: 0.3ch;
+  font-size: 0.9em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Display tooltip text using pseudo-element and data attribute */
+.tracerite .traceback-details .tracerite-tooltip-text::before {
   content: attr(data-tooltip);
-  display: none;
-  color: var(--tracerite-tooltip);
-  background: var(--tracerite-highlight);
-  bottom: 3em;
-  right: -3em;
-  transform: translate(50%, 0);  /* center of itself */
-  font-size: 0.8em;
-  padding: 0.5em 1em;
-  border-radius: 3px;
-  text-align: center;
-  z-index: 2;
 }
-.tracerite .tracerite-tooltip:hover::before {
-  display: block;
+
+/* Remove the old pseudo-element tooltip */
+.tracerite .traceback-details .tracerite-symbol::after {
+  display: none;
+}
+
+/* Responsive behavior - adjust on smaller screens */
+@media (max-width: 768px) {
+  .tracerite .tracerite-tooltip::before {
+    max-width: 280px;
+    font-size: 0.75em;
+    padding: 0.6em 0.8em;
+  }
 }
 
 .tracerite .traceback-labels {
