@@ -120,7 +120,7 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
 
                 # Prepare tooltip attributes for tooltip span on final line
                 tooltip_attrs = {}
-                if frinfo["range"] and line_num == frinfo["range"].lfinal:
+                if frinfo["range"] and abs_line == frinfo["range"].lfinal:
                     relevance = frinfo["relevance"]
                     symbol = symbols.get(relevance, frinfo["relevance"])
                     try:
@@ -169,8 +169,14 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
                             for fragment in non_trailing_fragments:
                                 _render_fragment(doc, fragment)
                         # Add separate symbol and tooltip text elements
-                        doc.span(class_="tracerite-symbol", data_symbol=tooltip_attrs["data-symbol"])
-                        doc.span(class_="tracerite-tooltip-text", data_tooltip=tooltip_attrs["data-tooltip"])
+                        doc.span(
+                            class_="tracerite-symbol",
+                            data_symbol=tooltip_attrs["data-symbol"],
+                        )
+                        doc.span(
+                            class_="tracerite-tooltip-text",
+                            data_tooltip=tooltip_attrs["data-tooltip"],
+                        )
                     else:
                         for fragment in non_trailing_fragments:
                             _render_fragment(doc, fragment)
