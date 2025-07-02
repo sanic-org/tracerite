@@ -5,6 +5,7 @@ from tracerite import extract_chain
 from .errorcases import (
     binomial_operator,
     chained_from_and_without,
+    error_in_stdlib_mimetypes,
     max_type_error_case,
     multiline_marking,
     multiline_marking_comment,
@@ -361,6 +362,7 @@ def test_em_columns_comprehensive_structure():
     """Test that em_columns work across different error types and maintain structure."""
     test_functions = [
         binomial_operator,
+        error_in_stdlib_mimetypes,
         multiline_marking,
         multiline_marking_comment,
         max_type_error_case,
@@ -413,3 +415,92 @@ def test_em_columns_comprehensive_structure():
             assert found_valid_structure, (
                 f"No valid fragment structure found for {test_func.__name__}"
             )
+
+
+def test_em_columns_stdlib_mimetypes():
+    """Test that em_columns correctly handle stdlib mimetypes errors with function call marking.
+
+    Python's traceback shows:
+        url = os.fspath(url)
+              ^^^^^^^^^^^^^^
+    This tests that tracerite correctly parses the caret marking and emphasizes the
+    entire 'os.fspath(url)' function call, properly accounting for dedenting.
+    """
+    try:
+        error_in_stdlib_mimetypes()
+    except Exception as e:
+        chain = extract_chain(e)
+        assert chain is not None
+        assert len(chain) > 0
+
+        # Find the stdlib frame with the os.fspath call
+        stdlib_fspath_frame = None
+        problematic_line_info = None
+
+        for frame in chain[0]["frames"]:
+            # Look for stdlib mimetypes.py frame
+            if (
+                "mimetypes.py" in frame.get("filename", "")
+                and "fragments" in frame
+                and frame["fragments"]
+            ):
+                for line_info in frame["fragments"]:
+                    line_code = "".join(frag["code"] for frag in line_info["fragments"])
+                    if "fspath" in line_code and "url =" in line_code:
+                        stdlib_fspath_frame = frame
+                        problematic_line_info = line_info
+                        break
+                if stdlib_fspath_frame:
+                    break
+
+        assert stdlib_fspath_frame is not None, (
+            "Could not find stdlib frame with os.fspath"
+        )
+        assert problematic_line_info is not None, "Could not find fspath line"
+
+        # Analyze the correct fragment parsing
+        fragments = problematic_line_info["fragments"]
+
+        # Check for the correct behavior: function name should be properly marked
+        found_function_marked = False
+        found_args_emphasized = False
+        found_proper_structure = False
+
+        for fragment in fragments:
+            if fragment["code"] == "os.fspath" and "mark" in fragment:
+                found_function_marked = True
+            elif (
+                fragment["code"] == "(url)" and "em" in fragment and "mark" in fragment
+            ):
+                found_args_emphasized = True
+
+        # Verify we have proper structure with function name not split
+        fragment_codes = [
+            frag["code"] for frag in fragments if not frag["code"].endswith("\n")
+        ]
+        full_line = "".join(fragment_codes)
+        if full_line == "url = os.fspath(url)":
+            found_proper_structure = True
+
+        # These assertions verify the correct behavior after the fix
+        assert found_function_marked, "Expected 'os.fspath' to be marked as a unit"
+        assert found_args_emphasized, "Expected '(url)' to be emphasized"
+        assert found_proper_structure, (
+            "Expected proper line structure without splitting function name"
+        )
+
+        print("SUCCESS: Function name 'os.fspath' is correctly marked as a unit")
+        # Build fragment description for debugging
+        fragment_descriptions = []
+        for frag in fragments:
+            if not frag["code"].endswith("\n"):
+                desc = f"'{frag['code']}'"
+                if "em" in frag:
+                    desc += " [EM]"
+                if "mark" in frag:
+                    desc += " [MARK]"
+                fragment_descriptions.append(desc)
+        print(f"Fragments: {fragment_descriptions}")
+
+        # Verify we have the expected structure showing the fix
+        assert len(fragments) >= 3, "Expected at least 3 fragments"

@@ -59,7 +59,7 @@ def test_fragments_indentation_structure():
         error_line = None
         for line_info in fragments:
             for frag in line_info["fragments"]:
-                if frag.get("mark") == "solo":
+                if "mark" in frag:
                     error_line = line_info
                     break
             if error_line:

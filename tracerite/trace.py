@@ -94,9 +94,15 @@ def extract_source_lines(frame, lineno):
             start = 1
         lines = lines[max(0, lineno - start - 15) : max(0, lineno - start + 3)]
         start += max(0, lineno - start - 15)
-        return dedent("".join(lines)), start
+
+        # Calculate common indentation before dedenting
+        common_indent = _calculate_common_indent(lines)
+
+        # Return both dedented content and the common indentation amount
+        dedented_content = dedent("".join(lines))
+        return dedented_content, start, common_indent
     except OSError:
-        return "", 1
+        return "", 1, 0
 
 
 def format_location(filename, lineno):
@@ -251,7 +257,7 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         is_bug_frame = frame is bug_in_frame
         relevance = _get_frame_relevance(is_last_frame, is_bug_frame, suppress_inner)
 
-        lines, start = extract_source_lines(frame, lineno)
+        lines, start, original_common_indent = extract_source_lines(frame, lineno)
         if not lines and relevance == "call":
             continue
 
@@ -265,15 +271,37 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         error_line_in_context = lineno - start + 1
         end_line = pos_end_lineno - start + 1 if pos_end_lineno else None
 
+        # Calculate common indentation that will be removed for display
+        # (we already have this from extract_source_lines, no need to recalculate)
+        common_indent = original_common_indent
+
+        # Adjust column positions to account for dedenting
+        # Python's column numbers are based on the original indented code,
+        # but we display dedented code, so we need to subtract the common indentation
+        adjusted_start_col = (
+            start_col - common_indent if start_col is not None else None
+        )
+        adjusted_end_col = end_col - common_indent if end_col is not None else None
+
         # Create mark range (1-based inclusive lines, 0-based exclusive columns)
         mark_range = None
-        if start_col is not None and end_col is not None:
+        if adjusted_start_col is not None and adjusted_end_col is not None:
+            # Ensure columns are not negative after dedenting adjustment
+            adjusted_start_col = max(0, adjusted_start_col)
+            adjusted_end_col = max(0, adjusted_end_col)
             mark_lfinal = end_line or error_line_in_context
-            mark_range = Range(error_line_in_context, mark_lfinal, start_col, end_col)
+            mark_range = Range(
+                error_line_in_context, mark_lfinal, adjusted_start_col, adjusted_end_col
+            )
 
         # Build emphasis range and fragments
         em_range = _extract_emphasis_columns(
-            lines, error_line_in_context, end_line, start_col, end_col, start
+            lines,
+            error_line_in_context,
+            end_line,
+            adjusted_start_col,
+            adjusted_end_col,
+            start,
         )
         fragments = _parse_lines_to_fragments(lines, mark_range, em_range)
 

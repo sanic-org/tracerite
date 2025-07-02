@@ -63,3 +63,9 @@ def unrelated_error_in_finally():
         wrongname
     finally:
         0 / 0
+
+
+def error_in_stdlib_mimetypes():
+    import mimetypes
+
+    mimetypes.guess_type(123)  # It expects a string, not an int
