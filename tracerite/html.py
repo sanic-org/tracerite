@@ -13,7 +13,7 @@ tooltips = {
     "call": "Call",
     "warning": "Call from your code",
     "error": "{type}",
-    "stop": "Execution interrupted\n(BaseException)",
+    "stop": "{type}",
 }
 javascript = """const scrollto=id=>document.getElementById(id).scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"""
 
