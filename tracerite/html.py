@@ -118,33 +118,60 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
                 abs_line = start + line_num - 1
                 fragments = line_info["fragments"]
 
+                # Prepare tooltip attributes for tooltip span on final line
+                tooltip_attrs = {}
+                if frinfo["range"] and line_num == frinfo["range"].lfinal:
+                    relevance = frinfo["relevance"]
+                    symbol = symbols.get(relevance, frinfo["relevance"])
+                    try:
+                        text = tooltips[relevance].format(**info, **frinfo)
+                    except Exception:
+                        text = repr(relevance)
+                    tooltip_attrs = {
+                        "class": "tracerite-tooltip",
+                        "data-symbol": symbol,
+                        "data-tooltip": text,
+                    }
+
                 # Render content fragments inside the codeline span
                 with doc.span(class_="codeline", data_lineno=abs_line):
+                    # Find the first non-trailing fragment to start the tooltip span
+                    non_trailing_fragments = []
+                    trailing_fragment = None
                     for fragment in fragments:
                         if "trailing" in fragment:
+                            trailing_fragment = fragment
                             break
+                        non_trailing_fragments.append(fragment)
 
-                        # Prepare tooltip attributes for mark fragments on final line
-                        tooltip_attrs = {}
-                        if frinfo["range"] and line_num == frinfo["range"].lfinal:
-                            relevance = frinfo["relevance"]
-                            symbol = symbols.get(relevance, frinfo["relevance"])
-                            try:
-                                text = tooltips[relevance].format(**info, **frinfo)
-                            except Exception:
-                                text = repr(relevance)
-                            tooltip_attrs = {
-                                "class": "tracerite-tooltip",
-                                "data-symbol": symbol,
-                                "data-tooltip": text,
+                    # Render leading whitespace/indentation first (outside tooltip span)
+                    if non_trailing_fragments:
+                        first_fragment = non_trailing_fragments[0]
+                        code = first_fragment["code"]
+                        leading_whitespace = code[: len(code) - len(code.lstrip())]
+                        if leading_whitespace:
+                            doc(leading_whitespace)
+                            # Create modified first fragment without leading whitespace
+                            first_fragment_modified = {
+                                **first_fragment,
+                                "code": code.lstrip(),
                             }
+                            non_trailing_fragments[0] = first_fragment_modified
 
-                        _render_fragment(doc, fragment, tooltip_attrs)
+                    # Render the tooltip span around the actual code content
+                    if tooltip_attrs and non_trailing_fragments:
+                        with doc.span(**tooltip_attrs):
+                            for fragment in non_trailing_fragments:
+                                _render_fragment(doc, fragment)
                     else:
-                        fragment = None
+                        for fragment in non_trailing_fragments:
+                            _render_fragment(doc, fragment)
+
+                    # Set fragment for trailing handling
+                    fragment = trailing_fragment
                 # Render trailing fragment outside the span
                 if fragment:
-                    _render_fragment(doc, fragment, {})
+                    _render_fragment(doc, fragment)
 
 
 def _render_line_fragments(doc, fragments, info, frinfo, is_error_line):
@@ -153,18 +180,16 @@ def _render_line_fragments(doc, fragments, info, frinfo, is_error_line):
         _render_fragment(doc, fragment)
 
 
-def _render_fragment(doc, fragment, tooltip_attrs=None):
+def _render_fragment(doc, fragment):
     """Render a single fragment with appropriate styling."""
     code = fragment["code"]
-    tooltip_attrs = tooltip_attrs or {}
 
     mark = fragment.get("mark")
     em = fragment.get("em")
 
     # Render opening tags for "mark" and "em" if applicable
     if mark in ["solo", "beg"]:
-        # Apply tooltip attributes if this is a mark fragment that should have them
-        doc(HTML(str(E.mark(**tooltip_attrs)).removesuffix("</mark>")))
+        doc(HTML("<mark>"))
     if em in ["solo", "beg"]:
         doc(HTML("<em>"))
 
