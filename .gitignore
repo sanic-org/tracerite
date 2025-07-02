@@ -1,15 +1,35 @@
-__pycache__
+# Ignore all dotfiles and hidden directories
+.*
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
 *$py.class
+
+# Distribution / packaging
 build/
 develop-eggs/
 dist/
 downloads/
 eggs/
+lib/
+lib64/
+parts/
 sdist/
+var/
 wheels/
-pip-wheel-metadata/
 share/python-wheels/
 *.egg-info/
 *.egg
-*.eggs/
 MANIFEST
+
+# Unit test / coverage reports
+htmlcov/
+coverage.xml
+*.cover
+*.py,cover
+cover/
+
+# Package managers
+*.lock
+__pypackages__/

@@ -1,4 +1,6 @@
+import contextlib
 import sys
+
 from . import trace
 from .html import html_traceback
 from .logging import logger
@@ -15,9 +17,11 @@ def _can_display_html():
 
 def load_ipython_extension(ipython):
     trace.ipython = ipython
+
     def showtraceback(*args, **kwargs):
         try:
             from IPython.display import display
+
             # TraceRite HTML output
             display(html_traceback(skip_until="<ipython-input-"))
         except Exception:
@@ -36,8 +40,6 @@ def load_ipython_extension(ipython):
 
 
 def unload_ipython_extension(ipython):
-    try:
+    with contextlib.suppress(AttributeError):
         del ipython.showtraceback
-    except AttributeError:
-        pass
     trace.ipython = None

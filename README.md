@@ -32,6 +32,7 @@ relevant:
 
 
 ## Usage
+### In Jupyter Notebooks
 
 At the beginning of your Notebook:
 
@@ -39,6 +40,22 @@ At the beginning of your Notebook:
 %pip install tracerite
 %load_ext tracerite
 ```
+
+### Setup Development Environment
+
+1. Install uv: See [UV installation guide](https://docs.astral.sh/uv/getting-started/installation/) for platform-specific instructions.
+
+2. Clone the repository and set up the development environment:
+   ```bash
+   git clone https://github.com/sanic-org/tracerite.git
+   cd tracerite
+   uv sync --extra dev
+   ```
+
+The project uses Just project runner for task management:
+
+- **Run tests**: `just test` - Run comprehensive test suite across Python versions 3.8-3.13 with coverage
+- **All checks**: `just all` - Format code and run all tests
 
 ## Background
 
