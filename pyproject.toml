@@ -38,6 +38,7 @@ Issues = "https://github.com/sanic-org/tracerite/issues"
 
 [dependency-groups]
 dev = [
+    "nox",
     "ruff",
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
