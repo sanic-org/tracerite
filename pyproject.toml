@@ -29,7 +29,19 @@ Repository = "https://github.com/sanic-org/tracerite"
 [dependency-groups]
 dev = [
     "ruff",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "numpy>=1.20.0",
+    "torch==2.5.1; platform_machine != 'aarch64'",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
 
 [tool.hatch.version]
 path = "tracerite/__init__.py"
@@ -47,6 +59,33 @@ packages = ["tracerite"]
 [tool.ruff]
 line-length = 88
 target-version = "py38"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=tracerite",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["tracerite"]
+omit = ["tracerite/notebook.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "except ImportError:",
+]
 
 [tool.ruff.lint]
 select = [

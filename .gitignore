@@ -1,5 +1,7 @@
 __pycache__
 *$py.class
+.*
+!.gitignore
 build/
 develop-eggs/
 dist/
