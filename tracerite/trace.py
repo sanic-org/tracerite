@@ -1,8 +1,6 @@
 import inspect
-import os
 import re
 import sys
-
 from pathlib import Path
 from secrets import token_urlsafe
 from textwrap import dedent
@@ -15,7 +13,7 @@ from .logging import logger
 ipython = None
 
 # Locations considered to be bug-free
-libdir = re.compile(r'/usr/.*|.*(site-packages|dist-packages).*')
+libdir = re.compile(r"/usr/.*|.*(site-packages|dist-packages).*")
 
 
 def extract_chain(exc=None, **kwargs) -> list:
@@ -28,9 +26,7 @@ def extract_chain(exc=None, **kwargs) -> list:
             break
         exc = getattr(exc, "__cause__") or getattr(exc, "__context__")
     # Newest exception first
-    return [
-        extract_exception(e, **(kwargs if e is chain[0] else {})) for e in chain
-    ]
+    return [extract_exception(e, **(kwargs if e is chain[0] else {})) for e in chain]
 
 
 def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
@@ -67,7 +63,7 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         message=message,
         summary=summary,
         repr=repr(e),
-        frames=frames or []
+        frames=frames or [],
     )
 
 
@@ -79,8 +75,12 @@ def extract_frames(tb, suppress_inner=False) -> list:
     # - The innermost non-library frame (libdir regex), or if not found,
     # - The innermost frame
     bug_in_frame = next(
-        (f for f in reversed(tb) if f.code_context and not libdir.fullmatch(f.filename)),
-        tb[-1]
+        (
+            f
+            for f in reversed(tb)
+            if f.code_context and not libdir.fullmatch(f.filename)
+        ),
+        tb[-1],
     ).frame
     for frame, filename, lineno, function, codeline, _ in tb:
         if frame.f_globals.get("__tracebackhide__", False):
@@ -102,7 +102,7 @@ def extract_frames(tb, suppress_inner=False) -> list:
             if start == 0:
                 start = 1  # Zero is always returned for modules; fix that.
             # Limit lines shown
-            lines = lines[max(0, lineno - start - 15):max(0, lineno - start + 3)]
+            lines = lines[max(0, lineno - start - 15) : max(0, lineno - start + 3)]
             start += max(0, lineno - start - 15)
             # Deindent
             lines = dedent("".join(lines))
@@ -129,7 +129,7 @@ def extract_frames(tb, suppress_inner=False) -> list:
             if cwd in fn.parents:
                 fn = fn.relative_to(cwd)
                 if ipython is not None:
-                   urls["Jupyter"] = f"/edit/{quote(fn.as_posix())}"
+                    urls["Jupyter"] = f"/edit/{quote(fn.as_posix())}"
             filename = fn.as_posix()  # Use forward slashes
         # Shorten filename to use as displayable location
         if not location:
@@ -144,29 +144,31 @@ def extract_frames(tb, suppress_inner=False) -> list:
             # Add class name to methods (if self or cls is the first local variable)
             try:
                 cls = next(
-                    v.__class__ if n == 'self' else v
+                    v.__class__ if n == "self" else v
                     for n, v in frame.f_locals.items()
-                    if n in ('self', 'cls') and v is not None
+                    if n in ("self", "cls") and v is not None
                 )
-                function = f'{cls.__name__}.{function}'
+                function = f"{cls.__name__}.{function}"
             except StopIteration:
                 pass
             # Remove long module paths (keep last two items)
-            function = '.'.join(function.split('.')[-2:])
+            function = ".".join(function.split(".")[-2:])
 
-        frames.append(dict(
-            id=f"tb-{token_urlsafe(12)}",
-            relevance=relevance,
-            filename=filename,
-            location=location,
-            codeline=codeline[0].strip() if codeline else None,
-            lineno=lineno,
-            linenostart=start,
-            lines=lines,
-            function=function,
-            urls=urls,
-            variables=extract_variables(frame.f_locals, lines),
-        ))
+        frames.append(
+            dict(
+                id=f"tb-{token_urlsafe(12)}",
+                relevance=relevance,
+                filename=filename,
+                location=location,
+                codeline=codeline[0].strip() if codeline else None,
+                lineno=lineno,
+                linenostart=start,
+                lines=lines,
+                function=function,
+                urls=urls,
+                variables=extract_variables(frame.f_locals, lines),
+            )
+        )
         if suppress_inner and frame is bug_in_frame:
             break
     return frames
