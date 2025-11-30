@@ -87,12 +87,17 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     }
 
 
-def extract_source_lines(frame, lineno):
+def extract_source_lines(frame, lineno, end_lineno=None):
     try:
         lines, start = inspect.getsourcelines(frame)
         if start == 0:
             start = 1
-        lines = lines[max(0, lineno - start - 15) : max(0, lineno - start + 3)]
+        # If we have end_lineno, make sure we extract enough lines to include it
+        # Otherwise, default to showing lineno + 3 lines after
+        lines_after = (end_lineno - lineno + 3) if end_lineno else 3
+        lines = lines[
+            max(0, lineno - start - 15) : max(0, lineno - start + lines_after)
+        ]
         start += max(0, lineno - start - 15)
 
         # Calculate common indentation before dedenting
@@ -250,16 +255,18 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         is_bug_frame = frame is bug_in_frame
         relevance = _get_frame_relevance(is_last_frame, is_bug_frame, suppress_inner)
 
-        lines, start, original_common_indent = extract_source_lines(frame, lineno)
+        # Extract position information first so we can use it for source extraction
+        pos = position_map.get(frame, [None] * 4)
+        pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
+
+        lines, start, original_common_indent = extract_source_lines(
+            frame, lineno, pos_end_lineno
+        )
         if not lines and relevance == "call":
             continue
 
         filename, location, urls = format_location(filename, lineno)
         function = _get_qualified_function_name(frame, function)
-
-        # Extract position information
-        pos = position_map.get(frame, [None] * 4)
-        pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
 
         error_line_in_context = lineno - start + 1
         end_line = pos_end_lineno - start + 1 if pos_end_lineno else None

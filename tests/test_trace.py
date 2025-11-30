@@ -942,6 +942,40 @@ class TestExtractFrames:
             assert "x = 1" in test_frame["lines"]
             assert "y = 2" in test_frame["lines"]
 
+    @pytest.mark.skipif(
+        sys.version_info < (3, 11),
+        reason="Requires Python 3.11+ for accurate end_lineno position info",
+    )
+    def test_multiline_exception_statement_extraction(self):
+        """Test that multiline exception statements are fully extracted.
+
+        When an exception is raised with a multiline string literal,
+        all lines of the statement should be included in the extracted source.
+        This tests the fix for the issue where only the first few lines were shown.
+        """
+        try:
+            raise Exception("""Brief.
+
+    1 2 3
+    i i i
+""")
+        except Exception as e:
+            import inspect
+
+            tb = inspect.getinnerframes(e.__traceback__)
+            frames = extract_frames(tb, e.__traceback__)
+
+        # Find the frame where the exception was raised
+        error_frame = next((f for f in frames if f["relevance"] == "error"), None)
+        assert error_frame is not None, "Should have an error frame"
+
+        # Check that all lines of the multiline exception are present
+        lines = error_frame["lines"]
+        assert 'raise Exception("""Brief.' in lines, "Should contain start of exception"
+        assert "1 2 3" in lines, "Should contain middle content line 1"
+        assert "i i i" in lines, "Should contain middle content line 2"
+        assert '""")' in lines, "Should contain closing of exception"
+
 
 class TestLibdirPattern:
     """Test the libdir pattern for identifying library code."""
