@@ -11,15 +11,9 @@ authors = [
     { name = "Sanic Community", email = "tronic@noreply.users.github.com" }
 ]
 license = { text = "Public Domain" }
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "License :: Public Domain",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
@@ -36,25 +30,31 @@ Homepage = "https://github.com/sanic-org/tracerite"
 Repository = "https://github.com/sanic-org/tracerite"
 Issues = "https://github.com/sanic-org/tracerite/issues"
 
+[project.optional-dependencies]
+nb = [
+    "ipykernel>=6.29.5",
+    "ipywidgets>=8.1.8",
+    "jupyter>=1.1.1",
+    "jupyter-client>=8.6.3",
+    "jupyterlab>=4.3.8",
+    "notebook>=7.3.3",
+]
+
 [dependency-groups]
 dev = [
     "nox",
     "ruff",
+]
+
+test = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "numpy>=1.20.0",
-    "torch==2.5.1; platform_machine != 'aarch64'",
+    "torch>=2.8.0",
     "beautifulsoup4>=4.13.4",
     "jupyterlab>=4.3.8",
+    "pytest-cov>=4.0.0",
 ]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[tool.uv.sources]
-torch = { index = "pytorch-cpu" }
 
 [tool.hatch.version]
 source = "vcs"
@@ -78,11 +78,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = [
-    "--cov=tracerite",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-]
 
 [tool.coverage.run]
 branch = true
