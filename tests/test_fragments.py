@@ -1,5 +1,9 @@
 """Tests for the fragment-based line structure in tracerite."""
 
+import sys
+
+import pytest
+
 from tracerite import extract_chain
 
 
@@ -39,6 +43,9 @@ def test_fragments_basic_structure():
                 assert isinstance(fragment["code"], str)
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_fragments_indentation_structure():
     """Test that indentation fragments have correct structure."""
 
@@ -110,6 +117,9 @@ def test_fragments_comment_structure():
             )
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_fragments_mark_highlighting():
     """Test that error positions are marked correctly."""
 
@@ -183,6 +193,9 @@ def test_fragments_trailing_structure():
             )
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_fragments_complete_line_structure():
     """Test the complete structure of a complex line with all fragment types."""
 
@@ -313,6 +326,9 @@ def test_fragments_no_column_info():
                 assert "code" in frag
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_fragments_multiline_error_marking():
     """Test that multi-line errors are marked correctly with fragments."""
 

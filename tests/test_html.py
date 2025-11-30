@@ -1,3 +1,6 @@
+import sys
+
+import pytest
 from bs4 import BeautifulSoup
 
 from tests.errorcases import (
@@ -11,6 +14,9 @@ from tests.errorcases import (
 from tracerite.html import html_traceback
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_binomial_operator_html_traceback():
     try:
         binomial_operator()
@@ -60,6 +66,9 @@ def test_binomial_operator_html_traceback():
     )
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_multiline_marking_html_traceback():
     """Test HTML output for multiline binary operator."""
     try:
@@ -103,6 +112,9 @@ def test_multiline_marking_html_traceback():
     assert found_em, "No em element found in multiline marking"
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_multiline_marking_comment_html_traceback():
     """Test HTML output for multiline binary operator with comments."""
     try:
@@ -135,6 +147,9 @@ def test_multiline_marking_comment_html_traceback():
     )
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_max_type_error_html_traceback():
     """Test HTML output for function call type error."""
     try:
@@ -179,6 +194,9 @@ def test_max_type_error_html_traceback():
     assert found_function_call, "No function call found in mark elements"
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_unrelated_error_except_html_traceback():
     """Test HTML output for unrelated error in except block."""
     try:
@@ -222,6 +240,9 @@ def test_unrelated_error_except_html_traceback():
     assert found_division, "No division operation found in mark elements"
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_unrelated_error_finally_html_traceback():
     """Test HTML output for unrelated error in finally block."""
     try:

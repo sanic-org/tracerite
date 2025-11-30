@@ -1,5 +1,9 @@
 """Tests for em_columns functionality with caret anchors."""
 
+import sys
+
+import pytest
+
 from tracerite import extract_chain
 
 from .errorcases import (
@@ -16,6 +20,9 @@ from .errorcases import (
 )
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_em_columns_binary_operator():
     """Test that em_columns are populated for binary operator errors."""
     try:
@@ -50,6 +57,9 @@ def test_em_columns_binary_operator():
         assert found_em_fragment, "No emphasized fragment found for binary operator"
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_em_columns_multiline_operator():
     """Test that em_columns work for multiline binary operator errors."""
     try:
@@ -81,6 +91,9 @@ def test_em_columns_multiline_operator():
         assert found_em_fragment, "No emphasized fragment found for multiline operator"
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_em_columns_function_call():
     """Test that em_columns work for function call errors."""
     try:
@@ -114,6 +127,9 @@ def test_em_columns_function_call():
         assert found_em_fragment, "No emphasized fragment found for function call"
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_em_columns_not_empty():
     """Test that em_columns is no longer empty when there are position details."""
     try:
@@ -160,6 +176,9 @@ def test_em_columns_structure():
                     # but em is independent of mark
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_em_columns_multiline_marking_comment():
     """Test that em_columns work for multiline operator with comments."""
     try:
@@ -193,6 +212,9 @@ def test_em_columns_multiline_marking_comment():
         )
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_em_columns_max_type_error():
     """Test that em_columns work for function call type errors."""
     try:
@@ -292,6 +314,9 @@ def test_em_columns_chained_exceptions():
         assert found_fragments, "No fragments found in chained exceptions"
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_em_columns_unrelated_error_except():
     """Test that em_columns work for unrelated errors in except blocks."""
     try:
@@ -325,6 +350,9 @@ def test_em_columns_unrelated_error_except():
         assert found_em_fragment, "No emphasized fragment found for division operator"
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_em_columns_unrelated_error_finally():
     """Test that em_columns work for unrelated errors in finally blocks."""
     try:
@@ -417,6 +445,9 @@ def test_em_columns_comprehensive_structure():
             )
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
 def test_em_columns_stdlib_mimetypes():
     """Test that em_columns correctly handle stdlib mimetypes errors with function call marking.
 
