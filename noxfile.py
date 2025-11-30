@@ -20,7 +20,7 @@ nox.options.error_on_external_run = True
 
 # Default sessions to run (in order) when no session is specified
 # Format first for convenience (incl. lint), clean coverage, run tests, then report
-nox.options.sessions = ["format", "clean_coverage", "tests", "coverage_report"]
+nox.options.sessions = ["format", "clean_coverage", "test", "coverage_report"]
 
 # Python versions to test against
 PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
@@ -30,7 +30,7 @@ TOOLS_PYTHON = PYTHON_VERSIONS[-1]
 
 
 @nox.session(python=PYTHON_VERSIONS)
-def tests(session):
+def test(session):
     """Run tests with coverage for each Python version."""
     # Install dependencies
     session.install(".", "--group", "test")
@@ -140,8 +140,8 @@ def clean(session):
                     shutil.rmtree(path, ignore_errors=True)
 
 
-@nox.session(python=TOOLS_PYTHON, name="test-quick")
-def test_quick(session):
+@nox.session(python=TOOLS_PYTHON, name="test-latest")
+def test_latest(session):
     """Run tests quickly on the latest Python version only (for rapid development)."""
     session.install(".", "--group", "test")
 
