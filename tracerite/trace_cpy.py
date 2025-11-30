@@ -2,7 +2,8 @@
 # We need to use internal functions that are not part of the public API,
 # and that are not available in earlier Python versions.
 
-# Unused functionality is removed and we run a formatter, but not our code here.
+# Unused functionality is removed and we run a formatter.
+# One modification is made for Python 3.9 and 3.10 compatibility (see comment).
 # ruff: noqa
 
 """Extract, format and print information about Python stack traces."""
