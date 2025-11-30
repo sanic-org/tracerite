@@ -107,8 +107,8 @@ def extract_frames(tb, suppress_inner=False) -> list:
             # Deindent
             lines = dedent("".join(lines))
         except OSError:
-            lines = ""
-            # Skip non-Python modules unless particularly relevant
+            lines, start = "", lineno  # Source not available (non-Python module)
+            # Skip unless particularly relevant (calls aren't)
             if relevance == "call":
                 continue
         urls = {}

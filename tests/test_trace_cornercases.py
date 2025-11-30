@@ -8,6 +8,11 @@ from unittest.mock import patch
 from tracerite.trace import extract_exception, extract_frames
 
 
+def _trigger_error_no_source():
+    """Helper function for testing OSError in getsourcelines."""
+    raise ValueError("Error in function without source")
+
+
 class TestTraceCornercases:
     """Corner case tests for trace module."""
 
@@ -277,7 +282,6 @@ hidden_frame()
 
             # If __tracebackhide__ was detected, verify it worked
             if has_hidden:
-                frame_functions = [f.get("function") for f in frames]
                 # hidden_frame should be skipped if __tracebackhide__ was detected
                 assert isinstance(frames, list)
 
@@ -346,8 +350,6 @@ hidden_frame()
                 tb = inspect.getinnerframes(e.__traceback__)
                 frames = extract_frames(tb)
 
-                # Check if any frame has Jupyter URL
-                has_jupyter_url = any("Jupyter" in f.get("urls", {}) for f in frames)
                 # Should have attempted to add Jupyter URL for local files
                 assert isinstance(frames, list)
             finally:
@@ -386,3 +388,97 @@ hidden_frame()
             frames = extract_frames(modified_tb)
             # Should shorten long filenames
             assert len(frames) > 0
+
+    def test_getsourcelines_oserror_error_frame_undefined_start(self):
+        """Test OSError in getsourcelines for error frame properly initializes 'start'.
+
+        This test verifies the fix for the bug where `start` was undefined when:
+        1. inspect.getsourcelines() raises OSError
+        2. The frame is the innermost frame (where exception is raised)
+        3. Therefore relevance != "call" (it will be "error" or "stop")
+
+        The bug was that when OSError is raised, the except block sets lines=""
+        but didn't initialize `start`, causing it to leak from previous iterations.
+
+        After the fix, start should be initialized to lineno when OSError occurs.
+        """
+
+        # Save the original function before patching
+        original_getsourcelines = inspect.getsourcelines
+
+        # Mock getsourcelines to raise OSError for the innermost error frame
+        def mock_getsourcelines(frame):
+            func_name = frame.f_code.co_name
+            # Raise OSError for _trigger_error_no_source (the innermost frame)
+            if func_name == "_trigger_error_no_source":
+                raise OSError("No source available")
+            # For other frames, get real source
+            return original_getsourcelines(frame)
+
+        with patch(
+            "tracerite.trace.inspect.getsourcelines", side_effect=mock_getsourcelines
+        ):
+            try:
+                # Call the function directly so it's the innermost frame
+                _trigger_error_no_source()
+            except ValueError as e:
+                if e.__traceback__:
+                    tb = inspect.getinnerframes(e.__traceback__)
+                    # Extract frames - this should work without NameError after the fix
+                    frames = extract_frames(tb)
+
+                    # Find the error frame
+                    error_frame = next(
+                        (
+                            f
+                            for f in frames
+                            if f.get("function") == "_trigger_error_no_source"
+                        ),
+                        None,
+                    )
+                    assert error_frame is not None, (
+                        "Error frame should be in extracted frames"
+                    )
+
+                    # The error frame should not have lines (OSError occurred)
+                    assert error_frame.get("lines") == "", (
+                        "Error frame should have empty lines"
+                    )
+
+                    # After fix: linenostart should be set to the lineno (not leaked from previous frame)
+                    linenostart = error_frame.get("linenostart")
+                    lineno = error_frame.get("lineno")
+
+                    # The error is raised on line 13 in _trigger_error_no_source
+                    expected_lineno = 13
+
+                    # Verify lineno is correct
+                    assert lineno == expected_lineno, (
+                        f"lineno should be {expected_lineno}, but got {lineno}"
+                    )
+
+                    # Verify start was properly initialized to lineno when OSError occurred
+                    assert linenostart == lineno, (
+                        f"linenostart should equal lineno ({lineno}) when OSError occurs, "
+                        f"but got linenostart={linenostart}"
+                    )
+
+                    # Explicitly verify linenostart is the expected value
+                    assert linenostart == expected_lineno, (
+                        f"linenostart should be {expected_lineno} (line where error was raised), "
+                        f"but got {linenostart}"
+                    )
+
+                    # Also verify it didn't leak from previous frame
+                    if len(frames) > 1:
+                        prev_frame = frames[0]
+                        prev_linenostart = prev_frame.get("linenostart")
+                        # Since we now initialize to lineno, these should be different
+                        # (unless by coincidence the previous frame also starts at line 13)
+                        if prev_linenostart == linenostart:
+                            # If they're equal, make sure it's because linenostart is correctly
+                            # set to lineno, not because it leaked
+                            assert linenostart == lineno == expected_lineno, (
+                                f"linenostart={linenostart} equals prev_linenostart={prev_linenostart}, "
+                                f"but should be correctly set to lineno={lineno}"
+                            )

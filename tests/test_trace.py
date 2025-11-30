@@ -1,7 +1,5 @@
 """Tests for trace.py - exception and traceback extraction."""
 
-
-
 from tracerite.trace import extract_chain, extract_exception, extract_frames
 
 

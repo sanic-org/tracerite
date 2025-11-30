@@ -1,6 +1,5 @@
 """Tests for html.py - HTML traceback formatting."""
 
-
 from tracerite.html import (
     _format_matrix,
     html_traceback,
