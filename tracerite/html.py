@@ -1,8 +1,8 @@
+from importlib.resources import files
+
 from html5tagger import E
 
 from .trace import extract_chain
-
-from importlib.resources import files
 
 style = files(__package__).joinpath("style.css").read_text(encoding="UTF-8")
 
@@ -18,7 +18,9 @@ tooltips = dict(
 javascript = """const scrollto=id=>document.getElementById(id).scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"""
 
 
-def html_traceback(exc=None, chain=None, *, include_js_css=True, local_urls=False, **extract_args):
+def html_traceback(
+    exc=None, chain=None, *, include_js_css=True, local_urls=False, **extract_args
+):
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
     with E.div(class_="tracerite") as doc:
         if include_js_css:
@@ -43,7 +45,7 @@ def _exception(doc, info, *, local_urls=False):
     doc.h3(E.span(f"{info['type']}:", class_="exctype")(f" {summary}"))
     if summary != message:
         if message.startswith(summary):
-            message = message[len(summary):]
+            message = message[len(summary) :]
         doc.pre(message, class_="excmessage")
     # Traceback available?
     frames = info["frames"]
@@ -65,9 +67,10 @@ def _exception(doc, info, *, local_urls=False):
                     with doc.div(class_="traceback-details"):
                         doc.p("...")
                     continue
-                with doc.div(class_="traceback-details", id=frinfo['id']):
+                with doc.div(class_="traceback-details", id=frinfo["id"]):
                     traceback_detail(doc, info, frinfo, local_urls=local_urls)
                     variable_inspector(doc, frinfo["variables"])
+
 
 def _tab_header(doc, frinfo):
     with doc.button(onclick=f"scrollto('{frinfo['id']}')"):
@@ -75,10 +78,11 @@ def _tab_header(doc, frinfo):
         if frinfo["relevance"] != "call":
             doc.span(symbols.get(frinfo["relevance"]), class_="symbol")
 
+
 def traceback_detail(doc, info, frinfo, *, local_urls):
     function = frinfo["function"]
-    if frinfo['filename']:
-        doc.div.b(frinfo['filename'])(f":{frinfo['lineno']}")
+    if frinfo["filename"]:
+        doc.div.b(frinfo["filename"])(f":{frinfo['lineno']}")
         urls = frinfo["urls"]
         if local_urls and urls:
             for name, href in urls.items():
@@ -97,22 +101,22 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
             lineno = frinfo["lineno"]
             for i, line in enumerate(lines, start=start):
                 with doc.span(class_="codeline", data_lineno=i):
-                    doc(
-                        marked(line, info, frinfo)
-                        if i == lineno else
-                        line
-                    )
+                    doc(marked(line, info, frinfo) if i == lineno else line)
+
 
 def variable_inspector(doc, variables):
     if not variables:
         return
     with doc.table(class_="inspector key-value"):
         for n, t, v in variables:
-            doc.tr.td.span(n, class_="var")(": ").span(t, class_="type")("\xA0=\xA0").td(class_="val")
+            doc.tr.td.span(n, class_="var")(": ").span(t, class_="type")(
+                "\xa0=\xa0"
+            ).td(class_="val")
             if isinstance(v, str):
                 doc(v)
             else:
                 _format_matrix(doc, v)
+
 
 def _format_matrix(doc, v):
     skipcol = skiprow = False
@@ -144,7 +148,9 @@ def marked(line, info, frinfo):
         text = tooltips[relevance].format(**info, **frinfo)
     except Exception:
         text = repr(relevance)
-    return E(indent).mark(E.span(code), data_symbol=symbol, data_tooltip=text, class_="tracerite-tooltip")(trailing)
+    return E(indent).mark(
+        E.span(code), data_symbol=symbol, data_tooltip=text, class_="tracerite-tooltip"
+    )(trailing)
 
 
 def split3(s):

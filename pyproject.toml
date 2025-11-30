@@ -1,0 +1,103 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tracerite"
+dynamic = ["version"]
+description = "Human-readable HTML tracebacks for Python exceptions"
+readme = "README.md"
+authors = [
+    { name = "Sanic Community", email = "tronic@noreply.users.github.com" }
+]
+license = { text = "Public Domain" }
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: Public Domain",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "html5tagger>=1.2.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/sanic-org/tracerite"
+Repository = "https://github.com/sanic-org/tracerite"
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "numpy>=1.20.0",
+    "torch==2.5.1; platform_machine != 'aarch64'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[tool.hatch.version]
+path = "tracerite/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/tracerite",
+    "/README.md",
+    "/LICENSE",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tracerite"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=tracerite",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["tracerite"]
+omit = ["tracerite/notebook.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "except ImportError:",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tracerite"]
