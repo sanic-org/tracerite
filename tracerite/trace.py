@@ -19,7 +19,7 @@ Range = namedtuple("Range", ["lfirst", "lfinal", "cbeg", "cend"])
 ipython = None
 
 # Locations considered to be bug-free
-libdir = re.compile(r"/usr/.*|.*(site-packages|dist-packages).*")
+libdir = re.compile(r"/usr/.*|.*(site-packages|dist-packages).*|.*/lib/python\d+\.\d+/.*")
 
 
 def extract_chain(exc=None, **kwargs) -> list:
