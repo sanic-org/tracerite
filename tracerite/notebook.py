@@ -13,7 +13,7 @@ def _can_display_html():
     # "ipykernel_launcher.py" in Jupyter Notebook/Lab
     # "ipykernel/__main__.py" in Azure Notebooks
     # "colab_kernel_launcher.py" in Google Colab
-    return any(name in sys.argv[0] for name in ['ipykernel', 'colab_kernel_launcher'])
+    return any(name in sys.argv[0] for name in ["ipykernel", "colab_kernel_launcher"])
 
 
 def load_ipython_extension(ipython):

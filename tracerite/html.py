@@ -188,12 +188,6 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
                     _render_fragment(doc, fragment)
 
 
-def _render_line_fragments(doc, fragments, info, frinfo, is_error_line):
-    """Render a line using the fragment-based structure."""
-    for fragment in fragments:
-        _render_fragment(doc, fragment)
-
-
 def _render_fragment(doc, fragment):
     """Render a single fragment with appropriate styling."""
     code = fragment["code"]
