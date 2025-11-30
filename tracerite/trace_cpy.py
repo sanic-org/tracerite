@@ -61,6 +61,10 @@ def _walk_tb_with_full_positions(tb):
 def _get_code_position(code, instruction_index):
     if instruction_index < 0:
         return (None, None, None, None)
+    # TRACERITE MODIFICATION: co_positions() was added in Python 3.11
+    # Fallback for Python 3.9 and 3.10 compatibility
+    if not hasattr(code, "co_positions"):
+        return (None, None, None, None)
     positions_gen = code.co_positions()
     return next(itertools.islice(positions_gen, instruction_index // 2, None))
 
