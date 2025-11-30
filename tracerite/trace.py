@@ -167,51 +167,44 @@ def _extract_emphasis_columns(
     if not (end_line and start_col is not None and end_col is not None):
         return None
 
-    try:
-        all_lines = lines.splitlines(keepends=True)
-        segment_start = error_line_in_context - 1  # Convert to 0-based for indexing
-        segment_end = end_line if end_line else error_line_in_context
+    all_lines = lines.splitlines(keepends=True)
+    segment_start = error_line_in_context - 1  # Convert to 0-based for indexing
+    segment_end = end_line if end_line else error_line_in_context
 
-        if not (0 <= segment_start < len(all_lines) and segment_end <= len(all_lines)):
-            return None
+    if not (0 <= segment_start < len(all_lines) and segment_end <= len(all_lines)):
+        return None
 
-        # Extract the segment using CPython's approach
-        relevant_lines = all_lines[segment_start:segment_end]
-        segment = "".join(relevant_lines)
+    # Extract the segment using CPython's approach
+    relevant_lines = all_lines[segment_start:segment_end]
+    segment = "".join(relevant_lines)
 
-        # Trim segment using start_col and end_col
-        segment = segment[
-            start_col : len(segment) - (len(relevant_lines[-1]) - end_col)
-        ]
-        # Attempt to parse for anchors
-        anchors = None
-        with suppress(Exception):
-            anchors = trace_cpy._extract_caret_anchors_from_line_segment(segment)
-        if not anchors:
-            return None
+    # Trim segment using start_col and end_col
+    segment = segment[start_col : len(segment) - (len(relevant_lines[-1]) - end_col)]
+    # Attempt to parse for anchors
+    anchors = None
+    with suppress(Exception):
+        anchors = trace_cpy._extract_caret_anchors_from_line_segment(segment)
+    if not anchors:
+        return None
 
-        l0, l1, c0, c1 = (
-            anchors.left_end_lineno,
-            anchors.right_start_lineno,
-            anchors.left_end_offset,
-            anchors.right_start_offset,
-        )
-        # We get 0-based line numbers and offsets within the segment,
-        # so we need to adjust them to match the original code.
-        if l0 == 0:
-            c0 += start_col
-        if l1 == 0:
-            c1 += start_col
+    l0, l1, c0, c1 = (
+        anchors.left_end_lineno,
+        anchors.right_start_lineno,
+        anchors.left_end_offset,
+        anchors.right_start_offset,
+    )
+    # We get 0-based line numbers and offsets within the segment,
+    # so we need to adjust them to match the original code.
+    if l0 == 0:
+        c0 += start_col
+    if l1 == 0:
+        c1 += start_col
 
-        # Convert to 1-based inclusive line numbers for consistency
-        lfirst = l0 + segment_start + 1
-        lfinal = l1 + segment_start + 1
+    # Convert to 1-based inclusive line numbers for consistency
+    lfirst = l0 + segment_start + 1
+    lfinal = l1 + segment_start + 1
 
-        return Range(lfirst, lfinal, c0, c1)
-    except Exception:
-        logger.exception("Error extracting caret anchors")
-
-    return None
+    return Range(lfirst, lfinal, c0, c1)
 
 
 def _build_position_map(raw_tb):
@@ -404,9 +397,6 @@ def _parse_line_to_fragments_unified(
     line, common_indent_len, mark_positions, em_positions, line_char_offset
 ):
     """Parse a single line into fragments using unified highlighting."""
-    if not line:
-        return []
-
     line_content, line_ending = _split_line_content(line)
     if not line_content and not line_ending:
         return []
@@ -438,8 +428,7 @@ def _parse_line_to_fragments_unified(
         comment_trailing = comment_part[len(comment_trimmed) :]
 
         comment_with_leading_space = code_whitespace + comment_trimmed
-        if comment_with_leading_space:
-            fragments.append({"code": comment_with_leading_space, "comment": "solo"})
+        fragments.append({"code": comment_with_leading_space, "comment": "solo"})
 
         # Add trailing content
         trailing_content = comment_trailing + line_ending
@@ -500,9 +489,6 @@ def _parse_lines_to_fragments(lines_text, mark_range=None, em_range=None):
     Returns:
         List of line dictionaries with fragment information
     """
-    if not lines_text:
-        return []
-
     lines = lines_text.splitlines(keepends=True)
     if not lines:
         return []
@@ -640,9 +626,6 @@ def _create_fragments_with_highlighting(text, mark_positions, em_positions):
             break
 
         fragment_text = text[start:end]
-        if not fragment_text:
-            continue
-
         fragment = {"code": fragment_text}
 
         # Determine mark status
