@@ -22,7 +22,12 @@ class TestExtractVariables:
 
     def test_blacklisted_names(self):
         """Test that blacklisted names are excluded."""
-        variables = {"_": "underscore", "In": "jupyter input", "Out": "jupyter output", "x": 5}
+        variables = {
+            "_": "underscore",
+            "In": "jupyter input",
+            "Out": "jupyter output",
+            "x": 5,
+        }
         sourcecode = "x + _"
         rows = extract_variables(variables, sourcecode)
 
@@ -34,6 +39,7 @@ class TestExtractVariables:
 
     def test_blacklisted_types(self):
         """Test that blacklisted types (modules, functions) are excluded."""
+
         def sample_func():
             pass
 
@@ -64,16 +70,16 @@ class TestExtractVariables:
         rows = extract_variables(variables, sourcecode)
 
         row_dict = {row[0]: row[2] for row in rows}
-        
+
         # Short list should have elements listed
         assert "1, 2, 3" in row_dict["short_list"]
-        
+
         # Long list should show count
         assert "20 items" in row_dict["long_list"]
-        
+
         # Tuple should have elements
         assert "4, 5, 6" in row_dict["tuple_data"]
-        
+
         # Empty list should show count
         assert "0 items" in row_dict["empty_list"]
 
@@ -89,6 +95,7 @@ class TestExtractVariables:
 
     def test_object_with_members(self):
         """Test extraction of object members when object has no str representation."""
+
         class SimpleClass:
             def __init__(self):
                 self.value = 42
@@ -133,9 +140,11 @@ class TestExtractVariables:
 
     def test_failed_str_or_repr(self):
         """Test variables that fail str() or repr() are skipped."""
+
         class BrokenClass:
             def __str__(self):
                 raise ValueError("str failed")
+
             def __repr__(self):
                 raise ValueError("repr failed")
 
@@ -189,6 +198,7 @@ class TestSafeVars:
 
     def test_regular_object(self):
         """Test safe_vars on a regular object."""
+
         class Sample:
             def __init__(self):
                 self.x = 1
@@ -203,8 +213,10 @@ class TestSafeVars:
 
     def test_object_with_slots(self):
         """Test safe_vars on objects with __slots__."""
+
         class SlottedClass:
             __slots__ = ("a", "b", "c")
+
             def __init__(self):
                 self.a = 10
                 self.b = 20
@@ -230,10 +242,13 @@ class TestArrayLikeHandling:
 
     def test_prettyvalue_with_mock_1d_array(self):
         """Test pretty printing of 1D array-like objects."""
+
         class Mock1DArray:
             shape = (5,)
+
             def __getitem__(self, idx):
                 return [1.0, 2.0, 3.0, 4.0, 5.0][idx]
+
             def __iter__(self):
                 return iter([1.0, 2.0, 3.0, 4.0, 5.0])
 
@@ -244,8 +259,10 @@ class TestArrayLikeHandling:
 
     def test_prettyvalue_with_mock_long_1d_array(self):
         """Test pretty printing of long 1D array-like objects."""
+
         class MockLongArray:
             shape = (200,)
+
             def __getitem__(self, idx):
                 if isinstance(idx, slice):
                     vals = list(range(200))
@@ -259,10 +276,13 @@ class TestArrayLikeHandling:
 
     def test_prettyvalue_with_mock_2d_array(self):
         """Test pretty printing of small 2D array-like objects."""
+
         class Mock2DArray:
             shape = (2, 3)
+
             def __getitem__(self, idx):
                 return [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]][idx]
+
             def __iter__(self):
                 return iter([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
 

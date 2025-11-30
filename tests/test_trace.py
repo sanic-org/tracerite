@@ -1,10 +1,6 @@
 """Tests for trace.py - exception and traceback extraction."""
 
-import re
-import sys
-from pathlib import Path
 
-import pytest
 
 from tracerite.trace import extract_chain, extract_exception, extract_frames
 
@@ -93,7 +89,9 @@ class TestExtractException:
             info = extract_exception(e)
 
         assert info["type"] == "ZeroDivisionError"
-        assert "division" in info["message"].lower() or "zero" in info["message"].lower()
+        assert (
+            "division" in info["message"].lower() or "zero" in info["message"].lower()
+        )
         assert info["summary"]
         assert info["repr"]
         assert isinstance(info["frames"], list)
@@ -140,11 +138,14 @@ class TestExtractException:
 
     def test_skip_outmost_frames(self):
         """Test skipping outermost frames."""
+
         def outer():
             def middle():
                 def inner():
                     raise ValueError("error")
+
                 inner()
+
             middle()
 
         try:
@@ -183,15 +184,18 @@ class TestExtractFrames:
 
     def test_extract_frames_basic(self):
         """Test basic frame extraction from traceback."""
+
         def function_a():
             def function_b():
                 raise ValueError("test")
+
             function_b()
 
         try:
             function_a()
         except ValueError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
@@ -207,6 +211,7 @@ class TestExtractFrames:
 
     def test_frame_relevance_markers(self):
         """Test that frame relevance is correctly assigned."""
+
         def user_function():
             raise RuntimeError("error")
 
@@ -214,6 +219,7 @@ class TestExtractFrames:
             user_function()
         except RuntimeError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
@@ -222,6 +228,7 @@ class TestExtractFrames:
 
     def test_tracebackhide_in_globals(self):
         """Test that frames with __tracebackhide__ in globals are skipped."""
+
         def hidden_function():
             __tracebackhide__ = True
             raise ValueError("error")
@@ -230,6 +237,7 @@ class TestExtractFrames:
             hidden_function()
         except ValueError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
@@ -239,6 +247,7 @@ class TestExtractFrames:
 
     def test_tracebackhide_in_locals(self):
         """Test that frames with __tracebackhide__ in locals are skipped."""
+
         def another_hidden():
             __tracebackhide__ = True  # noqa: F841
             raise ValueError("error")
@@ -247,6 +256,7 @@ class TestExtractFrames:
             another_hidden()
         except ValueError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
@@ -261,6 +271,7 @@ class TestExtractFrames:
 
     def test_method_with_self(self):
         """Test that method names include class name when self is present."""
+
         class MyClass:
             def my_method(self):
                 raise ValueError("error in method")
@@ -270,15 +281,19 @@ class TestExtractFrames:
             obj.my_method()
         except ValueError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
         # Should find frame with class name
         function_names = [f["function"] for f in frames]
-        assert any("MyClass" in name and "my_method" in name for name in function_names if name)
+        assert any(
+            "MyClass" in name and "my_method" in name for name in function_names if name
+        )
 
     def test_method_with_cls(self):
         """Test that classmethods include class name."""
+
         class MyClass:
             @classmethod
             def my_classmethod(cls):
@@ -288,11 +303,16 @@ class TestExtractFrames:
             MyClass.my_classmethod()
         except ValueError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
         function_names = [f["function"] for f in frames]
-        assert any("MyClass" in name and "my_classmethod" in name for name in function_names if name)
+        assert any(
+            "MyClass" in name and "my_classmethod" in name
+            for name in function_names
+            if name
+        )
 
     def test_module_level_code(self):
         """Test handling of module-level code (no function)."""
@@ -300,6 +320,7 @@ class TestExtractFrames:
             exec("raise ValueError('module level')")
         except ValueError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
@@ -311,9 +332,11 @@ class TestExtractFrames:
         # Create exception from built-in code path
         try:
             import json
+
             json.loads("{invalid json}")
         except Exception as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
@@ -322,17 +345,21 @@ class TestExtractFrames:
 
     def test_suppress_inner_frames(self):
         """Test that suppress_inner stops at the bug frame."""
+
         def outer():
             def middle():
                 def inner():
                     raise KeyboardInterrupt()
+
                 inner()
+
             middle()
 
         try:
             outer()
         except KeyboardInterrupt as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb, suppress_inner=True)
 
@@ -346,6 +373,7 @@ class TestExtractFrames:
             raise ValueError("test")
         except ValueError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
@@ -354,16 +382,19 @@ class TestExtractFrames:
 
     def test_long_function_path_shortening(self):
         """Test that long module.function paths are shortened."""
+
         # Function names should be shortened to last 2 components
         def outer():
             def inner():
                 raise ValueError("test")
+
             inner()
 
         try:
             outer()
         except ValueError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
@@ -379,6 +410,7 @@ class TestExtractFrames:
             raise ValueError("test")
         except ValueError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
@@ -389,6 +421,7 @@ class TestExtractFrames:
 
     def test_frame_source_lines(self):
         """Test that source code lines are extracted and deindented."""
+
         def test_function():
             x = 1  # noqa: F841
             y = 2  # noqa: F841
@@ -398,6 +431,7 @@ class TestExtractFrames:
             test_function()
         except ValueError as e:
             import inspect
+
             tb = inspect.getinnerframes(e.__traceback__)
             frames = extract_frames(tb)
 
@@ -415,27 +449,29 @@ class TestLibdirPattern:
     def test_libdir_pattern_matches_site_packages(self):
         """Test that libdir pattern matches site-packages paths."""
         from tracerite.trace import libdir
-        
+
         assert libdir.fullmatch("/usr/lib/python3.9/site-packages/module.py")
-        assert libdir.fullmatch("/home/user/.local/lib/python3.9/site-packages/pkg/mod.py")
+        assert libdir.fullmatch(
+            "/home/user/.local/lib/python3.9/site-packages/pkg/mod.py"
+        )
 
     def test_libdir_pattern_matches_dist_packages(self):
         """Test that libdir pattern matches dist-packages paths."""
         from tracerite.trace import libdir
-        
+
         assert libdir.fullmatch("/usr/lib/python3/dist-packages/module.py")
 
     def test_libdir_pattern_matches_usr_paths(self):
         """Test that libdir pattern matches /usr/ paths."""
         from tracerite.trace import libdir
-        
+
         assert libdir.fullmatch("/usr/lib/python3.9/module.py")
         assert libdir.fullmatch("/usr/local/lib/module.py")
 
     def test_libdir_pattern_does_not_match_user_code(self):
         """Test that libdir pattern doesn't match user code paths."""
         from tracerite.trace import libdir
-        
+
         assert not libdir.fullmatch("/home/user/project/module.py")
         assert not libdir.fullmatch("./mycode.py")
         assert not libdir.fullmatch("/opt/myapp/code.py")
