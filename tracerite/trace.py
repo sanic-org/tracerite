@@ -102,7 +102,7 @@ def extract_source_lines(frame, lineno):
         dedented_content = dedent("".join(lines))
         return dedented_content, start, common_indent
     except OSError:
-        return "", 1, 0
+        return "", lineno, 0  # Source not available (non-Python module)
 
 
 def format_location(filename, lineno):
