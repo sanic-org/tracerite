@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tracerite"
+dynamic = ["version"]
+description = "Human-readable HTML tracebacks for Python exceptions"
+readme = "README.md"
+authors = [
+    { name = "Sanic Community", email = "tronic@noreply.users.github.com" }
+]
+license = { text = "Public Domain" }
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: Public Domain",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "html5tagger>=1.2.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/sanic-org/tracerite"
+Repository = "https://github.com/sanic-org/tracerite"
+
+[dependency-groups]
+dev = [
+    "ruff",
+]
+
+[tool.hatch.version]
+path = "tracerite/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/tracerite",
+    "/README.md",
+    "/LICENSE",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tracerite"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["tracerite"]
