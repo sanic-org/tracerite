@@ -20,7 +20,7 @@ nox.options.error_on_external_run = True
 
 # Default sessions to run (in order) when no session is specified
 # Format first for convenience (incl. lint), clean coverage, run tests, then report
-nox.options.sessions = ["format", "clean_coverage", "test", "coverage_report"]
+nox.options.sessions = ["format", "clean-coverage", "test", "coverage"]
 
 # Python versions to test against
 PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
@@ -69,7 +69,7 @@ def format(session):
     session.run("ruff", "format", ".")
 
 
-@nox.session(python=TOOLS_PYTHON)
+@nox.session(python=TOOLS_PYTHON, name="clean-coverage")
 def clean_coverage(session):
     """Clean all coverage data and reports."""
     for path in Path(".").glob(".coverage*"):
@@ -86,24 +86,15 @@ def clean_coverage(session):
 
 
 @nox.session(python=TOOLS_PYTHON)
-def coverage_report(session):
-    """Generate coverage reports from previously collected data."""
+def coverage(session):
+    """Generate all coverage reports (HTML, XML, terminal) from previously collected data."""
     session.install("coverage")
-    # Combine all parallel coverage data files, appending to existing .coverage file
-    # This allows accumulating coverage from multiple test runs
-    session.run("coverage", "combine", "--append")
-    # Generate reports from combined coverage data
+    # Combine all parallel coverage data files, keeping them for future runs
+    # --keep preserves the .coverage.* files so they can be combined again
+    session.run("coverage", "combine", "--keep", success_codes=[0, 1])
+    # Generate all reports from combined coverage data
     session.run("coverage", "report", "-m")
     session.run("coverage", "html")
-
-
-@nox.session(python=TOOLS_PYTHON)
-def coverage_xml(session):
-    """Generate coverage XML report for CI from previously collected data."""
-    session.install("coverage")
-    # Combine all parallel coverage data files if not already combined
-    session.run("coverage", "combine", "--append", success_codes=[0, 1])
-    # Generate XML report from combined coverage data
     session.run("coverage", "xml")
 
 
@@ -111,7 +102,7 @@ def coverage_xml(session):
 def clean(session):
     """Clean build artifacts and caches."""
     # First clean coverage data and reports
-    session.notify("clean_coverage")
+    session.notify("clean-coverage")
 
     patterns = [
         "**/*.pyc",
@@ -148,4 +139,14 @@ def test_latest(session):
     # If no args provided, default to "tests" directory
     test_args = session.posargs if session.posargs else ["tests"]
 
-    session.run("pytest", *test_args)
+    # Run tests with coverage using parallel mode to avoid conflicts
+    session.run(
+        "coverage",
+        "run",
+        "--parallel-mode",
+        "--source",
+        "tracerite",
+        "-m",
+        "pytest",
+        *test_args,
+    )

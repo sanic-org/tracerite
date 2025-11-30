@@ -82,7 +82,7 @@ python_functions = ["test_*"]
 [tool.coverage.run]
 branch = true
 source = ["tracerite"]
-omit = ["tracerite/notebook.py"]
+omit = ["tracerite/notebook.py", "tracerite/trace_cpy.py"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -112,6 +112,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+"tests/**/*.py" = ["B904"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["tracerite"]
