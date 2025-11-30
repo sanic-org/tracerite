@@ -42,7 +42,7 @@ def extract_variables(variables, sourcecode):
                     if sourcecode and mname not in identifiers:
                         continue
                     tname = type(v).__name__
-                    if tname in blacklist_types:
+                    if isinstance(v, blacklist_types):
                         continue
                     tname += f" in {typename}"
                     rows += ((mname, tname, prettyvalue(v)),)
