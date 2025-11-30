@@ -10,9 +10,10 @@ def _can_display_html():
     # Spyder runs IPython ZMQInteractiveShell but lacks HTML support. Using
     # argv seems like the most portable way to autodetect HTML capability.
     #
-    # "ipykernel_launcher.py" in Jupyter Notebook/Lab, Google Colab
+    # "ipykernel_launcher.py" in Jupyter Notebook/Lab
     # "ipykernel/__main__.py" in Azure Notebooks
-    return "ipykernel" in sys.argv[0]
+    # "colab_kernel_launcher.py" in Google Colab
+    return any(name in sys.argv[0] for name in ['ipykernel', 'colab_kernel_launcher'])
 
 
 def load_ipython_extension(ipython):
