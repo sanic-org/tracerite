@@ -75,7 +75,7 @@
   vertical-align: middle;
   color: var(--tracerite-symbol);
   font-family: var(--tracerite-ui-font);
-  text-shadow: 
+  text-shadow:
     -.02em -.02em 0 var(--tracerite-tooltip),
     .02em -.02em 0 var(--tracerite-tooltip),
     -.02em .02em 0 var(--tracerite-tooltip),
@@ -154,6 +154,35 @@
 .tracerite table.inspector .type { white-space: nowrap; color: var(--tracerite-type); }
 .tracerite .inspector .val,
 .tracerite table.inspector .val { white-space: pre-wrap; color: var(--tracerite-val); }
+
+/* Block format for multi-line strings - left aligned */
+.tracerite .inspector .val-block,
+.tracerite table.inspector .val-block {
+  text-align: left;
+  white-space: pre-wrap;
+  font-family: var(--tracerite-code-font);
+  overflow: visible;
+  max-width: none;
+  word-break: break-word;
+}
+
+.tracerite .inspector .val-block pre,
+.tracerite table.inspector .val-block pre {
+  margin: 0;
+  padding: 0;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  overflow: visible;
+  max-width: 60em;
+}
+
+/* Inline format - right aligned (default) */
+.tracerite .inspector .val-inline,
+.tracerite table.inspector .val-inline {
+  text-align: right;
+}
 
 /* matrix value on a variable */
 .tracerite .inspector table td,

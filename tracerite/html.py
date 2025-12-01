@@ -215,12 +215,35 @@ def variable_inspector(doc, variables):
     if not variables:
         return
     with doc.table(class_="inspector key-value"):
-        for n, t, v in variables:
-            doc.tr.td.span(n, class_="var")(": ").span(t, class_="type")(" = ").td(
-                class_="val"
+        for var_info in variables:
+            # Handle both old tuple format and new VarInfo namedtuple
+            if hasattr(var_info, "name"):
+                n, t, v, fmt = (
+                    var_info.name,
+                    var_info.typename,
+                    var_info.value,
+                    var_info.format_hint,
+                )
+            else:
+                # Backwards compatibility with old tuple format
+                n, t, v = var_info
+                fmt = "inline"
+
+            # Keep the type and the equals sign together to prevent automatic
+            # wrapping between the type and the '='. Use a non-breaking space
+            # before the '=' so HTML won't break the line there.
+            # Example output: "var: Type\u00A0= <value>"
+            eq = "\u00a0= "
+            # Put the equals into the same span as the type so they stay bound.
+            doc.tr.td.span(n, class_="var")(": ").span(t + eq, class_="type").td(
+                class_=f"val val-{fmt}"
             )
             if isinstance(v, str):
-                doc(v)
+                if fmt == "block":
+                    # For block format, use <pre> tag for proper formatting
+                    doc.pre(v)
+                else:
+                    doc(v)
             else:
                 _format_matrix(doc, v)
 
