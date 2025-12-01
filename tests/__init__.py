@@ -1,1 +1,1 @@
-# Test suite for tracerite
+"""Test suite for tracerite."""

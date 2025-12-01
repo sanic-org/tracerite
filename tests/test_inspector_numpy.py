@@ -11,7 +11,7 @@ class TestNumpyArrays:
     def test_numpy_1d_array_small(self):
         """Test pretty printing of small 1D numpy array."""
         arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        result = prettyvalue(arr)
+        result, fmt = prettyvalue(arr)
         # Should format as comma-separated values
         assert "1.00" in result
         assert "5.00" in result
@@ -19,7 +19,7 @@ class TestNumpyArrays:
     def test_numpy_1d_array_large(self):
         """Test pretty printing of large 1D numpy array."""
         arr = np.arange(200, dtype=float)
-        result = prettyvalue(arr)
+        result, fmt = prettyvalue(arr)
         # Should show first and last few elements with ellipsis
         assert "…" in result
         assert "0.00" in result
@@ -27,7 +27,7 @@ class TestNumpyArrays:
     def test_numpy_2d_array_small(self):
         """Test pretty printing of small 2D numpy array."""
         arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-        result = prettyvalue(arr)
+        result, fmt = prettyvalue(arr)
         # Should return nested list representation
         assert isinstance(result, list)
         assert len(result) == 2
@@ -35,7 +35,7 @@ class TestNumpyArrays:
     def test_numpy_scalar(self):
         """Test pretty printing of numpy scalar."""
         scalar = np.float32(3.14159)
-        result = prettyvalue(scalar)
+        result, fmt = prettyvalue(scalar)
         # Should format as float
         assert "3.1" in result
 

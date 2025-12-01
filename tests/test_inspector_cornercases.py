@@ -149,7 +149,7 @@ class TestInspectorCornercases:
 
         arr = MaliciousArray1D()
         # This should trigger the exception handler on lines 112-114
-        result = prettyvalue(arr)
+        result, fmt = prettyvalue(arr)
 
         # Should return something (not crash)
         assert result is not None
@@ -176,7 +176,7 @@ class TestInspectorCornercases:
 
         arr = MaliciousArray2D()
         # This should trigger branch 107->116 (exception during 2D array formatting)
-        result = prettyvalue(arr)
+        result, fmt = prettyvalue(arr)
 
         # Should return something (not crash)
         assert result is not None
@@ -200,7 +200,7 @@ class TestInspectorCornercases:
         arr = Large2DArray()
         # The condition at line 107 is false (shape[0] > 10), so it skips to line 109
         # Then continues through the second try block at line 116
-        result = prettyvalue(arr)
+        result, fmt = prettyvalue(arr)
 
         # Should return repr of the object
         assert result is not None

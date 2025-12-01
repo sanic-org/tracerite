@@ -32,6 +32,7 @@ relevant:
 
 
 ## Usage
+### In Jupyter Notebooks
 
 At the beginning of your Notebook:
 
@@ -39,6 +40,31 @@ At the beginning of your Notebook:
 %pip install tracerite
 %load_ext tracerite
 ```
+
+### Setup Development Environment
+
+1. Install uv: See [UV installation guide](https://docs.astral.sh/uv/getting-started/installation/) for platform-specific instructions.
+
+2. Clone the repository and set up the development environment:
+   ```bash
+   git clone https://github.com/sanic-org/tracerite.git
+   cd tracerite
+   uv sync
+   ```
+
+   Optionally, you can activate the virtual environment to run all the commands without the `uv run` prefix.
+
+   ```bash
+   source .venv/bin/activate
+   ```
+
+3. Run the development and testing pipeline:
+   ```bash
+   uv run nox
+   ```
+
+The project uses Nox for task automation. The default command formats code, runs tests across all Python versions with coverage, and generates reports. Use `-l` to list all available sessions and `-s` to select a specific session.
+
 
 ## Background
 
@@ -60,13 +86,3 @@ console.
 ## License
 
 Public Domain or equivalent.
-
-## Help wanted
-
-I won't be able to maintain this all by myself. If you like the idea of nicer
-tracebacks, please offer your help in development! Pull requests are welcome
-but it would be even better if you could pick up the whole project as your own.
-
-As of now, this project is in no way properly polished for release. Yet, it is
-useful enough to such a degree that I always use it in my notebooks, and it
-really makes Python development a much smoother experience.

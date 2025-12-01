@@ -136,7 +136,7 @@ class TestExtractVariables:
         row_dict = {row[0]: row[2] for row in rows}
         # Long string should be truncated
         assert "…" in row_dict["long_str"] or "..." in row_dict["long_str"]
-        assert len(row_dict["long_str"]) < 200
+        assert len(row_dict["long_str"]) <= 210  # Truncated with ellipsis marker
 
     def test_failed_str_or_repr(self):
         """Test variables that fail str() or repr() are skipped."""
@@ -163,34 +163,34 @@ class TestPrettyValue:
 
     def test_short_list(self):
         """Test pretty printing of short lists."""
-        result = prettyvalue([1, 2, 3, 4])
+        result, fmt = prettyvalue([1, 2, 3, 4])
         assert "1" in result and "4" in result
 
     def test_long_list(self):
         """Test that long lists show item count."""
-        result = prettyvalue(list(range(100)))
+        result, fmt = prettyvalue(list(range(100)))
         assert "100 items" in result
 
     def test_type_value(self):
         """Test pretty printing of type objects."""
-        result = prettyvalue(str)
+        result, fmt = prettyvalue(str)
         assert "builtins.str" in result
 
     def test_float_value(self):
         """Test pretty printing of floats with scientific notation."""
-        result = prettyvalue(3.14159)
+        result, fmt = prettyvalue(3.14159)
         assert "3.1" in result
 
     def test_string_value(self):
         """Test that strings are returned as-is."""
-        result = prettyvalue("hello world")
+        result, fmt = prettyvalue("hello world")
         assert result == "hello world"
 
     def test_long_repr_truncation(self):
         """Test that long repr values are truncated."""
-        result = prettyvalue("x" * 200)
+        result, fmt = prettyvalue("x" * 200)
         assert "…" in result or "..." in result
-        assert len(result) < 200
+        assert len(result) <= 210  # Truncated with ellipsis marker
 
 
 class TestSafeVars:
@@ -253,7 +253,7 @@ class TestArrayLikeHandling:
                 return iter([1.0, 2.0, 3.0, 4.0, 5.0])
 
         arr = Mock1DArray()
-        result = prettyvalue(arr)
+        result, fmt = prettyvalue(arr)
         # Should format as comma-separated values
         assert "1.00" in result
 
@@ -270,7 +270,7 @@ class TestArrayLikeHandling:
                 return float(idx)
 
         arr = MockLongArray()
-        result = prettyvalue(arr)
+        result, fmt = prettyvalue(arr)
         # Should show first and last few elements with ellipsis
         assert "…" in result or isinstance(result, str)
 
@@ -287,6 +287,134 @@ class TestArrayLikeHandling:
                 return iter([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
 
         arr = Mock2DArray()
-        result = prettyvalue(arr)
+        result, fmt = prettyvalue(arr)
         # Should return nested list representation
         assert isinstance(result, list) or "1.00" in result
+
+    def test_object_member_with_poor_repr(self):
+        """Test that object members with poor repr are skipped (lines 57-58)."""
+
+        class InnerObjectWithBrokenStr:
+            """An object where str() raises an exception."""
+
+            def __str__(self):
+                raise RuntimeError("str() failed")
+
+        class OuterObject:
+            """Container with a member that has broken str()."""
+
+            def __init__(self):
+                self.broken_member = InnerObjectWithBrokenStr()
+
+        variables = {"obj": OuterObject()}
+        sourcecode = "obj.broken_member"
+        rows = extract_variables(variables, sourcecode)
+
+        # The member with broken str() should be skipped
+        member_names = [row[0] for row in rows]
+        assert "obj.broken_member" not in member_names
+
+
+class TestDictFormatting:
+    """Test dict formatting in prettyvalue."""
+
+    def test_empty_dict(self):
+        """Test formatting of empty dict."""
+        result, fmt = prettyvalue({})
+        assert result == "{}"
+        assert fmt == "inline"
+
+    def test_small_dict_fits_on_line(self):
+        """Test formatting of small dict that fits on one line."""
+        result, fmt = prettyvalue({"a": 1, "b": 2, "c": 3})
+        assert "{" in result and "}" in result
+        assert "'a'" in result
+        assert fmt == "inline"
+
+    def test_small_dict_too_long(self):
+        """Test dict with <= 5 items but single line > 120 chars (line 119)."""
+        # Create a dict with long keys/values that won't fit on 120 chars
+        long_dict = {
+            "very_long_key_name_1": "very_long_value_that_makes_this_line_exceed_limit_1",
+            "very_long_key_name_2": "very_long_value_that_makes_this_line_exceed_limit_2",
+        }
+        result, fmt = prettyvalue(long_dict)
+        # Should show item count instead of full repr
+        assert "2 items" in result
+        assert fmt == "inline"
+
+    def test_large_dict(self):
+        """Test formatting of large dict with > 5 items."""
+        large_dict = {f"key_{i}": i for i in range(10)}
+        result, fmt = prettyvalue(large_dict)
+        assert "10 items" in result
+        assert fmt == "inline"
+
+
+class TestMultilineFormatting:
+    """Test formatting of values with newlines."""
+
+    def test_inline_with_newlines(self):
+        """Test inline format with newlines collapsed (line 171)."""
+
+        # Create a non-string object with newlines in repr
+        class MultilineRepr:
+            def __repr__(self):
+                return "Line1\nLine2\nLine3"
+
+        result, fmt = prettyvalue(MultilineRepr())
+        # Should collapse newlines for inline format
+        assert "\n" not in result
+        assert "Line1" in result and "Line3" in result
+        assert fmt == "inline"
+
+    def test_block_format_many_lines(self):
+        """Test block format with > 20 lines (branch 176->177)."""
+        # Create a string with more than 20 lines
+        many_lines = "\n".join([f"Line {i}" for i in range(30)])
+        result, fmt = prettyvalue(many_lines)
+        # Should truncate to first 10 and last 10 lines with ellipsis
+        assert "⋯" in result
+        assert "Line 0" in result  # First line
+        assert "Line 29" in result  # Last line
+        assert (
+            result.count("\n") == 20
+        )  # 10 lines + ellipsis + 10 lines = 21 lines, 20 newlines
+        assert fmt == "block"
+
+    def test_short_multiline_string(self):
+        """Test block format with <= 20 lines."""
+        few_lines = "\n".join([f"Line {i}" for i in range(5)])
+        result, fmt = prettyvalue(few_lines)
+        # Should not truncate
+        assert "⋯" not in result
+        assert "Line 0" in result
+        assert "Line 4" in result
+        assert fmt == "block"
+
+    def test_block_format_between_1_and_20_lines(self):
+        """Test block format with 2-20 lines (branch 176->185)."""
+        # This specifically tests the path where format_hint is "block"
+        # but neither the > 20 lines condition nor the single-line >= 200 char condition is true
+        medium_lines = "\n".join([f"Line number {i}" for i in range(15)])
+        result, fmt = prettyvalue(medium_lines)
+        # Should not truncate
+        assert "⋯" not in result
+        assert " … " not in result
+        assert "Line number 0" in result
+        assert "Line number 14" in result
+        assert result.count("\n") == 14  # 15 lines = 14 newlines
+        assert fmt == "block"
+
+    def test_block_format_single_line_under_200_chars(self):
+        """Test block format single line < 200 chars (branch 176->185)."""
+        # Single-line string > 80 chars (triggers block format) but < 200 (no truncation)
+        # This is the specific case for branch 176->185
+        single_long = "x" * 150
+        result, fmt = prettyvalue(single_long)
+        # Should not truncate (< 200 chars, single line)
+        assert "⋯" not in result
+        assert " … " not in result
+        assert len(result) == 150
+        assert "\n" not in result
+        assert fmt == "block"

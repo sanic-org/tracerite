@@ -1,6 +1,6 @@
 from importlib.resources import files
 
-from html5tagger import E
+from html5tagger import HTML, E
 
 from .trace import extract_chain
 
@@ -8,14 +8,20 @@ style = files(__package__).joinpath("style.css").read_text(encoding="UTF-8")
 
 detail_show = "{display: inherit}"
 
-symbols = dict(call="➤", warning="⚠️", error="💣", stop="🛑")
-tooltips = dict(
-    call="Function call",
-    warning="Bug may be here\n(call from user code)",
-    error="Exception {type} raised",
-    stop="Execution interrupted\n(BaseException)",
-)
+symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑"}
+tooltips = {
+    "call": "Call",
+    "warning": "Call from your code",
+    "error": "{type}",
+    "stop": "{type}",
+}
 javascript = """const scrollto=id=>document.getElementById(id).scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"""
+
+chainmsg = {
+    "cause": "The above exception was raised from",
+    "context": "The above exception was raised while handling",
+    "none": "",  # Shouldn't happen between any two exceptions (only at the initial i.e. last in chain)
+}
 
 
 def html_traceback(
@@ -26,10 +32,13 @@ def html_traceback(
         if include_js_css:
             doc._script(javascript)
             doc._style(style)
+        msg = None
         for e in chain:
-            if e is not chain[0]:
-                doc.p("The above exception occurred after catching", class_="after")
+            if msg:
+                doc.p(msg, class_="after")
+            msg = chainmsg[e["has"]]
             _exception(doc, e, local_urls=local_urls)
+
         with doc.script:
             for e in reversed(chain):
                 for info in e["frames"]:
@@ -67,7 +76,11 @@ def _exception(doc, info, *, local_urls=False):
                     with doc.div(class_="traceback-details"):
                         doc.p("...")
                     continue
-                with doc.div(class_="traceback-details", id=frinfo["id"]):
+                with doc.div(
+                    class_="traceback-details",
+                    data_function=frinfo["function"],
+                    id=frinfo["id"],
+                ):
                     traceback_detail(doc, info, frinfo, local_urls=local_urls)
                     variable_inspector(doc, frinfo["variables"])
 
@@ -82,7 +95,9 @@ def _tab_header(doc, frinfo):
 def traceback_detail(doc, info, frinfo, *, local_urls):
     function = frinfo["function"]
     if frinfo["filename"]:
-        doc.div.b(frinfo["filename"])(f":{frinfo['lineno']}")
+        doc.div.b(frinfo["filename"])(
+            f":{frinfo['range'].lfirst if frinfo['range'] else '?'}"
+        )
         urls = frinfo["urls"]
         if local_urls and urls:
             for name, href in urls.items():
@@ -90,30 +105,145 @@ def traceback_detail(doc, info, frinfo, *, local_urls):
     else:
         doc.div.b(frinfo["location"] or E("Native function ").strong(function), ":")
     # Code printout
-    lines = frinfo["lines"].splitlines(keepends=True)
-    if not lines:
+    fragments = frinfo.get("fragments", [])
+    if not fragments:
         doc.p("Source code not available")
         if frinfo is info["frames"][-1]:
             doc(" but ").strong(info["type"])(" was raised from here")
     else:
         with doc.pre, doc.code:
             start = frinfo["linenostart"]
-            lineno = frinfo["lineno"]
-            for i, line in enumerate(lines, start=start):
-                with doc.span(class_="codeline", data_lineno=i):
-                    doc(marked(line, info, frinfo) if i == lineno else line)
+            for line_info in fragments:
+                line_num = line_info["line"]
+                abs_line = start + line_num - 1
+                fragments = line_info["fragments"]
+
+                # Prepare tooltip attributes for tooltip span on final line
+                tooltip_attrs = {}
+                if frinfo["range"] and abs_line == frinfo["range"].lfinal:
+                    relevance = frinfo["relevance"]
+                    symbol = symbols.get(relevance, frinfo["relevance"])
+                    try:
+                        text = tooltips[relevance].format(**info, **frinfo)
+                        # Replace newlines with spaces for HTML attribute
+                        text = text.replace("\n", " ")
+                    except Exception:
+                        text = repr(relevance)
+                    tooltip_attrs = {
+                        "class": "tracerite-tooltip",
+                        "data-symbol": symbol,
+                        "data-tooltip": text,
+                    }
+
+                # Render content fragments inside the codeline span
+                with doc.span(class_="codeline", data_lineno=abs_line):
+                    # Find the first non-trailing fragment to start the tooltip span
+                    non_trailing_fragments = []
+                    trailing_fragment = None
+                    for fragment in fragments:
+                        if "trailing" in fragment:
+                            trailing_fragment = fragment
+                            break
+                        non_trailing_fragments.append(fragment)
+
+                    # Render leading whitespace/indentation first (outside tooltip span)
+                    if non_trailing_fragments:
+                        first_fragment = non_trailing_fragments[0]
+                        code = first_fragment["code"]
+                        leading_whitespace = code[: len(code) - len(code.lstrip())]
+                        if leading_whitespace:
+                            doc(leading_whitespace)
+                            # Create modified first fragment without leading whitespace
+                            first_fragment_modified = {
+                                **first_fragment,
+                                "code": code.lstrip(),
+                            }
+                            non_trailing_fragments[0] = first_fragment_modified
+
+                    # Render the tooltip span around the actual code content
+                    if tooltip_attrs and non_trailing_fragments:
+                        with doc.span(
+                            class_="tracerite-tooltip",
+                            data_tooltip=tooltip_attrs["data-tooltip"],
+                        ):
+                            for fragment in non_trailing_fragments:
+                                _render_fragment(doc, fragment)
+                        # Add separate symbol and tooltip text elements
+                        doc.span(
+                            class_="tracerite-symbol",
+                            data_symbol=tooltip_attrs["data-symbol"],
+                        )
+                        doc.span(
+                            class_="tracerite-tooltip-text",
+                            data_tooltip=tooltip_attrs["data-tooltip"],
+                        )
+                    else:
+                        for fragment in non_trailing_fragments:
+                            _render_fragment(doc, fragment)
+
+                    # Set fragment for trailing handling
+                    fragment = trailing_fragment
+                # Render trailing fragment outside the span
+                if fragment:
+                    _render_fragment(doc, fragment)
+
+
+def _render_fragment(doc, fragment):
+    """Render a single fragment with appropriate styling."""
+    code = fragment["code"]
+
+    mark = fragment.get("mark")
+    em = fragment.get("em")
+
+    # Render opening tags for "mark" and "em" if applicable
+    if mark in ["solo", "beg"]:
+        doc(HTML("<mark>"))
+    if em in ["solo", "beg"]:
+        doc(HTML("<em>"))
+
+    # Render the code
+    doc(code)
+
+    # Render closing tags for "mark" and "em" if applicable
+    if em in ["fin", "solo"]:
+        doc(HTML("</em>"))
+    if mark in ["fin", "solo"]:
+        doc(HTML("</mark>"))
 
 
 def variable_inspector(doc, variables):
     if not variables:
         return
     with doc.table(class_="inspector key-value"):
-        for n, t, v in variables:
-            doc.tr.td.span(n, class_="var")(": ").span(t, class_="type")(
-                "\xa0=\xa0"
-            ).td(class_="val")
+        for var_info in variables:
+            # Handle both old tuple format and new VarInfo namedtuple
+            if hasattr(var_info, "name"):
+                n, t, v, fmt = (
+                    var_info.name,
+                    var_info.typename,
+                    var_info.value,
+                    var_info.format_hint,
+                )
+            else:
+                # Backwards compatibility with old tuple format
+                n, t, v = var_info
+                fmt = "inline"
+
+            # Keep the type and the equals sign together to prevent automatic
+            # wrapping between the type and the '='. Use a non-breaking space
+            # before the '=' so HTML won't break the line there.
+            # Example output: "var: Type\u00A0= <value>"
+            eq = "\u00a0= "
+            # Put the equals into the same span as the type so they stay bound.
+            doc.tr.td.span(n, class_="var")(": ").span(t + eq, class_="type").td(
+                class_=f"val val-{fmt}"
+            )
             if isinstance(v, str):
-                doc(v)
+                if fmt == "block":
+                    # For block format, use <pre> tag for proper formatting
+                    doc.pre(v)
+                else:
+                    doc(v)
             else:
                 _format_matrix(doc, v)
 
@@ -125,7 +255,7 @@ def _format_matrix(doc, v):
             if row[0] is None:
                 skiprow = True
                 continue
-            doc.tr
+            doc.tr()
             if skiprow:
                 skiprow = False
                 doc(class_="skippedabove")
@@ -138,23 +268,3 @@ def _format_matrix(doc, v):
                     doc.td(e, class_="skippedleft")
                 else:
                     doc.td(e)
-
-
-def marked(line, info, frinfo):
-    indent, code, trailing = split3(line)
-    relevance = frinfo["relevance"]
-    symbol = symbols.get(relevance)
-    try:
-        text = tooltips[relevance].format(**info, **frinfo)
-    except Exception:
-        text = repr(relevance)
-    return E(indent).mark(
-        E.span(code), data_symbol=symbol, data_tooltip=text, class_="tracerite-tooltip"
-    )(trailing)
-
-
-def split3(s):
-    """Split s into indent, code and trailing whitespace"""
-    a, b, c = s.rstrip(), s.strip(), s.lstrip()
-    codelen = len(b)
-    return a[:-codelen], b, c[codelen:]
