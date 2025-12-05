@@ -1,5 +1,10 @@
 # Ignore all dotfiles and hidden directories
 .*
+!.gitignore
+!/.github/
+!/.github/workflows/
+!/.github/workflows/*.yml
+!/.github/workflows/*.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
