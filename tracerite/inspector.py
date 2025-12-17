@@ -11,6 +11,7 @@ VarInfo = namedtuple("VarInfo", ["name", "typename", "value", "format_hint"])
 
 blacklist_names = {"_", "In", "Out"}
 blacklist_types = (
+    type,
     types.ModuleType,
     types.FunctionType,
     types.MethodType,
