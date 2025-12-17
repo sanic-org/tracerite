@@ -242,6 +242,11 @@ def variable_inspector(doc, variables):
                     doc(v)
             elif isinstance(v, dict) and v.get("type") == "dict":
                 _format_dict(doc, v["rows"])
+            elif isinstance(v, dict) and v.get("type") == "array":
+                with doc.div(class_="array-with-scale"):
+                    _format_matrix(doc, v["rows"])
+                    if v.get("suffix"):
+                        doc.span(v["suffix"], class_="scale-suffix")
             else:
                 _format_matrix(doc, v)
 

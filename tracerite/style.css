@@ -190,10 +190,10 @@
 .tracerite .inspector table td,
 .tracerite table.inspector td {
   color: var(--tracerite-val);
-  min-width: 3em;
+  min-width: 2em;
   word-break: keep-all;
   overflow: hidden;
-  padding: 0;
+  padding: 0 0.4em;
   font-size: 0.8em;
   border-collapse: collapse;
   text-align: right;
@@ -225,4 +225,19 @@
   text-align: left;
   width: auto;
   float: none;
+}
+
+/* Array with scale factor container */
+.tracerite .inspector .array-with-scale {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+}
+
+/* Scale suffix for arrays (e.g., ×10⁶) */
+.tracerite .inspector .scale-suffix {
+  font-size: 1.4em;
+  font-weight: bold;
+  white-space: nowrap;
+  align-self: center;
 }

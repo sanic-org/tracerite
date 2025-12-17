@@ -1,4 +1,5 @@
 import contextlib
+import math
 import re
 import types
 from collections import namedtuple
@@ -8,6 +9,141 @@ from .logging import logger
 
 # Variable info with formatting metadata
 VarInfo = namedtuple("VarInfo", ["name", "typename", "value", "format_hint"])
+
+
+def _format_scalar(v):
+    """Format a single numeric value intelligently."""
+    # Integer types (including numpy integers) - display without decimals
+    if isinstance(v, int) or (hasattr(v, "dtype") and "int" in str(v.dtype)):
+        return str(int(v))
+    # Float types
+    if isinstance(v, float) or (hasattr(v, "dtype") and "float" in str(v.dtype)):
+        v = float(v)
+        if v != v:  # NaN
+            return "NaN"
+        if abs(v) == float("inf"):
+            return "∞" if v > 0 else "-∞"
+        if v == 0:
+            return "0"
+        if v == int(v) and abs(v) < 1e15:
+            return str(int(v))
+        # Compact fixed-point: strip trailing zeros
+        return f"{v:.6f}".rstrip("0").rstrip(".")
+    return str(v)
+
+
+# SI-style scale factors: (threshold, scale_power, suffix)
+# Only use 10^6+ for large, 10^-3 and below for small (not 10^3)
+_SCALE_FACTORS = [
+    (1e15, 15, "×10¹⁵"),
+    (1e12, 12, "×10¹²"),
+    (1e9, 9, "×10⁹"),
+    (1e6, 6, "×10⁶"),
+    # No 10^3 - numbers up to a million display naturally
+    (1e-3, -3, "×10⁻³"),
+    (1e-6, -6, "×10⁻⁶"),
+    (1e-9, -9, "×10⁻⁹"),
+    (1e-12, -12, "×10⁻¹²"),
+]
+
+
+def _array_formatter(arr):
+    """
+    Create an optimal formatter for displaying array values consistently.
+
+    For integers: display as integers without decimals.
+    For floats: determine scale from max(abs(values)), apply SI-style
+    scaling (×10⁶, ×10⁻³, etc.), and display with consistent fixed precision.
+    Returns (formatter_func, scale_suffix) where scale_suffix may be empty.
+    """
+    try:
+        dtype_str = str(arr.dtype)
+    except AttributeError:
+        dtype_str = ""
+
+    # Integer arrays - display as integers, no scaling
+    if "int" in dtype_str or "bool" in dtype_str:
+        return lambda v: str(int(v)), ""
+
+    # For float arrays, analyze the values to determine optimal formatting
+    if "float" in dtype_str or "complex" in dtype_str:
+        flat = arr.flat
+        # Sample values for analysis
+        n = len(flat)
+        if n <= 200:
+            sample = [float(v) for v in flat]
+        else:
+            sample = [float(flat[i]) for i in range(100)]
+            sample += [float(flat[n - 100 + i]) for i in range(100)]
+
+        # Filter out non-finite values for scale analysis
+        finite = [abs(v) for v in sample if v == v and abs(v) != float("inf")]
+        if not finite:
+            # All NaN/Inf
+            return lambda v: ("NaN" if v != v else ("∞" if v > 0 else "-∞")), ""
+
+        max_abs = max(finite) if finite else 0
+        nonzero = [v for v in finite if v != 0]
+        min_nonzero = min(nonzero) if nonzero else 0
+
+        # Check if values are effectively integers
+        all_integer_like = all(
+            v == int(v) for v in sample
+            if v == v and abs(v) != float("inf") and abs(v) < 1e15
+        )
+        if all_integer_like and max_abs < 1e6:
+            return lambda v: (
+                "NaN" if v != v else
+                "∞" if v == float("inf") else
+                "-∞" if v == float("-inf") else
+                str(int(v))
+            ), ""
+
+        # Determine scale factor
+        scale_power = 0
+        scale_suffix = ""
+
+        if max_abs >= 1e6:
+            # Large values: find appropriate scale
+            for threshold, power, suffix in _SCALE_FACTORS:
+                if power > 0 and max_abs >= threshold:
+                    scale_power = power
+                    scale_suffix = suffix
+                    break
+        elif max_abs > 0 and max_abs < 1e-2 and min_nonzero > 0:
+            # Small values: find appropriate scale
+            for threshold, power, suffix in _SCALE_FACTORS:
+                if power < 0 and min_nonzero < threshold * 100:
+                    scale_power = power
+                    scale_suffix = suffix
+                    break
+
+        scale_factor = 10.0 ** (-scale_power) if scale_power else 1.0
+
+        # Determine decimal precision based on scaled value range
+        scaled_max = max_abs * scale_factor if scale_power else max_abs
+
+        # Decimals = 2 - log10(scaled_max), clamped to [0, 4]
+        # e.g., 100 -> 0 decimals, 10 -> 1, 1 -> 2, 0.1 -> 3, 0.01 -> 4
+        decimals = max(0, min(4, 2 - math.floor(math.log10(scaled_max)))) if scaled_max > 0 else 0
+
+        def fmt(v, sf=scale_factor, d=decimals):
+            if v != v:
+                return "NaN"
+            if v == float("inf"):
+                return "∞"
+            if v == float("-inf"):
+                return "-∞"
+            scaled = v * sf
+            if scaled == 0:
+                return "0"
+            return f"{scaled:.{d}f}"
+
+        return fmt, scale_suffix
+
+    # Fallback for other types
+    return (lambda v: f"{v}"), ""
+
 
 blacklist_names = {"_", "In", "Out"}
 blacklist_types = (
@@ -131,17 +267,25 @@ def prettyvalue(val):
         if isinstance(shape, tuple) and val.shape:
             numelem = reduce(lambda x, y: x * y, shape)
             if numelem <= 1:
-                return (f"{val[0]:.2g}", "inline")
+                return (_format_scalar(val.flat[0]), "inline")
             # 1D arrays
             if len(shape) == 1:
+                fmt, suffix = _array_formatter(val)
                 if shape[0] <= 100:
-                    return (", ".join(f"{v:.2f}" for v in val), "inline")
+                    result = ", ".join(fmt(v) for v in val)
                 else:
-                    fmt = [f"{v:.2f}" for v in (*val[:3], *val[-3:])]
-                    return (", ".join([*fmt[:3], "…", *fmt[-3:]]), "inline")
+                    formatted = [fmt(v) for v in (*val[:3], *val[-3:])]
+                    result = ", ".join([*formatted[:3], "…", *formatted[-3:]])
+                if suffix:
+                    result = f"{result} {suffix}"
+                return (result, "inline")
             # 2D arrays
             if len(shape) == 2 and shape[0] <= 10 and shape[1] <= 10:
-                return ([[f"{v:.2f}" for v in row] for row in val], "inline")
+                fmt, suffix = _array_formatter(val)
+                table = [[fmt(v) for v in row] for row in val]
+                if suffix:
+                    return ({"type": "array", "rows": table, "suffix": suffix}, "inline")
+                return (table, "inline")
     except (AttributeError, ValueError):
         pass
     except Exception:
@@ -150,18 +294,18 @@ def prettyvalue(val):
         )
 
     try:
-        floaty = isinstance(val, float) or "float" in str(val.dtype)
-        ret = f"{val:.2g}" if floaty else None
+        # Handle numpy scalars and plain floats/ints
+        dtype_str = str(getattr(val, "dtype", ""))
+        is_numeric = isinstance(val, (int, float)) or dtype_str
+        if is_numeric and not isinstance(val, bool):
+            return (_format_scalar(val), "inline")
     except (AttributeError, TypeError):
-        floaty = False
-        ret = None
+        pass
 
     # Determine format hint based on content
     format_hint = "inline"
 
-    if floaty and ret:
-        pass
-    elif isinstance(val, str):
+    if isinstance(val, str):
         ret = str(val)
         # Multi-line strings should be displayed as blocks
         if "\n" in ret.rstrip():
