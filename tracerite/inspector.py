@@ -89,15 +89,19 @@ def _array_formatter(arr):
 
         # Check if values are effectively integers
         all_integer_like = all(
-            v == int(v) for v in sample
+            v == int(v)
+            for v in sample
             if v == v and abs(v) != float("inf") and abs(v) < 1e15
         )
         if all_integer_like and max_abs < 1e6:
             return lambda v: (
-                "NaN" if v != v else
-                "∞" if v == float("inf") else
-                "-∞" if v == float("-inf") else
-                str(int(v))
+                "NaN"
+                if v != v
+                else "∞"
+                if v == float("inf")
+                else "-∞"
+                if v == float("-inf")
+                else str(int(v))
             ), ""
 
         # Determine scale factor
@@ -126,7 +130,11 @@ def _array_formatter(arr):
 
         # Decimals = 2 - log10(scaled_max), clamped to [0, 4]
         # e.g., 100 -> 0 decimals, 10 -> 1, 1 -> 2, 0.1 -> 3, 0.01 -> 4
-        decimals = max(0, min(4, 2 - math.floor(math.log10(scaled_max)))) if scaled_max > 0 else 0
+        decimals = (
+            max(0, min(4, 2 - math.floor(math.log10(scaled_max))))
+            if scaled_max > 0
+            else 0
+        )
 
         def fmt(v, sf=scale_factor, d=decimals):
             if v != v:
@@ -271,17 +279,30 @@ def prettyvalue(val):
             for field in fields:
                 key_str = field.name if len(field.name) <= 40 else field.name[:37] + "…"
                 field_val = object.__getattribute__(val, field.name)
-                val_str = f"{field_val!s}" if len(f"{field_val!s}") <= 60 else f"{field_val!s}"[:57] + "…"
+                val_str = (
+                    f"{field_val!s}"
+                    if len(f"{field_val!s}") <= 60
+                    else f"{field_val!s}"[:57] + "…"
+                )
                 rows.append([key_str, val_str])
             return ({"type": "keyvalue", "rows": rows}, "inline")
         # For larger dataclasses, show summary
         return (f"({len(fields)} fields)", "inline")
-    # msgspec Struct support (without importing msgspec)
-    try:
-        struct_fields = object.__getattribute__(type(val), "__struct_fields__")
-    except AttributeError:
-        struct_fields = None
-    if struct_fields is not None and isinstance(struct_fields, tuple):
+    # msgspec Struct and Pydantic BaseModel support (without importing either)
+    # msgspec uses __struct_fields__ (tuple), Pydantic v2 uses model_fields (dict)
+    struct_fields = None
+    for attr in ("__struct_fields__", "model_fields"):
+        try:
+            # Use getattr on type (safe - no instance side effects)
+            struct_fields = getattr(type(val), attr)
+            if isinstance(struct_fields, dict):
+                struct_fields = tuple(struct_fields.keys())
+            if isinstance(struct_fields, tuple):
+                break
+            struct_fields = None
+        except AttributeError:
+            pass
+    if struct_fields is not None:
         if not struct_fields:
             return (f"{type(val).__name__}()", "inline")
         if len(struct_fields) <= 10:
@@ -289,7 +310,11 @@ def prettyvalue(val):
             for name in struct_fields:
                 key_str = name if len(name) <= 40 else name[:37] + "…"
                 field_val = object.__getattribute__(val, name)
-                val_str = f"{field_val!s}" if len(f"{field_val!s}") <= 60 else f"{field_val!s}"[:57] + "…"
+                val_str = (
+                    f"{field_val!s}"
+                    if len(f"{field_val!s}") <= 60
+                    else f"{field_val!s}"[:57] + "…"
+                )
                 rows.append([key_str, val_str])
             return ({"type": "keyvalue", "rows": rows}, "inline")
         return (f"({len(struct_fields)} fields)", "inline")
@@ -318,7 +343,10 @@ def prettyvalue(val):
                 fmt, suffix = _array_formatter(val)
                 table = [[fmt(v) for v in row] for row in val]
                 if suffix:
-                    return ({"type": "array", "rows": table, "suffix": suffix}, "inline")
+                    return (
+                        {"type": "array", "rows": table, "suffix": suffix},
+                        "inline",
+                    )
                 return (table, "inline")
     except (AttributeError, ValueError):
         pass
