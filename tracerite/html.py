@@ -25,10 +25,18 @@ chainmsg = {
 
 
 def html_traceback(
-    exc=None, chain=None, *, include_js_css=True, local_urls=False, **extract_args
+    exc=None,
+    chain=None,
+    *,
+    include_js_css=True,
+    local_urls=False,
+    replace_previous=False,
+    **extract_args,
 ):
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
-    with E.div(class_="tracerite") as doc:
+    with E.div(
+        class_="tracerite", data_replace_previous="1" if replace_previous else None
+    ) as doc:
         if include_js_css:
             doc._style(style)
         msg = None

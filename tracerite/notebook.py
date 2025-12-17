@@ -24,7 +24,7 @@ def load_ipython_extension(ipython):
             from IPython.display import display
 
             # TraceRite HTML output
-            display(html_traceback(skip_until="<ipython-input-"))
+            display(html_traceback(skip_until="<ipython-input-", replace_previous=True))
         except Exception:
             # Fall back to built-in showtraceback
             ipython.__class__.showtraceback(ipython, *args, **kwargs)
