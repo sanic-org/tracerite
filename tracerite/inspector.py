@@ -270,12 +270,29 @@ def prettyvalue(val):
             rows = []
             for field in fields:
                 key_str = field.name if len(field.name) <= 40 else field.name[:37] + "…"
-                field_val = getattr(val, field.name)
+                field_val = object.__getattribute__(val, field.name)
                 val_str = f"{field_val!s}" if len(f"{field_val!s}") <= 60 else f"{field_val!s}"[:57] + "…"
                 rows.append([key_str, val_str])
             return ({"type": "keyvalue", "rows": rows}, "inline")
         # For larger dataclasses, show summary
         return (f"({len(fields)} fields)", "inline")
+    # msgspec Struct support (without importing msgspec)
+    try:
+        struct_fields = object.__getattribute__(type(val), "__struct_fields__")
+    except AttributeError:
+        struct_fields = None
+    if struct_fields is not None and isinstance(struct_fields, tuple):
+        if not struct_fields:
+            return (f"{type(val).__name__}()", "inline")
+        if len(struct_fields) <= 10:
+            rows = []
+            for name in struct_fields:
+                key_str = name if len(name) <= 40 else name[:37] + "…"
+                field_val = object.__getattribute__(val, name)
+                val_str = f"{field_val!s}" if len(f"{field_val!s}") <= 60 else f"{field_val!s}"[:57] + "…"
+                rows.append([key_str, val_str])
+            return ({"type": "keyvalue", "rows": rows}, "inline")
+        return (f"({len(struct_fields)} fields)", "inline")
     if isinstance(val, type):
         return (f"{val.__module__}.{val.__name__}", "inline")
     try:
