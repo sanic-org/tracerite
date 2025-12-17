@@ -204,6 +204,7 @@
   display: grid;
   grid-template-columns: auto 1fr;
   margin: 0;
+  padding-top: 0.2em;
   font-size: 0.8em;
 }
 .tracerite .inspector dl.keyvalue-dl dt,
