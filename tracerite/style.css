@@ -199,29 +199,29 @@
   text-align: right;
 }
 
-/* dict dl styling */
-.tracerite .inspector dl.dict-dl {
+/* Key-value dl styling (dicts, dataclasses) */
+.tracerite .inspector dl.keyvalue-dl {
   display: grid;
   grid-template-columns: auto 1fr;
   margin: 0;
   font-size: 0.8em;
 }
-.tracerite .inspector dl.dict-dl dt,
-.tracerite .inspector dl.dict-dl dd {
+.tracerite .inspector dl.keyvalue-dl dt,
+.tracerite .inspector dl.keyvalue-dl dd {
   margin: 0;
   padding: 0 0.3em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tracerite .inspector dl.dict-dl dt {
+.tracerite .inspector dl.keyvalue-dl dt {
   text-align: right;
   color: var(--tracerite-var);
   font-weight: bold;
   width: max-content;
   float: none;
 }
-.tracerite .inspector dl.dict-dl dd {
+.tracerite .inspector dl.keyvalue-dl dd {
   text-align: left;
   width: auto;
   float: none;

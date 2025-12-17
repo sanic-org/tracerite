@@ -240,8 +240,8 @@ def variable_inspector(doc, variables):
                     doc.pre(v)
                 else:
                     doc(v)
-            elif isinstance(v, dict) and v.get("type") == "dict":
-                _format_dict(doc, v["rows"])
+            elif isinstance(v, dict) and v.get("type") == "keyvalue":
+                _format_keyvalue(doc, v["rows"])
             elif isinstance(v, dict) and v.get("type") == "array":
                 with doc.div(class_="array-with-scale"):
                     _format_matrix(doc, v["rows"])
@@ -251,9 +251,9 @@ def variable_inspector(doc, variables):
                 _format_matrix(doc, v)
 
 
-def _format_dict(doc, rows):
-    """Format a dict as a definition list."""
-    with doc.dl(class_="dict-dl"):
+def _format_keyvalue(doc, rows):
+    """Format key-value pairs (dicts, dataclasses) as a definition list."""
+    with doc.dl(class_="keyvalue-dl"):
         for key, val in rows:
             doc.dt(key)
             doc.dd(val)

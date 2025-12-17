@@ -1,4 +1,5 @@
 import contextlib
+import dataclasses
 import math
 import re
 import types
@@ -256,9 +257,25 @@ def prettyvalue(val):
                 key_str = f"{k!s}" if len(f"{k!s}") <= 40 else f"{k!s}"[:37] + "…"
                 val_str = f"{v!s}" if len(f"{v!s}") <= 60 else f"{v!s}"[:57] + "…"
                 rows.append([key_str, val_str])
-            return ({"type": "dict", "rows": rows}, "inline")
+            return ({"type": "keyvalue", "rows": rows}, "inline")
         # For larger dicts, show summary
         return (f"({len(val)} items)", "inline")
+    if dataclasses.is_dataclass(val) and not isinstance(val, type):
+        # Handle dataclass formatting similar to dict
+        fields = dataclasses.fields(val)
+        if not fields:
+            return (f"{type(val).__name__}()", "inline")
+        # For small dataclasses, return as structured table
+        if len(fields) <= 10:
+            rows = []
+            for field in fields:
+                key_str = field.name if len(field.name) <= 40 else field.name[:37] + "…"
+                field_val = getattr(val, field.name)
+                val_str = f"{field_val!s}" if len(f"{field_val!s}") <= 60 else f"{field_val!s}"[:57] + "…"
+                rows.append([key_str, val_str])
+            return ({"type": "keyvalue", "rows": rows}, "inline")
+        # For larger dataclasses, show summary
+        return (f"({len(fields)} fields)", "inline")
     if isinstance(val, type):
         return (f"{val.__module__}.{val.__name__}", "inline")
     try:
