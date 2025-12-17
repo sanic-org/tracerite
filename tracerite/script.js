@@ -150,7 +150,7 @@ document.querySelectorAll('.traceback-frames').forEach(c=>{
       }
     }
   });
-  // Initially scroll each frame-content to center all marks
+  // Initially scroll each frame-content to show all marks (centered if they fit, else from top)
   c.querySelectorAll('.frame-content').forEach(d=>{
     const marks=d.querySelectorAll('mark,.tracerite-tooltip,.tracerite-symbol');
     if(marks.length){
@@ -161,9 +161,15 @@ document.querySelectorAll('.traceback-frames').forEach(c=>{
         if(top<minTop)minTop=top;
         if(bottom>maxBottom)maxBottom=bottom;
       });
-      const marksCenter=(minTop+maxBottom)/2;
-      const panelCenter=d.clientHeight/2;
-      d.scrollTop=marksCenter-panelCenter;
+      const marksHeight=maxBottom-minTop;
+      const panelHeight=d.clientHeight;
+      // If marks fit, center them; otherwise scroll to show from first mark
+      if(marksHeight<=panelHeight){
+        const marksCenter=(minTop+maxBottom)/2;
+        d.scrollTop=marksCenter-panelHeight/2;
+      }else{
+        d.scrollTop=minTop-panelHeight*0.1;  // Small top padding
+      }
     }
   });
 });
