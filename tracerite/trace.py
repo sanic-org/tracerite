@@ -89,18 +89,31 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     }
 
 
-def extract_source_lines(frame, lineno, end_lineno=None):
+def _is_notebook_cell(filename):
+    """Check if the filename corresponds to a Jupyter notebook cell."""
+    try:
+        return filename in ipython.compile._filename_map
+    except (AttributeError, KeyError, TypeError):
+        return False
+
+
+def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False):
     try:
         lines, start = inspect.getsourcelines(frame)
         if start == 0:
             start = 1
-        # If we have end_lineno, make sure we extract enough lines to include it
-        # Otherwise, default to showing lineno + 3 lines after
-        lines_after = (end_lineno - lineno + 3) if end_lineno else 3
+        # For notebook cells, show only the error lines (no context)
+        # For regular files, show 15 lines before and 3 lines after
+        if notebook_cell:
+            lines_before = 0
+            lines_after = (end_lineno - lineno) if end_lineno else 0
+        else:
+            lines_before = 15
+            lines_after = (end_lineno - lineno + 3) if end_lineno else 3
         lines = lines[
-            max(0, lineno - start - 15) : max(0, lineno - start + lines_after)
+            max(0, lineno - start - lines_before) : max(0, lineno - start + lines_after + 1)
         ]
-        start += max(0, lineno - start - 15)
+        start += max(0, lineno - start - lines_before)
 
         # Calculate common indentation before dedenting
         common_indent = _calculate_common_indent(lines)
@@ -262,8 +275,11 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         pos = position_map.get(frame, [None] * 4)
         pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
 
+        # Check if this is a notebook cell (to reduce context)
+        notebook_cell = _is_notebook_cell(filename)
+
         lines, start, original_common_indent = extract_source_lines(
-            frame, lineno, pos_end_lineno
+            frame, lineno, pos_end_lineno, notebook_cell=notebook_cell
         )
         if not lines and relevance == "call":
             continue
