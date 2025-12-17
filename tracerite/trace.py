@@ -18,9 +18,9 @@ Range = namedtuple("Range", ["lfirst", "lfinal", "cbeg", "cend"])
 # Will be set to an instance if loaded as an IPython extension by %load_ext
 ipython = None
 
-# Locations considered to be bug-free
+# Locations considered to be bug-free (library code, not user code)
 libdir = re.compile(
-    r"/usr/.*|.*(site-packages|dist-packages).*|.*/lib/python\d+\.\d+/.*"
+    r"/usr/.*|.*(site-packages|dist-packages).*|.*/lib/python\d+\.\d+/.*|.*/\.cache/.*"
 )
 
 
@@ -233,7 +233,8 @@ def _find_bug_frame(tb):
         (
             f
             for f in reversed(tb)
-            if f.code_context and not libdir.fullmatch(f.filename)
+            if f.code_context
+            and not libdir.fullmatch(Path(f.filename).as_posix())
         ),
         tb[-1],
     ).frame

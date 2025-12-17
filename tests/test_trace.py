@@ -1009,3 +1009,22 @@ class TestLibdirPattern:
         assert not libdir.fullmatch("/home/user/project/module.py")
         assert not libdir.fullmatch("./mycode.py")
         assert not libdir.fullmatch("/opt/myapp/code.py")
+
+    def test_libdir_pattern_matches_cache_directories(self):
+        """Test that libdir pattern matches .cache directory paths."""
+        from tracerite.trace import libdir
+
+        assert libdir.fullmatch("/home/user/.cache/some_lib/module.py")
+        assert libdir.fullmatch("/home/user/.cache/torch/model.py")
+        assert libdir.fullmatch(
+            "/home/user/.cache/library/modules/deep/nested/path/model.py"
+        )
+
+    def test_libdir_pattern_does_not_match_ipython_input(self):
+        """Test that libdir pattern doesn't match IPython/Jupyter input cells."""
+        from tracerite.trace import libdir
+
+        # IPython input cells should be treated as user code
+        assert not libdir.fullmatch("<ipython-input-1>")
+        assert not libdir.fullmatch("<ipython-input-11-abc123>")
+        assert not libdir.fullmatch("/tmp/ipykernel_12345/1234567890.py")
