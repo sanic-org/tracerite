@@ -229,12 +229,8 @@ def variable_inspector(doc, variables):
                 n, t, v = var_info
                 fmt = "inline"
 
-            # Keep the type and the equals sign together to prevent automatic
-            # wrapping between the type and the '='. Use a non-breaking space
-            # before the '=' so HTML won't break the line there.
-            # Example output: "var: Type\u00A0= <value>"
-            eq = "\u00a0= "
             # Put the equals into the same span as the type so they stay bound.
+            eq = "\u00a0=\u00a0"
             doc.tr.td.span(n, class_="var")(": ").span(t + eq, class_="type").td(
                 class_=f"val val-{fmt}"
             )
@@ -244,8 +240,18 @@ def variable_inspector(doc, variables):
                     doc.pre(v)
                 else:
                     doc(v)
+            elif isinstance(v, dict) and v.get("type") == "dict":
+                _format_dict(doc, v["rows"])
             else:
                 _format_matrix(doc, v)
+
+
+def _format_dict(doc, rows):
+    """Format a dict as a definition list."""
+    with doc.dl(class_="dict-dl"):
+        for key, val in rows:
+            doc.dt(key)
+            doc.dd(val)
 
 
 def _format_matrix(doc, v):

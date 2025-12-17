@@ -112,13 +112,16 @@ def prettyvalue(val):
         # Handle dict formatting specially
         if not val:
             return ("{}", "inline")
-        if len(val) <= 5:
-            # Try to fit on single line for small dicts
-            items = [f"{k!r}: {v!r}" for k, v in list(val.items())[:5]]
-            single_line = "{" + ", ".join(items) + "}"
-            if len(single_line) <= 120:
-                return (single_line, "inline")
-        # For larger dicts or those that don't fit, show summary
+        # For small dicts, return as structured table
+        if len(val) <= 10:
+            # Return list of [key, value] pairs for structured rendering
+            rows = []
+            for k, v in val.items():
+                key_str = f"{k!s}" if len(f"{k!s}") <= 40 else f"{k!s}"[:37] + "…"
+                val_str = f"{v!s}" if len(f"{v!s}") <= 60 else f"{v!s}"[:57] + "…"
+                rows.append([key_str, val_str])
+            return ({"type": "dict", "rows": rows}, "inline")
+        # For larger dicts, show summary
         return (f"({len(val)} items)", "inline")
     if isinstance(val, type):
         return (f"{val.__module__}.{val.__name__}", "inline")
@@ -161,7 +164,7 @@ def prettyvalue(val):
     elif isinstance(val, str):
         ret = str(val)
         # Multi-line strings should be displayed as blocks
-        if "\n" in ret or len(ret) > 80:
+        if "\n" in ret.rstrip():
             format_hint = "block"
     else:
         ret = repr(val)
