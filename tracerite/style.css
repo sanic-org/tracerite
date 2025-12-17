@@ -44,8 +44,9 @@
 .tracerite .excmessage { max-height: 12em; overflow: auto; }
 .tracerite .exctype { color: var(--tracerite-exception); }
 
+.tracerite .traceback-details { font-size: 0.8em; }
 .tracerite .traceback-details p { margin: 1em 0; }
-.tracerite .traceback-details pre { width: 100%; padding: .5em; }
+.tracerite .traceback-details pre { width: 100%; padding: .5em; font-size: 0.8em; }
 .tracerite .traceback-details .codeline { text-indent: 4ch each-line; }
 .tracerite .traceback-details .codeline::before {
   content: attr(data-lineno);
@@ -100,43 +101,99 @@
 /* Display tooltip text using pseudo-element and data attribute */
 .tracerite .traceback-details .tracerite-tooltip-text::before { content: attr(data-tooltip); }
 
-.tracerite .traceback-labels {
-  display: flex;
-  align-items: center;
-  border-bottom: 3px solid var(--tracerite-tab);
+/* Wrapper for traceback frames with indicators */
+/* Container for floating indicators */
+.tracerite .traceback-wrapper {
+  position: relative;
   margin-top: 0.3em;
 }
-.tracerite .traceback-labels button {
-  background: var(--tracerite-tab);
-  color: black;
-  border: 0;
-  border-radius: .5em .5em 0 0;
-  flex-shrink: 1;
-  line-height: 1.0;
-  padding: .5em;
-  margin-right: .2em;
-}
-.tracerite .traceback-labels button:hover { background: var(--tracerite-tab-hover); }
-.tracerite .traceback-labels * { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 
-.tracerite .traceback-tabs .content {
-  scroll-snap-type: x mandatory;
+/* Floating overlay symbols - minimal, just emoji */
+.tracerite .floating-symbol {
+  position: absolute;
+  z-index: 20;
+  display: none;
+  cursor: pointer;
+  font-size: 1.4em;
+  line-height: 1;
+  pointer-events: auto;
+  text-shadow: 0 0 0.1em black;
+  transition: left 0.2s ease-out, top 0.2s ease-out, opacity 0.15s ease-out;
+}
+.tracerite .floating-symbol.visible { display: block; opacity: 1; }
+.tracerite .floating-symbol.animating { transition: left 0.25s ease-in-out, top 0.25s ease-in-out, opacity 0.2s ease-out; }
+.tracerite .floating-symbol.fading { opacity: 0; }
+.tracerite .floating-symbol:hover { transform: scale(1.2); }
+.tracerite .floating-symbol:active { transform: scale(0.9); }
+
+/* Hide arrows entirely */
+.tracerite .floating-symbol .arrow { display: none; }
+
+/* Horizontally scrolling frame container */
+.tracerite .traceback-frames {
   display: flex;
   align-items: flex-start;
   overflow-x: auto;
   scrollbar-width: none;
+  padding-bottom: 0.3em;
+  cursor: grab;
 }
-.tracerite .traceback-tabs .content::-webkit-scrollbar { width: 0; height: 0; }
+
+/* Disable grab cursor when modifier keys are pressed */
+.tracerite.modifier-active .traceback-frames,
+.tracerite.modifier-active .frame-content { cursor: auto; }
+
 .tracerite .traceback-details {
+  position: relative;
   min-width: 20ch;
   max-width: 100%;
-  margin: 0 .3em;
+  margin: 0 .2em;
   flex-shrink: 0;
   scroll-snap-align: start;
   border-radius: .5em;
   padding: .2em;
+  padding-left: 0;
 }
+
+/* Scrollable content area (code + inspector) */
+.tracerite .frame-content {
+  max-height: min(50vh, 20em);
+  overflow-y: auto;
+  scrollbar-width: none;
+  cursor: grab;
+}
+.tracerite .frame-content::-webkit-scrollbar { display: none; }
 .tracerite .traceback-details:last-child { width: 100%; }
+.tracerite .traceback-ellipsis { min-width: 4ch; text-align: center; }
+
+/* Sticky frame label - aligned with code */
+.tracerite .frame-label {
+  position: sticky;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.1em 0.3em;
+  border-bottom: 1px solid var(--tracerite-tab);
+  font-size: 1em;
+  line-height: 1.3;
+  margin-left: 4ch;
+  margin-bottom: 0.3em;
+  white-space: nowrap;
+  z-index: 5;
+}
+.tracerite .frame-label strong { font-weight: 600; }
+.tracerite .frame-label .frame-function { opacity: 0.7; font-size: 0.9em; }
+.tracerite .frame-label .frame-link {
+  margin-left: 0.3em;
+  padding: 0.1em 0.4em;
+  background: rgba(255,255,255,0.3);
+  border-radius: 0.3em;
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.85em;
+}
+.tracerite .frame-label .frame-link:hover { background: rgba(255,255,255,0.5); }
 
 .tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-word; }
 .tracerite .inspector tbody tr,
