@@ -33,19 +33,8 @@ def _format_scalar(v):
     return str(v)
 
 
-# SI-style scale factors: (threshold, scale_power, suffix)
-# Only use 10^6+ for large, 10^-3 and below for small (not 10^3)
-_SCALE_FACTORS = [
-    (1e15, 15, "×10¹⁵"),
-    (1e12, 12, "×10¹²"),
-    (1e9, 9, "×10⁹"),
-    (1e6, 6, "×10⁶"),
-    # No 10^3 - numbers up to a million display naturally
-    (1e-3, -3, "×10⁻³"),
-    (1e-6, -6, "×10⁻⁶"),
-    (1e-9, -9, "×10⁻⁹"),
-    (1e-12, -12, "×10⁻¹²"),
-]
+# Superscript digits for formatting powers of 10
+_SUPERSCRIPT_DIGITS = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
 
 
 def _array_formatter(arr):
@@ -84,57 +73,18 @@ def _array_formatter(arr):
             return lambda v: ("NaN" if v != v else ("∞" if v > 0 else "-∞")), ""
 
         max_abs = max(finite) if finite else 0
-        nonzero = [v for v in finite if v != 0]
-        min_nonzero = min(nonzero) if nonzero else 0
-
-        # Check if values are effectively integers
-        all_integer_like = all(
-            v == int(v)
-            for v in sample
-            if v == v and abs(v) != float("inf") and abs(v) < 1e15
+        log_max = math.log10(max_abs) if max_abs > 0 else 0
+        scale_power = int(log_max // 3) * 3
+        if scale_power in (-3, 0, 3):
+            scale_power = 0  # No scientific notation for average scales
+        scale_suffix = (
+            f"×10{str(scale_power).translate(_SUPERSCRIPT_DIGITS)}"
+            if scale_power
+            else ""
         )
-        if all_integer_like and max_abs < 1e6:
-            return lambda v: (
-                "NaN"
-                if v != v
-                else "∞"
-                if v == float("inf")
-                else "-∞"
-                if v == float("-inf")
-                else str(int(v))
-            ), ""
-
-        # Determine scale factor
-        scale_power = 0
-        scale_suffix = ""
-
-        if max_abs >= 1e6:
-            # Large values: find appropriate scale
-            for threshold, power, suffix in _SCALE_FACTORS:
-                if power > 0 and max_abs >= threshold:
-                    scale_power = power
-                    scale_suffix = suffix
-                    break
-        elif max_abs > 0 and max_abs < 1e-2 and min_nonzero > 0:
-            # Small values: find appropriate scale
-            for threshold, power, suffix in _SCALE_FACTORS:
-                if power < 0 and min_nonzero < threshold * 100:
-                    scale_power = power
-                    scale_suffix = suffix
-                    break
-
         scale_factor = 10.0 ** (-scale_power) if scale_power else 1.0
-
-        # Determine decimal precision based on scaled value range
-        scaled_max = max_abs * scale_factor if scale_power else max_abs
-
-        # Decimals = 2 - log10(scaled_max), clamped to [0, 4]
-        # e.g., 100 -> 0 decimals, 10 -> 1, 1 -> 2, 0.1 -> 3, 0.01 -> 4
-        decimals = (
-            max(0, min(4, 2 - math.floor(math.log10(scaled_max))))
-            if scaled_max > 0
-            else 0
-        )
+        log_scaled = log_max - scale_power if scale_power else log_max
+        decimals = max(0, 2 - math.floor(log_scaled)) if max_abs > 0 else 0
 
         def fmt(v, sf=scale_factor, d=decimals):
             if v != v:
