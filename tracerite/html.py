@@ -5,6 +5,7 @@ from html5tagger import HTML, E
 from .trace import extract_chain
 
 style = files(__package__).joinpath("style.css").read_text(encoding="UTF-8")
+javascript = files(__package__).joinpath("script.js").read_text(encoding="UTF-8")
 
 detail_show = "{display: inherit}"
 
@@ -15,7 +16,6 @@ tooltips = {
     "error": "{type}",
     "stop": "{type}",
 }
-javascript = """const scrollto=id=>document.getElementById(id).scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"""
 
 chainmsg = {
     "cause": "The above exception was raised from",
@@ -25,12 +25,19 @@ chainmsg = {
 
 
 def html_traceback(
-    exc=None, chain=None, *, include_js_css=True, local_urls=False, **extract_args
+    exc=None,
+    chain=None,
+    *,
+    include_js_css=True,
+    local_urls=False,
+    replace_previous=False,
+    **extract_args,
 ):
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
-    with E.div(class_="tracerite") as doc:
+    with E.div(
+        class_="tracerite", data_replace_previous="1" if replace_previous else None
+    ) as doc:
         if include_js_css:
-            doc._script(javascript)
             doc._style(style)
         msg = None
         for e in chain:
@@ -39,12 +46,15 @@ def html_traceback(
             msg = chainmsg[e["has"]]
             _exception(doc, e, local_urls=local_urls)
 
-        with doc.script:
+        if include_js_css:
+            # Build scrollto calls
+            scrollto_calls = []
             for e in reversed(chain):
                 for info in e["frames"]:
                     if info["relevance"] != "call":
-                        doc(f"scrollto('{info['id']}')\n")
+                        scrollto_calls.append(f"tracerite_scrollto('{info['id']}')")
                         break
+            doc._script(javascript + "\n" + "\n".join(scrollto_calls))
     return doc
 
 
@@ -62,48 +72,59 @@ def _exception(doc, info, *, local_urls=False):
         return
     # Format call chain
     limitedframes = [*frames[:10], ..., *frames[-4:]] if len(frames) > 16 else frames
-    with doc.div(class_="traceback-tabs"):
-        if len(limitedframes) > 1:
-            with doc.div(class_="traceback-labels"):
-                for frinfo in limitedframes:
-                    if frinfo is ...:
-                        doc("...")
-                        continue
-                    _tab_header(doc, frinfo)
-        with doc.div(class_="content"):
+    # Collect symbols for floating indicators
+    frame_symbols = []
+    for frinfo in limitedframes:
+        if frinfo is not ... and frinfo["relevance"] != "call":
+            frame_symbols.append((frinfo["id"], symbols.get(frinfo["relevance"], "")))
+    with doc.div(class_="traceback-wrapper"):
+        # Floating overlay symbols (one per frame, positioned dynamically)
+        for fid, sym in frame_symbols:
+            with doc.span(class_="floating-symbol", data_frame=fid):
+                doc.span("◂", class_="arrow arrow-left")
+                doc.span(sym, class_="sym")
+                doc.span("▸", class_="arrow arrow-right")
+        with doc.div(class_="traceback-frames"):
+            # Render frames
             for frinfo in limitedframes:
                 if frinfo is ...:
-                    with doc.div(class_="traceback-details"):
+                    with doc.div(class_="traceback-details traceback-ellipsis"):
                         doc.p("...")
                     continue
-                with doc.div(
-                    class_="traceback-details",
-                    data_function=frinfo["function"],
-                    id=frinfo["id"],
-                ):
-                    traceback_detail(doc, info, frinfo, local_urls=local_urls)
-                    variable_inspector(doc, frinfo["variables"])
+                attrs = {
+                    "class_": "traceback-details",
+                    "data_function": frinfo["function"],
+                    "id": frinfo["id"],
+                }
+                with doc.div(**attrs):
+                    _frame_label(doc, frinfo, local_urls=local_urls)
+                    with doc.div(class_="frame-content"):
+                        traceback_detail(doc, info, frinfo)
+                        variable_inspector(doc, frinfo["variables"])
 
 
-def _tab_header(doc, frinfo):
-    with doc.button(onclick=f"scrollto('{frinfo['id']}')"):
-        doc.strong(frinfo["location"]).br.small(frinfo["function"] or "－")
-        if frinfo["relevance"] != "call":
-            doc.span(symbols.get(frinfo["relevance"]), class_="symbol")
-
-
-def traceback_detail(doc, info, frinfo, *, local_urls):
-    function = frinfo["function"]
+def _frame_label(doc, frinfo, *, local_urls=False):
+    """Render sticky label for a code frame with optional editor links."""
+    # Build title text: full path with line number
     if frinfo["filename"]:
-        doc.div.b(frinfo["filename"])(
-            f":{frinfo['range'].lfirst if frinfo['range'] else '?'}"
-        )
-        urls = frinfo["urls"]
+        lineno = frinfo["range"].lfirst if frinfo["range"] else "?"
+        title = f"{frinfo['filename']}:{lineno}"
+    else:
+        title = frinfo["location"] or frinfo["function"] or ""
+
+    with doc.div(class_="frame-label", title=title):
+        doc.strong(frinfo["location"])
+        if frinfo["function"]:
+            doc(" ")
+            doc.span(frinfo["function"], class_="frame-function")
+        # Editor links if available
+        urls = frinfo.get("urls", {})
         if local_urls and urls:
             for name, href in urls.items():
-                doc(" ").a(name, href=href)
-    else:
-        doc.div.b(frinfo["location"] or E("Native function ").strong(function), ":")
+                doc.a(name, href=href, class_="frame-link")
+
+
+def traceback_detail(doc, info, frinfo):
     # Code printout
     fragments = frinfo.get("fragments", [])
     if not fragments:
