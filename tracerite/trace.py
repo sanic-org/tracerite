@@ -453,9 +453,13 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
 
     frames = []
     for frame, filename, lineno, function, codeline, _ in tb:
-        if frame.f_globals.get("__tracebackhide__") or frame.f_locals.get(
+        hide = frame.f_globals.get("__tracebackhide__") or frame.f_locals.get(
             "__tracebackhide__"
-        ):
+        )
+        if hide:
+            if hide == "until":
+                # Hide this frame and all previous frames
+                frames = []
             continue
 
         is_last_frame = frame is tb[-1][0]
