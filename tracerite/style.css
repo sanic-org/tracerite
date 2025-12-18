@@ -243,17 +243,20 @@
   text-align: left;
 }
 
-/* matrix value on a variable */
 .tracerite .inspector table td,
 .tracerite table.inspector td {
   color: var(--tracerite-val);
-  min-width: 2em;
   word-break: keep-all;
   overflow: hidden;
-  padding: 0 0.4em;
   font-size: 0.8em;
   border-collapse: collapse;
   text-align: right;
+}
+
+/* matrix value on a variable */
+.tracerite .inspector .val-inline table td {
+  padding: 0 0.4em;
+  min-width: 2em;
 }
 
 /* Key-value dl styling (dicts, dataclasses) */
