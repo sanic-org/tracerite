@@ -23,7 +23,7 @@ jobs:
       - name: Publish distribution to TestPyPI with uv
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.SANIC_TEST_PYPI_API_TOKEN }}
-        run: uv publish --index testpypi
+        run: uv publish --publish-url https://test.pypi.org/legacy/
 
       - name: Publish distribution to PyPI with uv
         env:
