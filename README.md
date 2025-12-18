@@ -1,87 +1,67 @@
-# Nicer error messages for Python
+# TraceRite
 
-Other languages such as C++ have gotten quite useful error messages and
-diagnostics with tips on how the fix the problems but Python is still stuck
-with the bare stacktraces that are very intimidating and often not very helpful.
-
-![TraceRite](https://raw.githubusercontent.com/sanic-org/tracerite/master/docs/with-tracerite.webp)
-**TraceRite backtrace shows where the user has terminated the program.**
-
-TraceRite hides the irrelevant IPython/notebook internals and concisely shows
-what happened (the program was interrupted) and where that happened. This could
-further be improved by converting the KeyboardInterrupt message into something
-more suitable, like "You stopped the program", but what you see above is just
-the default handling that never considered this particular error.
-
-Although IPython and Google Colab developers have done their tweaks to improve
-backtraces, it is all too apparent that much remains to be done:
-
-![Colab](https://raw.githubusercontent.com/sanic-org/tracerite/master/docs/without-tracerite.webp)
-**Standard backtrace from Google Colab.**
-
-Even for the experienced programmer, it is tedious to read through the wall of
-text to find the relevant details of what went wrong.
-
-In more complex situations where one might get many screenfuls of standard
-traceback, TraceRite produces scrollable outputs that concentrate on the relevant
-details but also provide variable inspectors on each frame where it may be
-relevant:
-
-![Nested exceptions](https://raw.githubusercontent.com/sanic-org/tracerite/master/docs/nested.webp)
-**TraceRite output with nested exceptions.**
-
-
-## Usage
-### In Jupyter Notebooks
-
-At the beginning of your Notebook:
+**Beautiful, readable error messages for Python notebooks and web frameworks.**
 
 ```ipython
 %pip install tracerite
 %load_ext tracerite
 ```
 
-### Setup Development Environment
+That's it! Your Jupyter notebook now has cleaner error messages.
 
-1. Install uv: See [UV installation guide](https://docs.astral.sh/uv/getting-started/installation/) for platform-specific instructions.
+## What It Looks Like
 
-2. Clone the repository and set up the development environment:
-   ```bash
-   git clone https://github.com/sanic-org/tracerite.git
-   cd tracerite
-   uv sync
-   ```
+When an error occurs in a NumPy operation, TraceRite shows you exactly what went wrong:
 
-   Optionally, you can activate the virtual environment to run all the commands without the `uv run` prefix.
+![NumPy error with TraceRite](https://raw.githubusercontent.com/sanic-org/tracerite/master/docs/numpy.webp)
 
-   ```bash
-   source .venv/bin/activate
-   ```
+The error message highlights the problematic line, and the built-in variable inspector lets you see array shapes and values at a glance—no more guessing why your shapes don't match.
 
-3. Run the development and testing pipeline:
-   ```bash
-   uv run nox
-   ```
+### Handling Complex Call Chains
 
-The project uses Nox for task automation. The default command formats code, runs tests across all Python versions with coverage, and generates reports. Use `-l` to list all available sessions and `-s` to select a specific session.
+Real-world code often involves deep call stacks through libraries. TraceRite intelligently collapses library internals while keeping your code front and center:
 
+![Complex call chain](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/complex.webp)
 
-## Background
+### Nested Exceptions
 
-This project is a proof of concept, showing a modern way to format error
-messages in a human-readable manner. Heuristics are used to hide (by default)
-irrelevant stack frames and show the actual location of the problem. Since it
-would otherwise be impossible to find out the variable contents after the program
-has crashed, a variable inspector built into each stack frame quickly reveals
-problems with the variables mentioned at the source of error. Care is taken to
-add revelant details such as notebook input field numbers and class names not
-normally present in Python tracebacks, while hiding overly long paths and other
-clutter.
+When exceptions chain together, TraceRite keeps them organized and puts the most relevant exception on top to avoid any scrolling.
 
-All output is in HTML and as such only works in Jupyter notebooks and other
-browser-based systems (this should be useful for web development frameworks as
-well). This allows interactivity and much better layout than that of the text
-console.
+![Nested exceptions](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/numpydeep.webp)
+
+Each frame includes a variable inspector so you can trace exactly how values flowed through your code.
+
+### Interrupts Made Clear
+
+Even a simple keyboard interrupt becomes informative—TraceRite shows exactly where you stopped execution:
+
+![Call chain interrupt](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/callchain.webp)
+
+## Features
+
+- **Smart frame filtering** — Shows library internals but focuses on where the flow touched your code
+- **Variable inspection** — See the values of your variables in a pretty printed HTML format
+- **JSON output** - Intermediady dict format is JSON-compatible, useful for machine processing and used by our HTML module.
+- **HTML output** — Works in Jupyter, Colab, and web frameworks such as FastAPI and Sanic as the debug mode error handler.
+
+## Usage
+
+### `html_traceback(exc)`
+
+Renders an exception as interactive HTML. Pass an exception object, or call with no arguments inside an `except` block to use the current exception.
+
+### `extract_chain(exc)`
+
+Extracts exception information as a list of dictionaries—useful for logging, custom formatting, or machine processing.
+
+### `tracerite.inspector`
+
+The inspector module formats Python values for display. Useful beyond exceptions for debugging tools or custom logging:
+
+- `prettyvalue(value)` — Formats any value with smart truncation, array shape display, and SI-scaled numerics
+- `extract_variables(locals, source)` — Extracts variables mentioned in a line of code
+
+See the [API documentation](https://github.com/sanic-org/tracerite/blob/main/docs/API.md) for details, or [Development guide](https://github.com/sanic-org/tracerite/blob/main/docs/DEVELOPMENT.md) for contributors.
 
 ## License
 
