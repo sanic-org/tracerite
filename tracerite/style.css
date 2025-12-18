@@ -134,6 +134,7 @@
   display: flex;
   align-items: flex-start;
   overflow-x: auto;
+  overscroll-behavior-x: none;
   scrollbar-width: none;
   padding-bottom: 0.3em;
   cursor: grab;
