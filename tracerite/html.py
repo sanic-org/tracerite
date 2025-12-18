@@ -229,23 +229,35 @@ def variable_inspector(doc, variables):
                 n, t, v = var_info
                 fmt = "inline"
 
-            # Keep the type and the equals sign together to prevent automatic
-            # wrapping between the type and the '='. Use a non-breaking space
-            # before the '=' so HTML won't break the line there.
-            # Example output: "var: Type\u00A0= <value>"
-            eq = "\u00a0= "
-            # Put the equals into the same span as the type so they stay bound.
-            doc.tr.td.span(n, class_="var")(": ").span(t + eq, class_="type").td(
-                class_=f"val val-{fmt}"
-            )
+            doc.tr.td.span(n, class_="var")
+            if t:
+                doc(": ").span(f"{t}\u00a0=\u00a0", class_="type")
+            else:
+                doc("\u00a0").span("=\u00a0", class_="type")  # No type printed
+            doc.td(class_=f"val val-{fmt}")
             if isinstance(v, str):
                 if fmt == "block":
                     # For block format, use <pre> tag for proper formatting
                     doc.pre(v)
                 else:
                     doc(v)
+            elif isinstance(v, dict) and v.get("type") == "keyvalue":
+                _format_keyvalue(doc, v["rows"])
+            elif isinstance(v, dict) and v.get("type") == "array":
+                with doc.div(class_="array-with-scale"):
+                    _format_matrix(doc, v["rows"])
+                    if v.get("suffix"):
+                        doc.span(v["suffix"], class_="scale-suffix")
             else:
                 _format_matrix(doc, v)
+
+
+def _format_keyvalue(doc, rows):
+    """Format key-value pairs (dicts, dataclasses) as a definition list."""
+    with doc.dl(class_="keyvalue-dl"):
+        for key, val in rows:
+            doc.dt(key)
+            doc.dd(val)
 
 
 def _format_matrix(doc, v):

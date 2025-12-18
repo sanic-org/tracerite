@@ -1,4 +1,6 @@
 import contextlib
+import dataclasses
+import math
 import re
 import types
 from collections import namedtuple
@@ -9,8 +11,102 @@ from .logging import logger
 # Variable info with formatting metadata
 VarInfo = namedtuple("VarInfo", ["name", "typename", "value", "format_hint"])
 
+
+def _format_scalar(v):
+    """Format a single numeric value intelligently."""
+    # Integer types (including numpy integers) - display without decimals
+    if isinstance(v, int) or (hasattr(v, "dtype") and "int" in str(v.dtype)):
+        return str(int(v))
+    # Float types
+    if isinstance(v, float) or (hasattr(v, "dtype") and "float" in str(v.dtype)):
+        v = float(v)
+        if v != v:  # NaN
+            return "NaN"
+        if abs(v) == float("inf"):
+            return "∞" if v > 0 else "-∞"
+        if v == 0:
+            return "0"
+        if v == int(v) and abs(v) < 1e15:
+            return str(int(v))
+        # Compact fixed-point: strip trailing zeros
+        return f"{v:.6f}".rstrip("0").rstrip(".")
+    return str(v)
+
+
+# Superscript digits for formatting powers of 10
+_SUPERSCRIPT_DIGITS = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
+
+
+def _array_formatter(arr):
+    """
+    Create an optimal formatter for displaying array values consistently.
+
+    For integers: display as integers without decimals.
+    For floats: determine scale from max(abs(values)), apply SI-style
+    scaling (×10⁶, ×10⁻³, etc.), and display with consistent fixed precision.
+    Returns (formatter_func, scale_suffix) where scale_suffix may be empty.
+    """
+    try:
+        dtype_str = str(arr.dtype)
+    except AttributeError:
+        dtype_str = ""
+
+    # Integer arrays - display as integers, no scaling
+    if "int" in dtype_str or "bool" in dtype_str:
+        return lambda v: str(int(v)), ""
+
+    # For float arrays, analyze the values to determine optimal formatting
+    if "float" in dtype_str or "complex" in dtype_str:
+        flat = arr.flat
+        # Sample values for analysis
+        n = len(flat)
+        if n <= 200:
+            sample = [float(v) for v in flat]
+        else:
+            sample = [float(flat[i]) for i in range(100)]
+            sample += [float(flat[n - 100 + i]) for i in range(100)]
+
+        # Filter out non-finite values for scale analysis
+        finite = [abs(v) for v in sample if v == v and abs(v) != float("inf")]
+        if not finite:
+            # All NaN/Inf
+            return lambda v: ("NaN" if v != v else ("∞" if v > 0 else "-∞")), ""
+
+        max_abs = max(finite) if finite else 0
+        log_max = math.log10(max_abs) if max_abs > 0 else 0
+        scale_power = int(log_max // 3) * 3
+        if scale_power in (-3, 0, 3):
+            scale_power = 0  # No scientific notation for average scales
+        scale_suffix = (
+            f"×10{str(scale_power).translate(_SUPERSCRIPT_DIGITS)}"
+            if scale_power
+            else ""
+        )
+        scale_factor = 10.0 ** (-scale_power) if scale_power else 1.0
+        log_scaled = log_max - scale_power if scale_power else log_max
+        decimals = max(0, 2 - math.floor(log_scaled)) if max_abs > 0 else 0
+
+        def fmt(v, sf=scale_factor, d=decimals):
+            if v != v:
+                return "NaN"
+            if v == float("inf"):
+                return "∞"
+            if v == float("-inf"):
+                return "-∞"
+            scaled = v * sf
+            if scaled == 0:
+                return "0"
+            return f"{scaled:.{d}f}"
+
+        return fmt, scale_suffix
+
+    # Fallback for other types
+    return (lambda v: f"{v}"), ""
+
+
 blacklist_names = {"_", "In", "Out"}
 blacklist_types = (
+    type,
     types.ModuleType,
     types.FunctionType,
     types.MethodType,
@@ -79,6 +175,9 @@ def extract_variables(variables, sourcecode):
             except AttributeError:
                 pass
             val_str, val_fmt = prettyvalue(value)
+            # Don't show type for None values
+            if typename == "NoneType":
+                typename = ""
             rows += (VarInfo(name, typename, val_str, val_fmt),)
         except Exception:
             logger.exception("Variable inspector failed (please report a bug)")
@@ -111,14 +210,67 @@ def prettyvalue(val):
         # Handle dict formatting specially
         if not val:
             return ("{}", "inline")
-        if len(val) <= 5:
-            # Try to fit on single line for small dicts
-            items = [f"{k!r}: {v!r}" for k, v in list(val.items())[:5]]
-            single_line = "{" + ", ".join(items) + "}"
-            if len(single_line) <= 120:
-                return (single_line, "inline")
-        # For larger dicts or those that don't fit, show summary
+        # For small dicts, return as structured table
+        if len(val) <= 10:
+            # Return list of [key, value] pairs for structured rendering
+            rows = []
+            for k, v in val.items():
+                key_str = f"{k!s}" if len(f"{k!s}") <= 40 else f"{k!s}"[:37] + "…"
+                val_str = f"{v!s}" if len(f"{v!s}") <= 60 else f"{v!s}"[:57] + "…"
+                rows.append([key_str, val_str])
+            return ({"type": "keyvalue", "rows": rows}, "inline")
+        # For larger dicts, show summary
         return (f"({len(val)} items)", "inline")
+    if dataclasses.is_dataclass(val) and not isinstance(val, type):
+        # Handle dataclass formatting similar to dict
+        fields = dataclasses.fields(val)
+        if not fields:
+            return (f"{type(val).__name__}()", "inline")
+        # For small dataclasses, return as structured table
+        if len(fields) <= 10:
+            rows = []
+            for field in fields:
+                key_str = field.name if len(field.name) <= 40 else field.name[:37] + "…"
+                field_val = object.__getattribute__(val, field.name)
+                val_str = (
+                    f"{field_val!s}"
+                    if len(f"{field_val!s}") <= 60
+                    else f"{field_val!s}"[:57] + "…"
+                )
+                rows.append([key_str, val_str])
+            return ({"type": "keyvalue", "rows": rows}, "inline")
+        # For larger dataclasses, show summary
+        return (f"({len(fields)} fields)", "inline")
+    # msgspec Struct and Pydantic BaseModel support (without importing either)
+    # msgspec uses __struct_fields__ (tuple), Pydantic v2 uses model_fields (dict)
+    struct_fields = None
+    for attr in ("__struct_fields__", "model_fields"):
+        try:
+            # Use getattr on type (safe - no instance side effects)
+            struct_fields = getattr(type(val), attr)
+            if isinstance(struct_fields, dict):
+                struct_fields = tuple(struct_fields.keys())
+            if isinstance(struct_fields, tuple):
+                break
+            struct_fields = None
+        except AttributeError:
+            pass
+    if struct_fields is not None:
+        if not struct_fields:
+            return (f"{type(val).__name__}()", "inline")
+        if len(struct_fields) <= 10:
+            rows = []
+            for name in struct_fields:
+                key_str = name if len(name) <= 40 else name[:37] + "…"
+                field_val = object.__getattribute__(val, name)
+                val_str = (
+                    f"{field_val!s}"
+                    if len(f"{field_val!s}") <= 60
+                    else f"{field_val!s}"[:57] + "…"
+                )
+                rows.append([key_str, val_str])
+            return ({"type": "keyvalue", "rows": rows}, "inline")
+        return (f"({len(struct_fields)} fields)", "inline")
     if isinstance(val, type):
         return (f"{val.__module__}.{val.__name__}", "inline")
     try:
@@ -127,17 +279,28 @@ def prettyvalue(val):
         if isinstance(shape, tuple) and val.shape:
             numelem = reduce(lambda x, y: x * y, shape)
             if numelem <= 1:
-                return (f"{val[0]:.2g}", "inline")
+                return (_format_scalar(val.flat[0]), "inline")
             # 1D arrays
             if len(shape) == 1:
+                fmt, suffix = _array_formatter(val)
                 if shape[0] <= 100:
-                    return (", ".join(f"{v:.2f}" for v in val), "inline")
+                    result = ", ".join(fmt(v) for v in val)
                 else:
-                    fmt = [f"{v:.2f}" for v in (*val[:3], *val[-3:])]
-                    return (", ".join([*fmt[:3], "…", *fmt[-3:]]), "inline")
+                    formatted = [fmt(v) for v in (*val[:3], *val[-3:])]
+                    result = ", ".join([*formatted[:3], "…", *formatted[-3:]])
+                if suffix:
+                    result = f"{result} {suffix}"
+                return (result, "inline")
             # 2D arrays
             if len(shape) == 2 and shape[0] <= 10 and shape[1] <= 10:
-                return ([[f"{v:.2f}" for v in row] for row in val], "inline")
+                fmt, suffix = _array_formatter(val)
+                table = [[fmt(v) for v in row] for row in val]
+                if suffix:
+                    return (
+                        {"type": "array", "rows": table, "suffix": suffix},
+                        "inline",
+                    )
+                return (table, "inline")
     except (AttributeError, ValueError):
         pass
     except Exception:
@@ -146,21 +309,21 @@ def prettyvalue(val):
         )
 
     try:
-        floaty = isinstance(val, float) or "float" in str(val.dtype)
-        ret = f"{val:.2g}" if floaty else None
+        # Handle numpy scalars and plain floats/ints
+        dtype_str = str(getattr(val, "dtype", ""))
+        is_numeric = isinstance(val, (int, float)) or dtype_str
+        if is_numeric and not isinstance(val, bool):
+            return (_format_scalar(val), "inline")
     except (AttributeError, TypeError):
-        floaty = False
-        ret = None
+        pass
 
     # Determine format hint based on content
     format_hint = "inline"
 
-    if floaty and ret:
-        pass
-    elif isinstance(val, str):
+    if isinstance(val, str):
         ret = str(val)
         # Multi-line strings should be displayed as blocks
-        if "\n" in ret or len(ret) > 80:
+        if "\n" in ret.rstrip():
             format_hint = "block"
     else:
         ret = repr(val)

@@ -18,6 +18,7 @@
 
 .tracerite,
 .tracerite *,
+.tracerite .traceback-details table,
 .tracerite > h3 { margin: 0; padding: 0; outline: none; box-sizing: border-box; overflow: hidden; }
 
 /* Allow tooltip containers to overflow for proper tooltip display */
@@ -144,9 +145,7 @@
   padding: 0;
   background: none;
   text-align: left;
-  max-width: 20em;
-  text-overflow: ellipsis;
-  overflow: hidden;
+  vertical-align: top;
 }
 .tracerite .inspector .var,
 .tracerite table.inspector .var { font-weight: bold; color: var(--tracerite-var); }
@@ -160,39 +159,86 @@
 .tracerite table.inspector .val-block {
   text-align: left;
   white-space: pre-wrap;
-  font-family: var(--tracerite-code-font);
   overflow: visible;
   max-width: none;
   word-break: break-word;
 }
 
 .tracerite .inspector .val-block pre,
-.tracerite table.inspector .val-block pre {
+.tracerite table.inspector .val-block pre,
+.tracerite .inspector td.val-block pre {
   margin: 0;
   padding: 0;
+  padding-top: 0.4em;
   border-radius: 3px;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  overflow: visible;
-  max-width: 60em;
+  font-size: 0.8em;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 30em;
+  color: inherit;
+  font-family: var(--tracerite-code-font);
 }
 
-/* Inline format - right aligned (default) */
+/* Inline format - left aligned (default) */
 .tracerite .inspector .val-inline,
 .tracerite table.inspector .val-inline {
-  text-align: right;
+  text-align: left;
 }
 
 /* matrix value on a variable */
 .tracerite .inspector table td,
 .tracerite table.inspector td {
   color: var(--tracerite-val);
-  min-width: 3em;
+  min-width: 2em;
   word-break: keep-all;
   overflow: hidden;
-  padding: 0;
+  padding: 0 0.4em;
   font-size: 0.8em;
   border-collapse: collapse;
   text-align: right;
+}
+
+/* Key-value dl styling (dicts, dataclasses) */
+.tracerite .inspector dl.keyvalue-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  margin: 0;
+  padding-top: 0.2em;
+  font-size: 0.8em;
+}
+.tracerite .inspector dl.keyvalue-dl dt,
+.tracerite .inspector dl.keyvalue-dl dd {
+  margin: 0;
+  padding: 0 0.3em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tracerite .inspector dl.keyvalue-dl dt {
+  text-align: right;
+  color: var(--tracerite-var);
+  font-weight: bold;
+  width: max-content;
+  float: none;
+}
+.tracerite .inspector dl.keyvalue-dl dd {
+  text-align: left;
+  width: auto;
+  float: none;
+}
+
+/* Array with scale factor container */
+.tracerite .inspector .array-with-scale {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+}
+
+/* Scale suffix for arrays (e.g., ×10⁶) */
+.tracerite .inspector .scale-suffix {
+  font-size: 1.4em;
+  font-weight: bold;
+  white-space: nowrap;
+  align-self: center;
 }
