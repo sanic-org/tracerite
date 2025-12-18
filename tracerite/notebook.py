@@ -29,10 +29,21 @@ def load_ipython_extension(ipython):
             # Fall back to built-in showtraceback
             ipython.__class__.showtraceback(ipython, *args, **kwargs)
 
-    # Install the handler
+    def showsyntaxerror(*args, **kwargs):
+        try:
+            from IPython.display import display
+
+            # TraceRite HTML output for syntax errors
+            display(html_traceback(skip_until="<ipython-input-", replace_previous=True))
+        except Exception:
+            # Fall back to built-in showsyntaxerror
+            ipython.__class__.showsyntaxerror(ipython, *args, **kwargs)
+
+    # Install the handlers
     try:
         if _can_display_html():
             ipython.showtraceback = showtraceback
+            ipython.showsyntaxerror = showsyntaxerror
         else:
             logger.warning("TraceRite not loaded: No HTML notebook detected")
     except Exception:
@@ -43,4 +54,6 @@ def load_ipython_extension(ipython):
 def unload_ipython_extension(ipython):
     with contextlib.suppress(AttributeError):
         del ipython.showtraceback
+    with contextlib.suppress(AttributeError):
+        del ipython.showsyntaxerror
     trace.ipython = None

@@ -138,7 +138,11 @@ def extract_variables(variables, sourcecode):
             # Try to print members of objects that don't have proper __str__
             elif no_str_conv.fullmatch(strvalue):
                 found = False
-                for n, v in safe_vars(value).items():
+                try:
+                    members = safe_vars(value).items()
+                except Exception:
+                    members = []
+                for n, v in members:
                     mname = f"{name}.{n}"
                     if sourcecode and mname not in identifiers:
                         continue
