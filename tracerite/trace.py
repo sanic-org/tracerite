@@ -11,6 +11,7 @@ from urllib.parse import quote
 from . import trace_cpy
 from .inspector import extract_variables
 from .logging import logger
+from .syntaxerror import clean_syntax_error_message, extract_enhanced_positions
 
 # Position range: lines are 1-based inclusive, columns are 0-based exclusive
 Range = namedtuple("Range", ["lfirst", "lfinal", "cbeg", "cend"])
@@ -56,7 +57,21 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         logger.exception("Bug in inspect?")
         tb = []
         raw_tb = None
-    if skip_until:
+
+    # For SyntaxError, check if the error is in user code (notebook cell or matching skip_until)
+    # If so, skip all frames since the error is in user code being compiled
+    syntax_frame = None
+    if isinstance(e, SyntaxError):
+        syntax_frame = _extract_syntax_error_frame(e)
+        if syntax_frame:
+            # Check if this is a notebook cell (using IPython's filename map) or matches skip_until
+            is_user_code = _is_notebook_cell(e.filename) or (
+                skip_until and skip_until in (e.filename or "")
+            )
+            if is_user_code:
+                skip_outmost = len(tb)  # Skip all frames
+
+    if skip_until and skip_outmost == 0:
         for i, frame in enumerate(tb):
             if skip_until in frame.filename:
                 skip_outmost = i
@@ -71,11 +86,20 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
 
     # Header and exception message
     message = getattr(e, "message", "") or str(e)
+    # For SyntaxError, trim redundant location info from message
+    if isinstance(e, SyntaxError):
+        message = clean_syntax_error_message(message)
     summary = _create_summary(message)
     try:
         # KeyboardErrors and such need not be reported all the way
         suppress = not isinstance(e, Exception)
         frames = extract_frames(tb, raw_tb, suppress_inner=suppress)
+        # For SyntaxError, add the synthetic frame showing the problematic code
+        if syntax_frame:
+            # Demote the previous frame (compile, exec, etc.) to call only
+            if frames and frames[-1]["relevance"] == "error":
+                frames[-1]["relevance"] = "call"
+            frames.append(syntax_frame)
     except Exception:
         logger.exception("Error extracting traceback")
         frames = None
@@ -252,6 +276,172 @@ def _find_bug_frame(tb):
         ),
         tb[-1],
     ).frame
+
+
+def _extract_syntax_error_frame(e):
+    """Create a synthetic frame dict for a SyntaxError showing the problematic code."""
+    if not isinstance(e, SyntaxError):
+        return None
+
+    filename = e.filename
+    lineno = e.lineno
+    if not filename or not lineno:
+        return None
+
+    # SyntaxError attributes: filename, lineno, offset, text, end_lineno, end_offset
+    end_lineno = getattr(e, "end_lineno", None) or lineno
+    # offset is 1-based in SyntaxError, convert to 0-based for our Range
+    start_col = (e.offset - 1) if e.offset else 0
+    end_col = getattr(e, "end_offset", None)
+
+    if end_col:
+        end_col = end_col - 1  # Convert to 0-based
+        # Ensure we have at least one character highlighted
+        if end_col <= start_col and end_lineno == lineno:
+            end_col = start_col + 1
+    else:
+        end_col = start_col + 1  # Default to single character
+
+    # Get source lines
+    notebook_cell = _is_notebook_cell(filename)
+    lines = None
+    all_lines = None
+    start = 1  # For SyntaxErrors, we want full source to show bracket matches etc.
+
+    # Try to get source from the file or notebook
+    try:
+        import linecache
+
+        # For notebook cells, try to get from IPython's cache
+        if notebook_cell and ipython:
+            try:
+                cell_source = ipython.compile._filename_map.get(filename)
+                if cell_source is not None:
+                    # Get the cell content from the history
+                    all_lines = linecache.getlines(filename)
+                    if all_lines:
+                        # For SyntaxErrors, get full source to enable bracket matching
+                        lines = "".join(all_lines)
+            except Exception:
+                pass
+
+        # Fallback: try linecache directly
+        if not lines:
+            all_lines = linecache.getlines(filename)
+            if all_lines:
+                # For SyntaxErrors, get full source to enable bracket matching
+                lines = "".join(all_lines)
+
+        # Last resort: use the text attribute from SyntaxError itself
+        if not lines and e.text:
+            lines = e.text if e.text.endswith("\n") else e.text + "\n"
+            start = lineno
+    except Exception:
+        if e.text:
+            lines = e.text if e.text.endswith("\n") else e.text + "\n"
+            start = lineno
+
+    if not lines:
+        return None
+
+    # Calculate error position within the displayed lines
+    error_line_in_context = lineno - start + 1
+    end_line = end_lineno - start + 1 if end_lineno else None
+
+    # Calculate common indentation
+    lines_list = lines.splitlines(keepends=True)
+    common_indent = _calculate_common_indent(lines_list)
+
+    # Try enhanced SyntaxError position extraction for better highlighting
+    enhanced_mark, enhanced_em = extract_enhanced_positions(e, lines_list)
+
+    if enhanced_mark:
+        # Override lineno/end_lineno with the enhanced range (e.g., from opening bracket)
+        lineno = enhanced_mark.lfirst
+        end_lineno = enhanced_mark.lfinal
+
+        # Trim source to start from the mark's first line
+        lines_list = lines_list[lineno - 1 :]
+        lines = "".join(lines_list)
+        start = lineno
+        common_indent = _calculate_common_indent(lines_list)
+
+        error_line_in_context = 1  # Now lineno is the first line
+        end_line = end_lineno - start + 1
+
+        # Adjust enhanced ranges from absolute line numbers to context-relative
+        mark_range = Range(
+            1,
+            enhanced_mark.lfinal - start + 1,
+            max(0, enhanced_mark.cbeg - common_indent),
+            max(0, enhanced_mark.cend - common_indent),
+        )
+        # Convert list of em ranges to context-relative
+        em_ranges = (
+            [
+                Range(
+                    em.lfirst - start + 1,
+                    em.lfinal - start + 1,
+                    max(0, em.cbeg - common_indent),
+                    max(0, em.cend - common_indent),
+                )
+                for em in enhanced_em
+            ]
+            if enhanced_em
+            else None
+        )
+    else:
+        # Fallback to Python's positions
+        # Adjust columns for dedenting
+        adjusted_start_col = (
+            max(0, start_col - common_indent) if start_col is not None else None
+        )
+        adjusted_end_col = (
+            max(0, end_col - common_indent) if end_col is not None else None
+        )
+
+        # Create mark range
+        mark_range = None
+        if adjusted_start_col is not None and adjusted_end_col is not None:
+            mark_lfinal = end_line or error_line_in_context
+            mark_range = Range(
+                error_line_in_context, mark_lfinal, adjusted_start_col, adjusted_end_col
+            )
+
+        # Build emphasis range
+        em_ranges = _extract_emphasis_columns(
+            lines,
+            error_line_in_context,
+            end_line,
+            adjusted_start_col,
+            adjusted_end_col,
+            start,
+        )
+
+    fragments = _parse_lines_to_fragments(lines, mark_range, em_ranges)
+
+    # Format location info (after enhanced positions may have updated lineno)
+    fmt_filename, location, urls = format_location(filename, lineno)
+
+    # Get the code line for display
+    codeline = lines_list[error_line_in_context - 1].strip() if lines_list else None
+
+    return {
+        "id": f"tb-{token_urlsafe(12)}",
+        "relevance": "error",
+        "filename": fmt_filename,
+        "location": location,
+        "codeline": codeline,
+        "range": Range(lineno, end_lineno or lineno, start_col, end_col)
+        if start_col is not None
+        else None,
+        "linenostart": start,
+        "lines": lines,
+        "fragments": fragments,
+        "function": None,
+        "urls": urls,
+        "variables": [],
+    }
 
 
 def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
@@ -504,14 +694,14 @@ def _create_highlighted_fragments_unified(
     )
 
 
-def _parse_lines_to_fragments(lines_text, mark_range=None, em_range=None):
+def _parse_lines_to_fragments(lines_text, mark_range=None, em_ranges=None):
     """
     Parse lines of code into fragments with mark/em highlighting information.
 
     Args:
         lines_text: The multi-line string containing code
         mark_range: Range object for mark highlighting (or None)
-        em_range: Range object for em highlighting (or None)
+        em_ranges: Range object or list of Range objects for em highlighting (or None)
 
     Returns:
         List of line dictionaries with fragment information
@@ -524,7 +714,15 @@ def _parse_lines_to_fragments(lines_text, mark_range=None, em_range=None):
 
     # Convert both mark and em to position sets using unified logic
     mark_positions = _convert_range_to_positions(mark_range, lines)
-    em_positions = _convert_range_to_positions(em_range, lines)
+
+    # Handle em_ranges as either a single Range or a list of Ranges
+    em_positions = set()
+    if em_ranges:
+        if isinstance(em_ranges, list):
+            for em_range in em_ranges:
+                em_positions |= _convert_range_to_positions(em_range, lines)
+        else:
+            em_positions = _convert_range_to_positions(em_ranges, lines)
 
     # Create fragments using unified highlighting
     return _create_unified_fragments(

@@ -40,7 +40,6 @@
 .tracerite strong,
 .tracerite > h3 { font-weight: bold; }
 .tracerite .after { margin: 0; padding: 1em 0 0 0; font-size: 1.2em; }
-.tracerite > h3 { font-size: 1.2em; }
 .tracerite .excmessage { max-height: 12em; overflow: auto; }
 .tracerite .exctype { color: var(--tracerite-exception); }
 
@@ -63,7 +62,7 @@
 }
 .tracerite .traceback-details pre:hover .codeline::before { opacity: 1.0; }
 
-.tracerite .traceback-details mark { background: var(--tracerite-highlight); padding: 0.2em; margin: -0.2em; }
+.tracerite .traceback-details mark { background: var(--tracerite-highlight); padding: 0.2em; margin: -0.1em; }
 .tracerite .traceback-details em { font-style: normal; color: var(--tracerite-caret); }
 
 /* Symbol element - display symbol with specific styling */
