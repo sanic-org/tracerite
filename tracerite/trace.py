@@ -111,7 +111,9 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
             lines_before = 15
             lines_after = (end_lineno - lineno + 3) if end_lineno else 3
         lines = lines[
-            max(0, lineno - start - lines_before) : max(0, lineno - start + lines_after + 1)
+            max(0, lineno - start - lines_before) : max(
+                0, lineno - start + lines_after + 1
+            )
         ]
         start += max(0, lineno - start - lines_before)
 
@@ -246,8 +248,7 @@ def _find_bug_frame(tb):
         (
             f
             for f in reversed(tb)
-            if f.code_context
-            and not libdir.fullmatch(Path(f.filename).as_posix())
+            if f.code_context and not libdir.fullmatch(Path(f.filename).as_posix())
         ),
         tb[-1],
     ).frame
