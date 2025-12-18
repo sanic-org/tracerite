@@ -250,7 +250,7 @@
   min-width: 2em;
   word-break: keep-all;
   overflow: hidden;
-  padding: 0;
+  padding: 0 0.4em;
   font-size: 0.8em;
   border-collapse: collapse;
   text-align: right;
