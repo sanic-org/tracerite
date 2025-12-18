@@ -229,11 +229,12 @@ def variable_inspector(doc, variables):
                 n, t, v = var_info
                 fmt = "inline"
 
-            # Put the equals into the same span as the type so they stay bound.
-            eq = "\u00a0=\u00a0"
-            doc.tr.td.span(n, class_="var")(": ").span(t + eq, class_="type").td(
-                class_=f"val val-{fmt}"
-            )
+            doc.tr.td.span(n, class_="var")
+            if t:
+                doc(": ").span(f"{t}\u00a0=\u00a0", class_="type")
+            else:
+                doc("\u00a0").span("=\u00a0", class_="type")  # No type printed
+            doc.td(class_=f"val val-{fmt}")
             if isinstance(v, str):
                 if fmt == "block":
                     # For block format, use <pre> tag for proper formatting

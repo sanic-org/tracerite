@@ -175,6 +175,9 @@ def extract_variables(variables, sourcecode):
             except AttributeError:
                 pass
             val_str, val_fmt = prettyvalue(value)
+            # Don't show type for None values
+            if typename == "NoneType":
+                typename = ""
             rows += (VarInfo(name, typename, val_str, val_fmt),)
         except Exception:
             logger.exception("Variable inspector failed (please report a bug)")
