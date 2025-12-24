@@ -222,6 +222,11 @@ def _extract_emphasis_columns(
 
     # Extract the segment using CPython's approach
     relevant_lines = all_lines[segment_start:segment_end]
+    if not relevant_lines:
+        # This can happen when re-raising an existing exception where CPython's
+        # position info refers to the original raise site but end_line < error_line
+        return None
+
     segment = "".join(relevant_lines)
 
     # Trim segment using start_col and end_col
