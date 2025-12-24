@@ -35,6 +35,7 @@ uv run nox -s lint  # Run only linting
 |--------|---------|
 | `trace.py` | Traceback extraction and frame processing |
 | `html.py` | HTML rendering |
+| `tty.py` | Terminal (TTY) rendering with ANSI colors |
 | `inspector.py` | Variable formatting |
 | `notebook.py` | Jupyter/IPython integration |
 | `logging.py` | Python logging integration |

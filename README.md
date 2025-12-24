@@ -1,13 +1,31 @@
 # TraceRite
 
-**Beautiful, readable error messages for Python notebooks and web frameworks.**
+**Beautiful, readable error messages for Python, with terminal and HTML formatting.**
+
+## Platforms
+
+### Python in a terminal
+
+```sh
+pip install tracerite
+```
+
+```python
+import tracerite
+
+tracerite.load()
+```
+
+Any error message after that call will be prettified.
+
+### IPython or Jupyter Notebook
 
 ```ipython
 %pip install tracerite
 %load_ext tracerite
 ```
 
-That's it! Your Jupyter notebook now has cleaner error messages.
+This enables tracebacks in text or HTML format depending on where you are running. Add to `~/.ipython/profile_default/startup/tracerite.ipy` to make it load automatically for all your ipython and notebook sessions. Alternatively, put the two lines at the top of your notebook.
 
 ### FastAPI
 
@@ -59,6 +77,7 @@ Often your simple function call dwelves deep into the library code. In this situ
 - **Variable inspection** - See the values of your variables in a pretty printed HTML format (or JSON-compatible machine-readable dict)
 - **JSON output** - Intermediady dict format is JSON-compatible, useful for machine processing and used by our HTML module.
 - **HTML output** - Works in Jupyter, Colab, and web frameworks such as FastAPI and Sanic as the debug mode error handler.
+- **TTY output** - Colorful, formatted tracebacks for terminal applications.
 - **Custom CSS** - Implement dark mode or custom look like that in the Sanic Framework with CSS variable overrides.
 
 ## Usage
@@ -78,6 +97,14 @@ Formats any value with smart truncation, array shape display, and SI-scaled nume
 ### `extract_variables(locals, source)`
 
 Extracts and formats variables mentioned in a line of source code.
+
+### `load()` / `unload()`
+
+Load or remove TraceRite as the default exception handler for terminal applications. Handles both `sys.excepthook` and `threading.excepthook`.
+
+### `tty_traceback(exc)`
+
+Renders an exception as colorful terminal output with ANSI escape codes. Pass an exception object, or call with no arguments inside an `except` block.
 
 See the [API documentation](https://github.com/sanic-org/tracerite/blob/main/docs/API.md) for details, or [Development guide](https://github.com/sanic-org/tracerite/blob/main/docs/Development.md) for contributors.
 

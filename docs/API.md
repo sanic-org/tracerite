@@ -56,6 +56,49 @@ except Exception:
         print(exc_info["type"], exc_info["message"])
 ```
 
+## TTY / Terminal Output
+
+For command-line applications, TraceRite provides colorful terminal tracebacks with ANSI colors and Unicode box drawing.
+
+### `load` / `unload`
+
+Load TraceRite as the default exception handler for all unhandled exceptions.
+
+```python
+import tracerite
+
+# Load at startup
+tracerite.load()
+
+# Your code here - any unhandled exception will show TraceRite formatting
+
+# Optionally restore original handlers
+tracerite.unload()
+```
+
+This replaces both `sys.excepthook` and `threading.excepthook`, so exceptions in threads are also handled.
+
+### `tty_traceback`
+
+Renders an exception as colorful terminal output.
+
+```python
+from tracerite import tty_traceback
+
+try:
+    risky_operation()
+except Exception:
+    tty_traceback()  # Captures current exception, prints to stderr
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `exc` | `Exception` | `None` | Exception to render. If `None`, uses the current exception from `sys.exc_info()`. |
+| `chain` | `list` | `None` | Pre-extracted exception chain (from `extract_chain`). Overrides `exc`. |
+| `file` | file object | `sys.stderr` | Output destination. Must support `.write()` and `.fileno()`. |
+
 ## Variable Inspector
 
 The inspector module formats Python values for display—useful beyond exception handling for debugging, logging, or building developer tools.
