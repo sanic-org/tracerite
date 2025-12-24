@@ -21,17 +21,13 @@ BOLD = "\033[1m"
 DIM = "\033[2m"
 
 # Box drawing characters
-BOX_TL = "┌"
-BOX_TR = "┐"
-BOX_BL = "└"
-BOX_BR = "┘"
 BOX_H = "─"
 BOX_V = "│"
 BOX_VL = "┤"  # Vertical with left branch
-BOX_ROUND_TL = "╭"  # Rounded top-left (curves down-right)
-BOX_ROUND_BL = "╰"  # Rounded bottom-left (curves up-right)
-BOX_ROUND_TR = "╮"  # Rounded top-right (curves down-left, for arrow on first line)
-BOX_ROUND_BR = "╯"  # Rounded bottom-right (curves up-left, for arrow on last line)
+BOX_TL = "╭"  # Rounded top-left
+BOX_BL = "╰"  # Rounded bottom-left
+BOX_TR = "╮"  # Rounded top-right
+BOX_BR = "╯"  # Rounded bottom-right
 ARROW_LEFT = "◀"
 
 INDENT = "  "
@@ -39,21 +35,21 @@ CODE_INDENT = "    "  # Double indent for code lines
 
 symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑"}
 
-# Store the original hooks for uninstall
+# Store the original hooks for unload
 _original_excepthook = None
 _original_threading_excepthook = None
 
 
-def install():
-    """Install TraceRite as the default exception handler.
+def load():
+    """Load TraceRite as the default exception handler.
 
     Replaces sys.excepthook to use TraceRite's pretty TTY formatting
     for all unhandled exceptions, including those in threads.
-    Call uninstall() to restore the original exception handlers.
+    Call unload() to restore the original exception handlers.
 
     Usage:
         import tracerite
-        tracerite.install()
+        tracerite.load()
     """
     global _original_excepthook, _original_threading_excepthook
 
@@ -87,7 +83,7 @@ def install():
     threading.excepthook = _tracerite_threading_excepthook
 
 
-def uninstall():
+def unload():
     """Restore the original exception handlers.
 
     Removes TraceRite from sys.excepthook and threading.excepthook,
@@ -343,9 +339,9 @@ def _print_exception(
                 if is_arrow:
                     # Arrow line: use appropriate corner or T-junction
                     if is_first:
-                        box_char = BOX_ROUND_TR  # ╮ curved corner for first+arrow
+                        box_char = BOX_TR  # ╮ curved corner for first+arrow
                     elif is_last:
-                        box_char = BOX_ROUND_BR  # ╯ curved corner for last+arrow
+                        box_char = BOX_BR  # ╯ curved corner for last+arrow
                     else:
                         box_char = BOX_VL  # ┤ T-junction for middle arrow
                     print(
@@ -355,9 +351,9 @@ def _print_exception(
                 else:
                     # Non-arrow line: use corner or vertical
                     if is_first:
-                        box_char = BOX_ROUND_TL  # ╭ curved corner for first
+                        box_char = BOX_TL  # ╭ curved corner for first
                     elif is_last:
-                        box_char = BOX_ROUND_BL  # ╰ curved corner for last
+                        box_char = BOX_BL  # ╰ curved corner for last
                     else:
                         box_char = BOX_V  # │ vertical for middle
                     print(
@@ -374,7 +370,7 @@ def _print_exception(
                 insp_line, insp_width = inspector_lines[idx]
                 cursor_pos = f"\033[{inspector_col + 1}G"
                 is_last = idx == inspector_count - 1
-                box_char = BOX_ROUND_BL if is_last else BOX_V
+                box_char = BOX_BL if is_last else BOX_V
                 print(
                     f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}",
                     file=file,

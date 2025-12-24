@@ -11,11 +11,11 @@ from tracerite.tty import (
     ARROW_LEFT,
     BLACK_TEXT,
     BOLD,
+    BOX_BL,
+    BOX_BR,
     BOX_H,
-    BOX_ROUND_BL,
-    BOX_ROUND_BR,
-    BOX_ROUND_TL,
-    BOX_ROUND_TR,
+    BOX_TL,
+    BOX_TR,
     BOX_V,
     BOX_VL,
     CYAN,
@@ -34,10 +34,10 @@ from tracerite.tty import (
     _format_fragment_call,
     _get_frame_info,
     _get_frame_label,
-    install,
+    load,
     symbols,
     tty_traceback,
-    uninstall,
+    unload,
 )
 
 from .errorcases import (
@@ -271,53 +271,53 @@ class TestChainedExceptions:
         assert "RuntimeError" in result
 
 
-class TestInstallUninstall:
-    """Tests for install() and uninstall() exception hooks."""
+class TestLoadUnload:
+    """Tests for load() and unload() exception hooks."""
 
-    def test_install_replaces_excepthook(self):
-        """Test that install() replaces sys.excepthook."""
+    def test_load_replaces_excepthook(self):
+        """Test that load() replaces sys.excepthook."""
         original_hook = sys.excepthook
         try:
-            install()
+            load()
             assert sys.excepthook != original_hook
             assert sys.excepthook.__name__ == "_tracerite_excepthook"
         finally:
-            uninstall()
+            unload()
 
-    def test_uninstall_restores_excepthook(self):
-        """Test that uninstall() restores original sys.excepthook."""
+    def test_unload_restores_excepthook(self):
+        """Test that unload() restores original sys.excepthook."""
         original_hook = sys.excepthook
-        install()
-        uninstall()
+        load()
+        unload()
         assert sys.excepthook == original_hook
 
-    def test_install_replaces_threading_excepthook(self):
-        """Test that install() replaces threading.excepthook."""
+    def test_load_replaces_threading_excepthook(self):
+        """Test that load() replaces threading.excepthook."""
         original_hook = threading.excepthook
         try:
-            install()
+            load()
             assert threading.excepthook != original_hook
             assert threading.excepthook.__name__ == "_tracerite_threading_excepthook"
         finally:
-            uninstall()
+            unload()
 
-    def test_uninstall_restores_threading_excepthook(self):
-        """Test that uninstall() restores threading.excepthook."""
+    def test_unload_restores_threading_excepthook(self):
+        """Test that unload() restores threading.excepthook."""
         original_hook = threading.excepthook
-        install()
-        uninstall()
+        load()
+        unload()
         assert threading.excepthook == original_hook
 
-    def test_double_install_preserves_original(self):
-        """Test that calling install() twice preserves the original hook."""
+    def test_double_load_preserves_original(self):
+        """Test that calling load() twice preserves the original hook."""
         original_hook = sys.excepthook
         try:
-            install()
+            load()
             assert sys.excepthook.__name__ == "_tracerite_excepthook"
-            install()  # Second install
+            load()  # Second load
             # Should still be a tracerite hook
             assert sys.excepthook.__name__ == "_tracerite_excepthook"
-            uninstall()
+            unload()
             # Should restore to original, not to the first tracerite hook
             assert sys.excepthook == original_hook
         finally:
@@ -325,15 +325,15 @@ class TestInstallUninstall:
             if sys.excepthook != original_hook:
                 sys.excepthook = original_hook
 
-    def test_uninstall_without_install_is_safe(self):
-        """Test that calling uninstall() without install() is safe."""
+    def test_unload_without_load_is_safe(self):
+        """Test that calling unload() without load() is safe."""
         original_hook = sys.excepthook
-        uninstall()  # Should not crash
+        unload()  # Should not crash
         assert sys.excepthook == original_hook
 
-    def test_installed_hook_handles_exceptions(self, capsys):
-        """Test that the installed hook properly handles exceptions."""
-        install()
+    def test_loaded_hook_handles_exceptions(self, capsys):
+        """Test that the loaded hook properly handles exceptions."""
+        load()
         try:
             # Manually call the excepthook to test it
             try:
@@ -346,7 +346,7 @@ class TestInstallUninstall:
             assert "ValueError" in captured.err
             assert "hook test" in captured.err
         finally:
-            uninstall()
+            unload()
 
 
 class TestFrameFormatting:
@@ -607,10 +607,10 @@ class TestAnsiCodes:
 
     def test_box_drawing_characters(self):
         """Test that box drawing characters are defined."""
-        assert BOX_ROUND_TL == "╭"
-        assert BOX_ROUND_BL == "╰"
-        assert BOX_ROUND_TR == "╮"
-        assert BOX_ROUND_BR == "╯"
+        assert BOX_TL == "╭"
+        assert BOX_BL == "╰"
+        assert BOX_TR == "╮"
+        assert BOX_BR == "╯"
         assert BOX_V == "│"
         assert BOX_VL == "┤"
         assert BOX_H == "─"
@@ -928,7 +928,7 @@ class TestThreadingHook:
 
     def test_threading_hook_format(self):
         """Test that threading hook properly formats exceptions."""
-        install()
+        load()
         try:
             exception_output = []
 
@@ -950,7 +950,7 @@ class TestThreadingHook:
             assert "ValueError" in exception_output[0]
             assert "thread error" in exception_output[0]
         finally:
-            uninstall()
+            unload()
 
 
 class TestExcepthookFallback:
@@ -960,7 +960,7 @@ class TestExcepthookFallback:
         """Test that excepthook falls back to original on tty_traceback error."""
         from tracerite import tty
 
-        install()
+        load()
         try:
             # Make tty_traceback raise an exception
             def failing_tty_traceback(**kwargs):
@@ -980,13 +980,13 @@ class TestExcepthookFallback:
             # Should show original exception via fallback
             assert "ValueError" in captured.err or "test fallback" in captured.err
         finally:
-            uninstall()
+            unload()
 
     def test_excepthook_fallback_without_original(self, monkeypatch, capsys):
         """Test excepthook fallback when _original_excepthook is None."""
         from tracerite import tty
 
-        install()
+        load()
         try:
             # Make tty_traceback raise an exception
             def failing_tty_traceback(**kwargs):
@@ -1007,7 +1007,7 @@ class TestExcepthookFallback:
             captured = capsys.readouterr()
             assert "ValueError" in captured.err
         finally:
-            uninstall()
+            unload()
 
     def test_threading_hook_fallback_code_path(self, monkeypatch):
         """Test the threading excepthook fallback code paths exist."""
@@ -1016,7 +1016,7 @@ class TestExcepthookFallback:
         # We test the internal logic without actually triggering threading.excepthook
         # which pytest intercepts
 
-        install()
+        load()
         try:
             # Verify the hook is installed with correct name
             assert threading.excepthook.__name__ == "_tracerite_threading_excepthook"
@@ -1026,7 +1026,7 @@ class TestExcepthookFallback:
             # 2. Call sys.__excepthook__ if _original_threading_excepthook is None
             # These paths are covered by the structure of the installed hook
         finally:
-            uninstall()
+            unload()
 
 
 class TestPrintFragment:
@@ -1709,7 +1709,7 @@ class TestThreadingHookFallbackPaths:
         original_excepthook = sys.excepthook
 
         try:
-            install()
+            load()
 
             # The installed hook should handle fallback internally
             # We can inspect its structure
@@ -1720,7 +1720,7 @@ class TestThreadingHookFallbackPaths:
             assert tty._original_threading_excepthook is not None
 
         finally:
-            uninstall()
+            unload()
             # Ensure we're back to original state
             assert sys.excepthook == original_excepthook
 
@@ -1732,7 +1732,7 @@ class TestExcepthookWithNoneOriginal:
         """Test sys.excepthook falls back to sys.__excepthook__ when original is None."""
         from tracerite import tty
 
-        install()
+        load()
         try:
             # Make tty_traceback fail
             def failing_tty(**kwargs):
@@ -1751,4 +1751,4 @@ class TestExcepthookWithNoneOriginal:
             captured = capsys.readouterr()
             assert "ValueError" in captured.err
         finally:
-            uninstall()
+            unload()

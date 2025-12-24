@@ -20,46 +20,35 @@ def _can_display_html():
 def load_ipython_extension(ipython):
     trace.ipython = ipython
 
-    if _can_display_html():
-        # Use HTML output for Jupyter notebooks
-        def showtraceback(*args, **kwargs):
-            try:
+    # Define handlers that check HTML capability at call time, not load time.
+    # This allows the same extension to work in both Jupyter and terminal.
+    def showtraceback(*args, **kwargs):
+        try:
+            if _can_display_html():
                 from IPython.display import display
 
-                # TraceRite HTML output
                 display(
                     html_traceback(skip_until="<ipython-input-", replace_previous=True)
                 )
-            except Exception:
-                # Fall back to built-in showtraceback
-                ipython.__class__.showtraceback(ipython, *args, **kwargs)
+            else:
+                tty_traceback(skip_until="<ipython-input-")
+        except Exception:
+            # Fall back to built-in showtraceback
+            ipython.__class__.showtraceback(ipython, *args, **kwargs)
 
-        def showsyntaxerror(*args, **kwargs):
-            try:
+    def showsyntaxerror(*args, **kwargs):
+        try:
+            if _can_display_html():
                 from IPython.display import display
 
-                # TraceRite HTML output for syntax errors
                 display(
                     html_traceback(skip_until="<ipython-input-", replace_previous=True)
                 )
-            except Exception:
-                # Fall back to built-in showsyntaxerror
-                ipython.__class__.showsyntaxerror(ipython, *args, **kwargs)
-    else:
-        # Use TTY output for terminal-based IPython (Spyder, plain ipython, etc.)
-        def showtraceback(*args, **kwargs):
-            try:
+            else:
                 tty_traceback(skip_until="<ipython-input-")
-            except Exception:
-                # Fall back to built-in showtraceback
-                ipython.__class__.showtraceback(ipython, *args, **kwargs)
-
-        def showsyntaxerror(*args, **kwargs):
-            try:
-                tty_traceback(skip_until="<ipython-input-")
-            except Exception:
-                # Fall back to built-in showsyntaxerror
-                ipython.__class__.showsyntaxerror(ipython, *args, **kwargs)
+        except Exception:
+            # Fall back to built-in showsyntaxerror
+            ipython.__class__.showsyntaxerror(ipython, *args, **kwargs)
 
     # Install the handlers
     try:
