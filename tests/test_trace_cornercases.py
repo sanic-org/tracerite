@@ -867,7 +867,7 @@ class TestReraiseExistingException:
         result = _extract_emphasis_columns(
             lines=lines,
             error_line_in_context=5,  # raise e is on line 5
-            end_line=3,               # but original error was line 3
+            end_line=3,  # but original error was line 3
             start_col=17,
             end_col=22,
             start=1,

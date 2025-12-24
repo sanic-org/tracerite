@@ -17,11 +17,7 @@ tooltips = {
     "stop": "{type}",
 }
 
-chainmsg = {
-    "cause": "The above exception was raised from",
-    "context": "The above exception was raised while handling",
-    "none": "",  # Shouldn't happen between any two exceptions (only at the initial i.e. last in chain)
-}
+from .trace import chainmsg
 
 
 def html_traceback(
@@ -34,17 +30,18 @@ def html_traceback(
     **extract_args,
 ):
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
+    # Chain is oldest-first from extract_chain
     with E.div(
         class_="tracerite", data_replace_previous="1" if replace_previous else None
     ) as doc:
         if include_js_css:
             doc._style(style)
-        msg = None
-        for e in chain:
-            if msg:
-                doc.p(msg, class_="after")
-            msg = chainmsg[e["has"]]
-            _exception(doc, e, local_urls=local_urls)
+        for i, e in enumerate(chain):
+            # Get chaining suffix for exception header
+            chain_suffix = ""
+            if i > 0:
+                chain_suffix = chainmsg.get(e.get("from", "none"), "")
+            _exception(doc, e, local_urls=local_urls, chain_suffix=chain_suffix)
 
         if include_js_css:
             # Build scrollto calls
@@ -58,10 +55,10 @@ def html_traceback(
     return doc
 
 
-def _exception(doc, info, *, local_urls=False):
+def _exception(doc, info, *, local_urls=False, chain_suffix=""):
     """Format single exception message and traceback"""
     summary, message = info["summary"], info["message"]
-    doc.h3(E.span(f"{info['type']}:", class_="exctype")(f" {summary}"))
+    doc.h3(E.span(f"{info['type']}{chain_suffix}:", class_="exctype")(f" {summary}"))
     if summary != message:
         if message.startswith(summary):
             message = message[len(summary) :]
