@@ -226,12 +226,6 @@ def _find_collapsible_call_runs(frame_info_list, min_run_length=10):
                     runs.append((run_start, i - 1))
                 run_start = None
 
-    # Check for run at end
-    if run_start is not None:
-        run_length = len(frame_info_list) - run_start
-        if run_length >= min_run_length:
-            runs.append((run_start, len(frame_info_list) - 1))
-
     return runs
 
 
