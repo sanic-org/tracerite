@@ -38,7 +38,7 @@
 }
 
 .tracerite strong,
-.tracerite > h3 { font-weight: bold; }
+.tracerite > h3 { font-weight: bold; padding: 0.2em 0; }
 .tracerite .after { margin: 0; padding: 1em 0 0 0; font-size: 1.2em; }
 .tracerite .excmessage { max-height: 12em; overflow: auto; }
 .tracerite .exctype { color: var(--tracerite-exception); }

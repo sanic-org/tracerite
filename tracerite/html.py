@@ -18,6 +18,51 @@ tooltips = {
 }
 
 
+def _collapse_call_runs(frames, min_run_length=10):
+    """Collapse consecutive runs of 'call' frames, keeping first and last of each run.
+
+    Only collapses runs of frames with relevance='call'. Non-call frames
+    (error, warning, stop) are never collapsed.
+    """
+    if not frames:
+        return frames
+
+    result = []
+    run_start = None
+
+    for i, frinfo in enumerate(frames):
+        if frinfo.get("relevance", "call") == "call":
+            if run_start is None:
+                run_start = i
+        else:
+            # End of a call run - process it
+            if run_start is not None:
+                run_length = i - run_start
+                if run_length >= min_run_length:
+                    # Keep first and last of the run, add ellipsis
+                    result.append(frames[run_start])
+                    result.append(...)
+                    result.append(frames[i - 1])
+                else:
+                    # Run too short, keep all
+                    result.extend(frames[run_start:i])
+                run_start = None
+            # Add the non-call frame
+            result.append(frinfo)
+
+    # Handle final run at end
+    if run_start is not None:
+        run_length = len(frames) - run_start
+        if run_length >= min_run_length:
+            result.append(frames[run_start])
+            result.append(...)
+            result.append(frames[-1])
+        else:
+            result.extend(frames[run_start:])
+
+    return result
+
+
 def html_traceback(
     exc=None,
     chain=None,
@@ -65,8 +110,8 @@ def _exception(doc, info, *, local_urls=False, chain_suffix=""):
     frames = info["frames"]
     if not frames:
         return
-    # Format call chain
-    limitedframes = [*frames[:10], ..., *frames[-4:]] if len(frames) > 16 else frames
+    # Format call chain, suppress middle of consecutive call runs if too long
+    limitedframes = _collapse_call_runs(frames, min_run_length=10)
     # Collect symbols for floating indicators
     frame_symbols = []
     for frinfo in limitedframes:
