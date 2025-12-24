@@ -1,15 +1,17 @@
+from .fastapi import patch_fastapi
 from .html import html_traceback
 from .inspector import extract_variables, prettyvalue
 from .notebook import load_ipython_extension, unload_ipython_extension
 from .trace import extract_chain
-from .tty import display_traceback, install, uninstall
+from .tty import install, tty_traceback, uninstall
 
 __all__ = [
+    "tty_traceback",
     "html_traceback",
-    "terminal_traceback",
     "extract_chain",
     "prettyvalue",
     "extract_variables",
-    "install",
-    "uninstall",
+    "load_ipython_extension",
+    "unload_ipython_extension",
+    "patch_fastapi",
 ]

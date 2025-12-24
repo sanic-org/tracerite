@@ -9,6 +9,22 @@
 
 That's it! Your Jupyter notebook now has cleaner error messages.
 
+### FastAPI
+
+Add the extension loader at the top of your app module:
+
+```python
+from tracerite import patch_fastapi
+
+patch_fastapi()
+```
+
+This monkeypatches Starlette error handling and FastAPI routing to work with HTML tracebacks. Note: this runs regardless of whether you are in production mode or debug mode, so you might want to call that function only conditionally in the latter.
+
+### Sanic
+
+Comes with TraceRite built in whenever running in debug mode.
+
 ## What It Looks Like
 
 When an error occurs in a NumPy operation, TraceRite shows you exactly what went wrong:

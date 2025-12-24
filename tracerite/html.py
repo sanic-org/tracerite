@@ -2,7 +2,7 @@ from importlib.resources import files
 
 from html5tagger import HTML, E
 
-from .trace import extract_chain
+from .trace import chainmsg, extract_chain
 
 style = files(__package__).joinpath("style.css").read_text(encoding="UTF-8")
 javascript = files(__package__).joinpath("script.js").read_text(encoding="UTF-8")
@@ -16,8 +16,6 @@ tooltips = {
     "error": "{type}",
     "stop": "{type}",
 }
-
-from .trace import chainmsg
 
 
 def html_traceback(

@@ -54,6 +54,8 @@ test = [
     "beautifulsoup4>=4.13.4",
     "jupyterlab>=4.3.8",
     "pytest-cov>=4.0.0",
+    "msgspec>=0.18.0",
+    "pydantic>=2.0.0",
 ]
 
 [tool.hatch.version]

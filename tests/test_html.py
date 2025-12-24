@@ -206,15 +206,17 @@ def test_unrelated_error_except_html_traceback():
 
     soup = BeautifulSoup(html_output, "html.parser")
 
-    # Locate the div containing the traceback
-    traceback_details = soup.find(
+    # Find all traceback-details divs for this function (there are two in the chain)
+    # and use the last one (ZeroDivisionError) which is the newest exception
+    traceback_details_list = soup.find_all(
         "div",
         class_="traceback-details",
         attrs={"data-function": "unrelated_error_in_except"},
     )
-    assert traceback_details is not None, (
+    assert len(traceback_details_list) > 0, (
         f"Traceback details not found. HTML snippet: {soup.prettify()}"
     )
+    traceback_details = traceback_details_list[-1]  # Get last (newest)
 
     # Verify that we have code elements
     code_element = traceback_details.find("code")
@@ -252,15 +254,17 @@ def test_unrelated_error_finally_html_traceback():
 
     soup = BeautifulSoup(html_output, "html.parser")
 
-    # Locate the div containing the traceback
-    traceback_details = soup.find(
+    # Find all traceback-details divs for this function (there are two in the chain)
+    # and use the last one (ZeroDivisionError) which is the newest exception
+    traceback_details_list = soup.find_all(
         "div",
         class_="traceback-details",
         attrs={"data-function": "unrelated_error_in_finally"},
     )
-    assert traceback_details is not None, (
+    assert len(traceback_details_list) > 0, (
         f"Traceback details not found. HTML snippet: {soup.prettify()}"
     )
+    traceback_details = traceback_details_list[-1]  # Get last (newest)
 
     # Verify that we have code elements
     code_element = traceback_details.find("code")

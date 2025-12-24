@@ -37,6 +37,18 @@ def _format_scalar(v):
 _SUPERSCRIPT_DIGITS = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
 
 
+def _get_flat(arr):
+    """Get a flat/1D view of an array, supporting numpy and torch."""
+    # Try numpy-style .flat first
+    if hasattr(arr, "flat"):
+        return arr.flat
+    # PyTorch tensors use .flatten()
+    if hasattr(arr, "flatten"):
+        return arr.flatten()
+    # Fallback - just return the array itself
+    return arr
+
+
 def _array_formatter(arr):
     """
     Create an optimal formatter for displaying array values consistently.
@@ -57,7 +69,7 @@ def _array_formatter(arr):
 
     # For float arrays, analyze the values to determine optimal formatting
     if "float" in dtype_str or "complex" in dtype_str:
-        flat = arr.flat
+        flat = _get_flat(arr)
         # Sample values for analysis
         n = len(flat)
         if n <= 200:
@@ -206,6 +218,31 @@ def prettyvalue(val):
                'block' - left-aligned block format (for multi-line strings)
                'inline' - inline right-aligned format (default)
     """
+    # Handle namedtuple formatting before regular tuple check
+    # namedtuples have _fields attribute which is a tuple of field names
+    if (
+        isinstance(val, tuple)
+        and hasattr(val, "_fields")
+        and isinstance(val._fields, tuple)
+    ):
+        fields = val._fields
+        if not fields:
+            return (f"{type(val).__name__}()", "inline")
+        # For small namedtuples, return as structured table
+        if len(fields) <= 10:
+            rows = []
+            for name in fields:
+                key_str = name if len(name) <= 40 else name[:37] + "…"
+                field_val = getattr(val, name)
+                val_str = (
+                    f"{field_val!s}"
+                    if len(f"{field_val!s}") <= 60
+                    else f"{field_val!s}"[:57] + "…"
+                )
+                rows.append([key_str, val_str])
+            return ({"type": "keyvalue", "rows": rows}, "inline")
+        # For larger namedtuples, show summary
+        return (f"({len(fields)} fields)", "inline")
     if isinstance(val, (list, tuple)):
         if not 0 < len(val) <= 10:
             return (f"({len(val)} items)", "inline")
@@ -248,17 +285,10 @@ def prettyvalue(val):
     # msgspec Struct and Pydantic BaseModel support (without importing either)
     # msgspec uses __struct_fields__ (tuple), Pydantic v2 uses model_fields (dict)
     struct_fields = None
-    for attr in ("__struct_fields__", "model_fields"):
-        try:
-            # Use getattr on type (safe - no instance side effects)
-            struct_fields = getattr(type(val), attr)
-            if isinstance(struct_fields, dict):
-                struct_fields = tuple(struct_fields.keys())
-            if isinstance(struct_fields, tuple):
-                break
-            struct_fields = None
-        except AttributeError:
-            pass
+    if isinstance(fields := getattr(type(val), "__struct_fields__", None), tuple):
+        struct_fields = fields
+    elif isinstance(fields := getattr(type(val), "model_fields", None), dict):
+        struct_fields = tuple(fields.keys())
     if struct_fields is not None:
         if not struct_fields:
             return (f"{type(val).__name__}()", "inline")
@@ -283,7 +313,8 @@ def prettyvalue(val):
         if isinstance(shape, tuple) and val.shape:
             numelem = reduce(lambda x, y: x * y, shape)
             if numelem <= 1:
-                return (_format_scalar(val.flat[0]), "inline")
+                flat = _get_flat(val)
+                return (_format_scalar(flat[0]), "inline")
             # 1D arrays
             if len(shape) == 1:
                 fmt, suffix = _array_formatter(val)
@@ -313,12 +344,15 @@ def prettyvalue(val):
         )
 
     try:
-        # Handle numpy scalars and plain floats/ints
+        # Handle numpy scalars and plain floats/ints (but not arrays)
         dtype_str = str(getattr(val, "dtype", ""))
-        is_numeric = isinstance(val, (int, float)) or dtype_str
+        # Check it's not an array (no shape, or empty shape)
+        shape = getattr(val, "shape", ())
+        is_scalar = not shape or (isinstance(shape, tuple) and len(shape) == 0)
+        is_numeric = isinstance(val, (int, float)) or (dtype_str and is_scalar)
         if is_numeric and not isinstance(val, bool):
             return (_format_scalar(val), "inline")
-    except (AttributeError, TypeError):
+    except (AttributeError, TypeError, ValueError):
         pass
 
     # Determine format hint based on content
@@ -345,8 +379,5 @@ def prettyvalue(val):
         if len(lines) > 20:
             # Show first 10 and last 10 lines
             ret = "\n".join(lines[:10] + ["⋯"] + lines[-10:])
-        elif len(lines) == 1 and len(ret) >= 200:
-            # For single-line strings that are too long, truncate them
-            ret = ret[:100] + " … " + ret[-100:]
 
     return (ret, format_hint)
