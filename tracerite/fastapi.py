@@ -1,9 +1,5 @@
 """TraceRite extension for FastAPI/Starlette applications."""
 
-import fastapi
-from starlette.middleware.errors import ServerErrorMiddleware
-from starlette.responses import HTMLResponse
-
 from .html import html_traceback
 from .logging import logger
 
@@ -21,6 +17,13 @@ def patch_fastapi():
     global _original_debug_response
     if _original_debug_response is not None:
         return  # Already loaded
+    try:
+        import fastapi  # ty: ignore
+        from starlette.middleware.errors import ServerErrorMiddleware  # ty: ignore
+        from starlette.responses import HTMLResponse  # ty: ignore
+    except ImportError:
+        logger.info("TraceRite FastAPI cannot load: FastAPI/Starlette not found")
+        return
     _original_debug_response = ServerErrorMiddleware.debug_response
 
     def tracerite_debug_response(self, request, exc):
