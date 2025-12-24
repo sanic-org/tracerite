@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import sys
 import threading
@@ -71,7 +73,7 @@ def install():
             else:
                 sys.__excepthook__(exc_type, exc_value, exc_tb)
 
-    def _tracerite_threading_excepthook(args):
+    def _tracerite_threading_excepthook(args):  # pragma: no cover (pytest intercepts)
         try:
             tty_traceback(exc=args.exc_value)
         except Exception:
@@ -153,6 +155,60 @@ def tty_traceback(exc=None, chain=None, *, file=None, **extract_args):
         _print_exception(file, e, term_width, i, inspector_allowed, chain_suffix)
 
 
+def _find_inspector_frame_idx(
+    frame_info_list: list, exception_idx: int, inspector_allowed: set | None
+) -> int | None:
+    """Find the first non-call frame that is allowed to show inspector.
+
+    Returns the frame index, or None if no suitable frame is found.
+    """
+    for i, info in enumerate(frame_info_list):
+        if info["relevance"] != "call" and (
+            inspector_allowed is None or (exception_idx, i) in inspector_allowed
+        ):
+            return i
+    return None
+
+
+def _find_frame_line_range(
+    output_lines: list, inspector_frame_idx: int
+) -> tuple[int, int]:
+    """Find the line range for the inspector frame in output_lines.
+
+    Returns (frame_line_start, frame_line_end) - both are valid indices.
+    The caller guarantees inspector_frame_idx exists in output_lines.
+    """
+    frame_line_start = -1
+    frame_line_end = -1
+
+    for li, (_, _, fidx, _) in enumerate(output_lines):
+        if fidx == inspector_frame_idx:
+            if frame_line_start == -1:
+                frame_line_start = li
+            frame_line_end = li
+
+    # By contract, the frame must exist in output_lines
+    assert frame_line_start >= 0 and frame_line_end >= 0
+    return frame_line_start, frame_line_end
+
+
+def _find_last_marked_line(
+    output_lines: list, frame_line_start: int, frame_line_end: int
+) -> int:
+    """Find the last marked line within the frame range.
+
+    Returns the line index of the last marked line, or frame_line_end if none are marked.
+    """
+    last_marked = frame_line_end  # Fallback to last line of frame
+
+    for li in range(frame_line_start, frame_line_end + 1):
+        _, _, _, is_marked = output_lines[li]
+        if is_marked:
+            last_marked = li
+
+    return last_marked
+
+
 def _print_exception(
     file, e, term_width, exception_idx=0, inspector_allowed=None, chain_suffix=""
 ):
@@ -178,13 +234,9 @@ def _print_exception(
         frame_info_list.append(info)
 
     # Find first non-call frame that is allowed to show inspector
-    inspector_frame_idx = None
-    for i, info in enumerate(frame_info_list):
-        if info["relevance"] != "call" and (
-            inspector_allowed is None or (exception_idx, i) in inspector_allowed
-        ):
-            inspector_frame_idx = i
-            break
+    inspector_frame_idx = _find_inspector_frame_idx(
+        frame_info_list, exception_idx, inspector_allowed
+    )
 
     # Calculate max label width for call frame alignment
     # Only consider call frames since non-call frames display differently
@@ -212,169 +264,126 @@ def _print_exception(
 
     # Merge output with inspector
     if inspector_lines:
-        # Find the line range for the inspector frame and marked lines
-        frame_line_start = None
-        frame_line_end = None
-        first_marked_output_line = None
-        last_marked_output_line = None
+        frame_line_start, frame_line_end = _find_frame_line_range(
+            output_lines, inspector_frame_idx
+        )
+        error_line = _find_last_marked_line(
+            output_lines, frame_line_start, frame_line_end
+        )
+        inspector_height = len(inspector_lines)
 
-        for li, (_, _, fidx, is_marked) in enumerate(output_lines):
-            if fidx == inspector_frame_idx:
-                if frame_line_start is None:
-                    frame_line_start = li
-                frame_line_end = li
-                if is_marked:
-                    if first_marked_output_line is None:
-                        first_marked_output_line = li
-                    last_marked_output_line = li
+        # Smart centering logic:
+        # 1. Center around error line (last marked line where 💣 appears)
+        # 2. Shift if centering goes out of bounds
+        # 3. Prefer extending into call frames (above) over empty lines (below)
+        # 4. Only add empty lines at the end as last resort
 
-        if frame_line_start is not None and frame_line_end is not None:
-            inspector_height = len(inspector_lines)
+        # Calculate ideal centered position (error line in middle of inspector)
+        ideal_arrow_pos = inspector_height // 2
+        ideal_start = error_line - ideal_arrow_pos
 
-            # Smart centering logic:
-            # 1. Center around error line (last_marked_output_line where 💣 appears)
-            # 2. Shift if centering goes out of bounds
-            # 3. Prefer extending into call frames (above) over empty lines (below)
-            # 4. Only add empty lines at the end as last resort
+        # Determine bounds: can extend upward into call frames (line 0),
+        # but only extend into "call" relevance frames, not beyond output
+        # The minimum start is 0 (can use all call frames above)
+        min_start = 0
 
-            # Find the line with the error symbol (last marked line, where 💣 is placed)
-            error_line = last_marked_output_line
-            if error_line is None:
-                # Fallback: use the last line of the frame (where error likely occurred)
-                error_line = frame_line_end
+        # Apply centering with constraints
+        inspector_start = ideal_start
 
-            # Calculate ideal centered position (error line in middle of inspector)
-            ideal_arrow_pos = inspector_height // 2
-            ideal_start = error_line - ideal_arrow_pos
+        # Shift down if we're trying to go above available lines
+        if inspector_start < min_start:
+            inspector_start = min_start
 
-            # Determine bounds: can extend upward into call frames (line 0),
-            # but only extend into "call" relevance frames, not beyond output
-            # The minimum start is 0 (can use all call frames above)
-            min_start = 0
+        # Shift up if we're extending too far below available lines
+        # First, see how many lines of output we have below inspector_start
+        lines_available_below = len(output_lines) - inspector_start
+        if lines_available_below < inspector_height:
+            # Try to shift up, but not beyond min_start
+            needed_shift = inspector_height - lines_available_below
+            inspector_start = max(min_start, inspector_start - needed_shift)
 
-            # Apply centering with constraints
-            inspector_start = ideal_start
+        # Arrow line is where the error line falls within inspector
+        arrow_line_idx = error_line - inspector_start
+        assert 0 <= arrow_line_idx < inspector_height
 
-            # Shift down if we're trying to go above available lines
-            if inspector_start < min_start:
-                inspector_start = min_start
+        # Calculate inspector column: find the max line length in the range we'll use
+        max_line_len = 0
+        for li in range(
+            inspector_start,
+            min(inspector_start + inspector_height, len(output_lines)),
+        ):
+            max_line_len = max(max_line_len, output_lines[li][1])
 
-            # Shift up if we're extending too far below available lines
-            # First, see how many lines of output we have below inspector_start
-            lines_available_below = len(output_lines) - inspector_start
-            if lines_available_below < inspector_height:
-                # Try to shift up, but not beyond min_start
-                needed_shift = inspector_height - lines_available_below
-                inspector_start = max(min_start, inspector_start - needed_shift)
+        # Inspector width: arrow/spaces(2) + bar(1) + space(1) + content
+        max_insp_width = max(w for _, w in inspector_lines) if inspector_lines else 0
+        total_insp_width = 4 + max_insp_width  # "◀─┤ " or "  │ " + content
 
-            # Arrow line is where the error line falls within inspector
-            arrow_line_idx = error_line - inspector_start
-            if arrow_line_idx < 0 or arrow_line_idx >= inspector_height:
-                arrow_line_idx = None
+        # Place inspector right after the longest line, with some padding
+        inspector_col = max_line_len + 2
 
-            # Calculate inspector column: find the max line length in the range we'll use
-            max_line_len = 0
-            for li in range(
-                inspector_start,
-                min(inspector_start + inspector_height, len(output_lines)),
-            ):
-                max_line_len = max(max_line_len, output_lines[li][1])
+        # But don't go beyond terminal width
+        if inspector_col + total_insp_width > term_width:
+            inspector_col = term_width - total_insp_width
 
-            # Inspector width: arrow/spaces(2) + bar(1) + space(1) + content
-            max_insp_width = (
-                max(w for _, w in inspector_lines) if inspector_lines else 0
-            )
-            total_insp_width = 4 + max_insp_width  # "◀─┤ " or "  │ " + content
+        # Print output with inspector merged using cursor positioning
+        inspector_count = len(inspector_lines)
+        for li, (line, *_) in enumerate(output_lines):
+            insp_idx = li - inspector_start
+            if 0 <= insp_idx < inspector_count:
+                insp_line, insp_width = inspector_lines[insp_idx]
+                # Use cursor positioning to place inspector
+                cursor_pos = (
+                    f"\033[{inspector_col + 1}G"  # +1 because columns are 1-indexed
+                )
+                # Determine which box character to use
+                is_first = insp_idx == 0
+                is_last = insp_idx == inspector_count - 1
+                is_arrow = insp_idx == arrow_line_idx
 
-            # Place inspector right after the longest line, with some padding
-            inspector_col = max_line_len + 2
-
-            # But don't go beyond terminal width
-            if inspector_col + total_insp_width > term_width:
-                inspector_col = term_width - total_insp_width
-
-            # Print output with inspector merged using cursor positioning
-            inspector_count = len(inspector_lines)
-            for li, (line, *_) in enumerate(output_lines):
-                insp_idx = li - inspector_start
-                if 0 <= insp_idx < inspector_count:
-                    insp_line, insp_width = inspector_lines[insp_idx]
-                    # Use cursor positioning to place inspector
-                    cursor_pos = (
-                        f"\033[{inspector_col + 1}G"  # +1 because columns are 1-indexed
+                if is_arrow:
+                    # Arrow line: use appropriate corner or T-junction
+                    if is_first:
+                        box_char = BOX_ROUND_TR  # ╮ curved corner for first+arrow
+                    elif is_last:
+                        box_char = BOX_ROUND_BR  # ╯ curved corner for last+arrow
+                    else:
+                        box_char = BOX_VL  # ┤ T-junction for middle arrow
+                    print(
+                        f"{line}{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RESET} {insp_line}",
+                        file=file,
                     )
-                    # Determine which box character to use
-                    is_first = insp_idx == 0
-                    is_last = insp_idx == inspector_count - 1
-                    is_arrow = insp_idx == arrow_line_idx
-
-                    if is_arrow:
-                        # Arrow line: use appropriate corner or T-junction
-                        if is_first:
-                            box_char = BOX_ROUND_TR  # ╮ curved corner for first+arrow
-                        elif is_last:
-                            box_char = BOX_ROUND_BR  # ╯ curved corner for last+arrow
-                        else:
-                            box_char = BOX_VL  # ┤ T-junction for middle arrow
-                        print(
-                            f"{line}{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RESET} {insp_line}",
-                            file=file,
-                        )
-                    else:
-                        # Non-arrow line: use corner or vertical
-                        if is_first:
-                            box_char = BOX_ROUND_TL  # ╭ curved corner for first
-                        elif is_last:
-                            box_char = BOX_ROUND_BL  # ╰ curved corner for last
-                        else:
-                            box_char = BOX_V  # │ vertical for middle
-                        print(
-                            f"{line}{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}",
-                            file=file,
-                        )
                 else:
-                    print(line, file=file)
-
-            # If inspector is taller than available lines, print remaining
-            remaining_start = len(output_lines) - inspector_start
-            if remaining_start < inspector_count:
-                for idx in range(remaining_start, inspector_count):
-                    insp_line, insp_width = inspector_lines[idx]
-                    cursor_pos = f"\033[{inspector_col + 1}G"
-                    is_first = idx == 0
-                    is_last = idx == inspector_count - 1
-                    is_arrow = idx == arrow_line_idx
-
-                    if is_arrow:
-                        if is_first:
-                            box_char = BOX_ROUND_TR
-                        elif is_last:
-                            box_char = BOX_ROUND_BR
-                        else:
-                            box_char = BOX_VL
-                        print(
-                            f"{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RESET} {insp_line}",
-                            file=file,
-                        )
+                    # Non-arrow line: use corner or vertical
+                    if is_first:
+                        box_char = BOX_ROUND_TL  # ╭ curved corner for first
+                    elif is_last:
+                        box_char = BOX_ROUND_BL  # ╰ curved corner for last
                     else:
-                        if is_first:
-                            box_char = BOX_ROUND_TL
-                        elif is_last:
-                            box_char = BOX_ROUND_BL
-                        else:
-                            box_char = BOX_V
-                        print(
-                            f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}",
-                            file=file,
-                        )
-        else:
-            # No frame lines found, just print everything
-            for line, _, _, _ in output_lines:
+                        box_char = BOX_V  # │ vertical for middle
+                    print(
+                        f"{line}{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}",
+                        file=file,
+                    )
+            else:
                 print(line, file=file)
-    else:
-        # No inspector, just print all lines
-        for line, _, _, _ in output_lines:
-            print(line, file=file)
+
+        # If inspector is taller than available lines, print remaining
+        remaining_start = len(output_lines) - inspector_start
+        if remaining_start < inspector_count:
+            for idx in range(remaining_start, inspector_count):
+                insp_line, insp_width = inspector_lines[idx]
+                cursor_pos = f"\033[{inspector_col + 1}G"
+                is_last = idx == inspector_count - 1
+                box_char = BOX_ROUND_BL if is_last else BOX_V
+                print(
+                    f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}",
+                    file=file,
+                )
+        return
+
+    # No inspector or no frame lines found, just print the code
+    for line, _, _, _ in output_lines:
+        print(line, file=file)
 
 
 def _get_frame_label(frinfo):
@@ -384,18 +393,15 @@ def _get_frame_label(frinfo):
 
     # Use relative path if file is within CWD, otherwise use prettified location
     filename = frinfo.get("filename")
+    location = frinfo["location"]
     if filename:
         try:
             fn = Path(filename)
             cwd = Path.cwd()
             if fn.is_absolute() and cwd in fn.parents:
                 location = fn.relative_to(cwd).as_posix()
-            else:
-                location = frinfo["location"]
-        except (ValueError, OSError):
-            location = frinfo["location"]
-    else:
-        location = frinfo["location"]
+        except (ValueError, OSError):  # pragma: no cover
+            pass
 
     # Build label with colors: light blue function, green filename, dark grey :lineno
     label = ""
@@ -693,9 +699,6 @@ def _build_variable_inspector(variables, term_width):
             line_plain = f"{name} = {val_str}"
 
         var_lines.append((line, line_plain))
-
-    if not var_lines:
-        return []
 
     # Calculate width: just "| content" (bar + space + content)
     max_content_width = max(len(lp) for _, lp in var_lines)
