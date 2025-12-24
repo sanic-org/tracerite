@@ -45,31 +45,12 @@ Comes with TraceRite built in whenever running in debug mode.
 
 ## What It Looks Like
 
-When an error occurs in a NumPy operation, TraceRite shows you exactly what went wrong:
-
-![NumPy error with TraceRite](https://raw.githubusercontent.com/sanic-org/tracerite/master/docs/numpy.webp)
-
-The error message highlights the problematic line, and the built-in variable inspector lets you see array shapes and values at a glance—no more guessing why your shapes don't match.
-
-### Handling Complex Call Chains
-
-Real-world code often involves deep call stacks through libraries. TraceRite intelligently collapses library internals while keeping your code front and center:
-
-![Complex call chain](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/complex.webp)
-
-### Nested Exceptions
-
-When exceptions chain together, TraceRite keeps them organized and puts the most relevant exception on top to avoid any scrolling.
-
-![Nested exceptions](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/numpydeep.webp)
-
-Each frame includes a variable inspector so you can trace exactly how values flowed through your code.
-
-### Long Call Chains
-
-Often your simple function call dwelves deep into the library code. In this situation TraceRite highlights the position where it happened in your code, but allows inspecting the library internals also, to get to the root of it. In this case the variable inspector on the first frame already shows what is the problem: we are accidentally passing in `None` for file extension.
-
-![Call chain into library code](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/callchain.webp)
+| | |
+|---|---|
+| ![NumPy error](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/numpy.webp) | ![Complex call chain](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/complex.webp) |
+| **NumPy error** — Variable inspector shows array shapes and values at a glance. | **Complex call chains** — Library internals collapsed, your code front and center. |
+| ![Exception chain](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/excchain.webp) | ![IPython](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/ipython.webp) |
+| **Exception chains** — Chained exceptions organized with the most relevant on top. | **Terminal** — Compact clean error messages in terminals. |
 
 ## Features
 
