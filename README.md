@@ -4,16 +4,14 @@
 
 ## Platforms
 
-### Python in a terminal
+### Python scripts or REPL
 
 ```sh
 pip install tracerite
 ```
 
 ```python
-import tracerite
-
-tracerite.load()
+import tracerite; tracerite.load()
 ```
 
 Any error message after that call will be prettified.
@@ -32,9 +30,7 @@ This enables tracebacks in text or HTML format depending on where you are runnin
 Add the extension loader at the top of your app module:
 
 ```python
-from tracerite import patch_fastapi
-
-patch_fastapi()
+from tracerite import patch_fastapi; patch_fastapi()
 ```
 
 This monkeypatches Starlette error handling and FastAPI routing to work with HTML tracebacks. Note: this runs regardless of whether you are in production mode or debug mode, so you might want to call that function only conditionally in the latter.
