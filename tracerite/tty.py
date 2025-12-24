@@ -205,6 +205,36 @@ def _find_last_marked_line(
     return last_marked
 
 
+def _find_collapsible_call_runs(frame_info_list, min_run_length=10):
+    """Find consecutive runs of 'call' frames that should be collapsed.
+
+    Returns list of (start_idx, end_idx) tuples for runs of consecutive
+    call frames with length >= min_run_length. end_idx is inclusive.
+    """
+    runs = []
+    run_start = None
+
+    for i, info in enumerate(frame_info_list):
+        if info["relevance"] == "call":
+            if run_start is None:
+                run_start = i
+        else:
+            # End of a call run
+            if run_start is not None:
+                run_length = i - run_start
+                if run_length >= min_run_length:
+                    runs.append((run_start, i - 1))
+                run_start = None
+
+    # Check for run at end
+    if run_start is not None:
+        run_length = len(frame_info_list) - run_start
+        if run_length >= min_run_length:
+            runs.append((run_start, len(frame_info_list) - 1))
+
+    return runs
+
+
 def _print_exception(
     file, e, term_width, exception_idx=0, inspector_allowed=None, chain_suffix=""
 ):
@@ -229,26 +259,48 @@ def _print_exception(
         info = _get_frame_info(e, frinfo)
         frame_info_list.append(info)
 
+    # Find consecutive runs of call frames to collapse (>=10 consecutive calls)
+    # Returns list of (start_idx, end_idx) for runs to collapse
+    collapse_ranges = _find_collapsible_call_runs(frame_info_list, min_run_length=10)
+
+    # Build set of frame indices to skip (middle frames in collapsed runs)
+    skip_indices = set()
+    ellipsis_after = {}  # frame_idx -> count of skipped frames
+    for start_idx, end_idx in collapse_ranges:
+        # Keep first and last, skip middle
+        skipped_count = end_idx - start_idx - 1
+        for i in range(start_idx + 1, end_idx):
+            skip_indices.add(i)
+        ellipsis_after[start_idx] = skipped_count
+
     # Find first non-call frame that is allowed to show inspector
     inspector_frame_idx = _find_inspector_frame_idx(
         frame_info_list, exception_idx, inspector_allowed
     )
 
     # Calculate max label width for call frame alignment
-    # Only consider call frames since non-call frames display differently
+    # Only consider call frames that won't be skipped
     call_label_widths = [
         len(info["label_plain"])
-        for info in frame_info_list
-        if info["relevance"] == "call"
+        for i, info in enumerate(frame_info_list)
+        if info["relevance"] == "call" and i not in skip_indices
     ]
     label_width = max(call_label_widths, default=0)
 
     # Build output lines with their plain text lengths
     output_lines = []  # List of (colored_line, plain_length, frame_idx, is_marked)
     for i, info in enumerate(frame_info_list):
+        if i in skip_indices:
+            continue
         lines = _build_frame_lines(info, label_width, term_width)
         for line, plain_len, is_marked in lines:
             output_lines.append((line, plain_len, i, is_marked))
+        # Add ellipsis line after first frame of a collapsed run
+        if i in ellipsis_after:
+            skipped = ellipsis_after[i]
+            ellipsis_line = f"{INDENT}{DARK_GREY}⋮ {skipped} more calls{RESET}"
+            ellipsis_plain_len = len(INDENT) + 2 + len(f"{skipped} more calls")
+            output_lines.append((ellipsis_line, ellipsis_plain_len, i, False))
 
     # Get variable inspector lines if we have a non-call frame
     inspector_lines = []
