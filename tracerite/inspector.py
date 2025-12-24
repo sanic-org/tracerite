@@ -37,6 +37,18 @@ def _format_scalar(v):
 _SUPERSCRIPT_DIGITS = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
 
 
+def _get_flat(arr):
+    """Get a flat/1D view of an array, supporting numpy and torch."""
+    # Try numpy-style .flat first
+    if hasattr(arr, "flat"):
+        return arr.flat
+    # PyTorch tensors use .flatten()
+    if hasattr(arr, "flatten"):
+        return arr.flatten()
+    # Fallback - just return the array itself
+    return arr
+
+
 def _array_formatter(arr):
     """
     Create an optimal formatter for displaying array values consistently.
@@ -57,7 +69,7 @@ def _array_formatter(arr):
 
     # For float arrays, analyze the values to determine optimal formatting
     if "float" in dtype_str or "complex" in dtype_str:
-        flat = arr.flat
+        flat = _get_flat(arr)
         # Sample values for analysis
         n = len(flat)
         if n <= 200:
@@ -308,7 +320,8 @@ def prettyvalue(val):
         if isinstance(shape, tuple) and val.shape:
             numelem = reduce(lambda x, y: x * y, shape)
             if numelem <= 1:
-                return (_format_scalar(val.flat[0]), "inline")
+                flat = _get_flat(val)
+                return (_format_scalar(flat[0]), "inline")
             # 1D arrays
             if len(shape) == 1:
                 fmt, suffix = _array_formatter(val)
@@ -338,12 +351,15 @@ def prettyvalue(val):
         )
 
     try:
-        # Handle numpy scalars and plain floats/ints
+        # Handle numpy scalars and plain floats/ints (but not arrays)
         dtype_str = str(getattr(val, "dtype", ""))
-        is_numeric = isinstance(val, (int, float)) or dtype_str
+        # Check it's not an array (no shape, or empty shape)
+        shape = getattr(val, "shape", ())
+        is_scalar = not shape or (isinstance(shape, tuple) and len(shape) == 0)
+        is_numeric = isinstance(val, (int, float)) or (dtype_str and is_scalar)
         if is_numeric and not isinstance(val, bool):
             return (_format_scalar(val), "inline")
-    except (AttributeError, TypeError):
+    except (AttributeError, TypeError, ValueError):
         pass
 
     # Determine format hint based on content
