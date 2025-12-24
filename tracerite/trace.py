@@ -24,16 +24,30 @@ libdir = re.compile(
     r"/usr/.*|.*(site-packages|dist-packages).*|.*/lib/python\d+\.\d+/.*|.*/\.cache/.*"
 )
 
+# Messages for exception chaining (oldest-first order)
+# Suffix added to exception type when chained from a previous exception
+chainmsg = {
+    "cause": " from above",
+    "context": " while handling previous exception",
+    "none": "",
+}
+
 
 def extract_chain(exc=None, **kwargs) -> list:
-    """Extract information on current exception."""
+    """Extract information on current exception.
+
+    Returns a list of exception info dicts, ordered from oldest to newest
+    (i.e., the original exception first, then any exceptions that occurred
+    while handling it or were raised from it).
+    """
     chain = []
     exc = exc or sys.exc_info()[1]
     while exc:
         chain.append(exc)
         exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
-    # Newest exception first
-    return [extract_exception(e, **(kwargs if e is chain[0] else {})) for e in chain]
+    # Reverse to get oldest first (chain is built newest-first)
+    chain = list(reversed(chain))
+    return [extract_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
 
 
 def _create_summary(message):
@@ -107,7 +121,11 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         "type": type(e).__name__,
         "message": message,
         "summary": summary,
-        "has": ("cause" if e.__cause__ else "context" if e.__context__ else "none"),
+        # "from" describes how this exception relates to its cause:
+        # - "cause": explicitly raised from another (raise X from Y)
+        # - "context": occurred while handling another
+        # - "none": root exception (no prior cause)
+        "from": ("cause" if e.__cause__ else "context" if e.__context__ else "none"),
         "repr": repr(e),
         "frames": frames or [],
     }
