@@ -206,6 +206,31 @@ def prettyvalue(val):
                'block' - left-aligned block format (for multi-line strings)
                'inline' - inline right-aligned format (default)
     """
+    # Handle namedtuple formatting before regular tuple check
+    # namedtuples have _fields attribute which is a tuple of field names
+    if (
+        isinstance(val, tuple)
+        and hasattr(val, "_fields")
+        and isinstance(val._fields, tuple)
+    ):
+        fields = val._fields
+        if not fields:
+            return (f"{type(val).__name__}()", "inline")
+        # For small namedtuples, return as structured table
+        if len(fields) <= 10:
+            rows = []
+            for name in fields:
+                key_str = name if len(name) <= 40 else name[:37] + "…"
+                field_val = getattr(val, name)
+                val_str = (
+                    f"{field_val!s}"
+                    if len(f"{field_val!s}") <= 60
+                    else f"{field_val!s}"[:57] + "…"
+                )
+                rows.append([key_str, val_str])
+            return ({"type": "keyvalue", "rows": rows}, "inline")
+        # For larger namedtuples, show summary
+        return (f"({len(fields)} fields)", "inline")
     if isinstance(val, (list, tuple)):
         if not 0 < len(val) <= 10:
             return (f"({len(val)} items)", "inline")
