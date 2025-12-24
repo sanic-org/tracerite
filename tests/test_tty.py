@@ -1246,11 +1246,10 @@ class TestFrameWithoutSource:
 
         lines = _build_frame_lines(info, label_width=30, term_width=120)
 
-        assert len(lines) == 2
-        # First line is label
+        assert len(lines) == 1
+        # Single line with label and source not available message
         assert "test_func" in lines[0][0]
-        # Second line indicates source not available
-        assert "Source code not available" in lines[1][0]
+        assert "Source code not available" in lines[0][0]
 
     def test_build_frame_lines_no_fragments_deepest(self):
         """Test building frame lines for deepest frame without source."""
@@ -1267,10 +1266,10 @@ class TestFrameWithoutSource:
 
         lines = _build_frame_lines(info, label_width=30, term_width=120)
 
-        assert len(lines) == 3
-        # Should have additional message about error being raised
-        assert "Source code not available" in lines[1][0]
-        assert "RuntimeError was raised from here" in lines[2][0]
+        assert len(lines) == 1
+        # Single line with combined message
+        assert "Source code not available" in lines[0][0]
+        assert "RuntimeError was raised from here" in lines[0][0]
 
 
 class TestInspectorPositioning:

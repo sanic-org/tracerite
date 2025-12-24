@@ -34,6 +34,12 @@ INDENT = "  "
 CODE_INDENT = "    "  # Double indent for code lines
 
 symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑"}
+tooltips = {
+    "call": "Call",
+    "warning": "Call from your code",
+    "error": "{type}",
+    "stop": "{type}",
+}
 
 # Store the original hooks for unload
 _original_excepthook = None
@@ -384,7 +390,9 @@ def _print_exception(
 
                 if is_arrow:
                     # Arrow line: use appropriate corner or T-junction
-                    if is_first:
+                    if is_first and is_last:
+                        box_char = BOX_VL  # ┤ T-junction for single line
+                    elif is_first:
                         box_char = BOX_TR  # ╮ curved corner for first+arrow
                     elif is_last:
                         box_char = BOX_BR  # ╯ curved corner for last+arrow
@@ -497,18 +505,28 @@ def _build_frame_lines(info, label_width, term_width):
     lines = []
 
     if not fragments:
-        lines.append((f"{INDENT}{label}", len(INDENT) + len(label_plain), False))
-        lines.append(
-            (f"{CODE_INDENT}Source code not available", len(CODE_INDENT) + 24, False)
-        )
         if is_deepest:
-            msg = f"but {e['type']} was raised from here"
-            lines.append((f"{CODE_INDENT}{msg}", len(CODE_INDENT) + len(msg), False))
+            msg = f"Source code not available but {e['type']} was raised from here"
+        else:
+            msg = "Source code not available"
+        line = f"{INDENT}{label}  {DARK_GREY}{msg}{RESET}"
+        plain_len = len(INDENT) + len(label_plain) + 2 + len(msg)
+        lines.append((line, plain_len, False))
         return lines
 
     start = frinfo["linenostart"]
     symbol = symbols.get(relevance, "")
     symbol_colored = f"{YELLOW}{symbol}{RESET}" if symbol else ""
+
+    # Generate tooltip text like HTML does
+    tooltip_text = ""
+    if relevance in tooltips:
+        try:
+            tooltip_text = tooltips[relevance].format(**e, **frinfo)
+            # Replace newlines with spaces
+            tooltip_text = tooltip_text.replace("\n", " ")
+        except Exception:
+            tooltip_text = ""
 
     if relevance == "call":
         # One-liner for call frames: label + marked region only + symbol
@@ -583,10 +601,21 @@ def _build_frame_lines(info, label_width, term_width):
                 code_plain += plain
             code_colored = "".join(code_parts)
 
-            # Add symbol on final line
+            # Add symbol and tooltip text on final line
             if frame_range and abs_line == frame_range.lfinal and symbol:
-                line = f"{CODE_INDENT}{code_colored} {symbol_colored}"
-                plain_len = len(CODE_INDENT) + len(code_plain) + 1 + len(symbol)
+                if tooltip_text and relevance != "call":
+                    line = f"{CODE_INDENT}{code_colored} {symbol_colored}  {DARK_GREY}{tooltip_text}{RESET}"
+                    plain_len = (
+                        len(CODE_INDENT)
+                        + len(code_plain)
+                        + 1
+                        + len(symbol)
+                        + 2
+                        + len(tooltip_text)
+                    )
+                else:
+                    line = f"{CODE_INDENT}{code_colored} {symbol_colored}"
+                    plain_len = len(CODE_INDENT) + len(code_plain) + 1 + len(symbol)
             else:
                 line = f"{CODE_INDENT}{code_colored}"
                 plain_len = len(CODE_INDENT) + len(code_plain)
