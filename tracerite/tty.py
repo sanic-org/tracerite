@@ -63,7 +63,7 @@ def install():
 
     def _tracerite_excepthook(exc_type, exc_value, exc_tb):
         try:
-            display_traceback(exc=exc_value)
+            tty_traceback(exc=exc_value)
         except Exception:
             # Fall back to original excepthook on any error
             if _original_excepthook:
@@ -73,7 +73,7 @@ def install():
 
     def _tracerite_threading_excepthook(args):
         try:
-            display_traceback(exc=args.exc_value)
+            tty_traceback(exc=args.exc_value)
         except Exception:
             # Fall back to original threading excepthook on any error
             if _original_threading_excepthook:
@@ -102,7 +102,7 @@ def uninstall():
         _original_threading_excepthook = None
 
 
-def display_traceback(exc=None, chain=None, *, file=None, **extract_args):
+def tty_traceback(exc=None, chain=None, *, file=None, **extract_args):
     """Format and print a traceback for terminal output (TTY).
 
     Outputs directly to the terminal (or specified file) to adapt to

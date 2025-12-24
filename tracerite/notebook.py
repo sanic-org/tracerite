@@ -4,7 +4,7 @@ import sys
 from . import trace
 from .html import html_traceback
 from .logging import logger
-from .tty import display_traceback
+from .tty import tty_traceback
 
 
 def _can_display_html():
@@ -49,14 +49,14 @@ def load_ipython_extension(ipython):
         # Use TTY output for terminal-based IPython (Spyder, plain ipython, etc.)
         def showtraceback(*args, **kwargs):
             try:
-                display_traceback(skip_until="<ipython-input-")
+                tty_traceback(skip_until="<ipython-input-")
             except Exception:
                 # Fall back to built-in showtraceback
                 ipython.__class__.showtraceback(ipython, *args, **kwargs)
 
         def showsyntaxerror(*args, **kwargs):
             try:
-                display_traceback(skip_until="<ipython-input-")
+                tty_traceback(skip_until="<ipython-input-")
             except Exception:
                 # Fall back to built-in showsyntaxerror
                 ipython.__class__.showsyntaxerror(ipython, *args, **kwargs)
