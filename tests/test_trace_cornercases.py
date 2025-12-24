@@ -831,3 +831,67 @@ hidden_frame()
         em_positions = {1, 2}  # Different positions to create multiple boundaries
         result = _create_fragments_with_highlighting(text, mark_positions, em_positions)
         assert isinstance(result, list)
+
+
+class TestReraiseExistingException:
+    """Test cases for re-raising existing exceptions.
+
+    When an existing exception is re-raised (e.g., `raise exc`), CPython's position
+    info may have end_line < error_line_in_context, causing an empty slice in
+    _extract_emphasis_columns. This should be handled gracefully.
+    """
+
+    def test_reraise_existing_exception_no_crash(self):
+        """Test that re-raising an existing exception doesn't crash.
+
+        This tests the guard in _extract_emphasis_columns that handles the case
+        where segment_start > segment_end due to CPython's position info.
+        When you do `raise e` where e is a caught exception from a different line,
+        CPython's position info can have end_line < error_line_in_context.
+        """
+        from tracerite.trace import _extract_emphasis_columns
+
+        # Simulate the scenario that occurs with `raise e`:
+        # The raise statement is on line 5, but the original error was on line 3
+        # This causes segment_start (4) > segment_end (3), making the slice empty
+        lines = """def process(x, y, name):
+    try:
+        result = x + y
+    except Exception as e:
+        raise e
+    return result
+"""
+        # These values match what CPython provides for `raise e`:
+        # error_line_in_context=5 (the `raise e` line)
+        # end_line=3 (the original error line)
+        result = _extract_emphasis_columns(
+            lines=lines,
+            error_line_in_context=5,  # raise e is on line 5
+            end_line=3,               # but original error was line 3
+            start_col=17,
+            end_col=22,
+            start=1,
+        )
+        # Should return None gracefully, not crash with IndexError
+        assert result is None
+
+    def test_reraise_with_from_no_crash(self):
+        """Test that re-raising with 'from' doesn't crash."""
+        from tracerite.trace import extract_chain
+
+        def inner():
+            raise ValueError("inner error")
+
+        def outer():
+            try:
+                inner()
+            except ValueError as e:
+                raise RuntimeError("outer error") from e
+
+        try:
+            outer()
+        except RuntimeError:
+            result = extract_chain()
+            assert result is not None
+            # Should have both exceptions in the chain
+            assert len(result) >= 2
