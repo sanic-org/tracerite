@@ -84,14 +84,15 @@ class TestExtractVariables:
         assert "0 items" in row_dict["empty_list"]
 
     def test_type_as_value(self):
-        """Test handling of type objects as values."""
+        """Test that type objects are excluded from extraction (they are blacklisted)."""
         variables = {"cls": int, "x": 5}
         sourcecode = "isinstance(x, cls)"
         rows = extract_variables(variables, sourcecode)
 
-        row_dict = {row[0]: row[2] for row in rows}
-        assert "cls" in row_dict
-        assert "builtins.int" in row_dict["cls"]
+        # Types are now blacklisted, so cls should not be in output
+        names = {row[0] for row in rows}
+        assert "cls" not in names
+        assert "x" in names
 
     def test_object_with_members(self):
         """Test extraction of object members when object has no str representation."""
@@ -238,58 +239,36 @@ class TestSafeVars:
 
 
 class TestArrayLikeHandling:
-    """Test handling of array-like objects with mock implementations."""
+    """Test handling of numpy arrays (see test_inspector_numpy.py and test_inspector_torch.py for more)."""
 
-    def test_prettyvalue_with_mock_1d_array(self):
-        """Test pretty printing of 1D array-like objects."""
+    def test_prettyvalue_with_numpy_1d_array(self):
+        """Test pretty printing of 1D numpy arrays."""
+        import numpy as np
 
-        class Mock1DArray:
-            shape = (5,)
-
-            def __getitem__(self, idx):
-                return [1.0, 2.0, 3.0, 4.0, 5.0][idx]
-
-            def __iter__(self):
-                return iter([1.0, 2.0, 3.0, 4.0, 5.0])
-
-        arr = Mock1DArray()
+        arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         result, fmt = prettyvalue(arr)
         # Should format as comma-separated values
-        assert "1.00" in result
+        assert "1" in result
+        assert "5" in result
 
-    def test_prettyvalue_with_mock_long_1d_array(self):
-        """Test pretty printing of long 1D array-like objects."""
+    def test_prettyvalue_with_numpy_long_1d_array(self):
+        """Test pretty printing of long 1D numpy arrays."""
+        import numpy as np
 
-        class MockLongArray:
-            shape = (200,)
-
-            def __getitem__(self, idx):
-                if isinstance(idx, slice):
-                    vals = list(range(200))
-                    return [float(v) for v in vals[idx]]
-                return float(idx)
-
-        arr = MockLongArray()
+        arr = np.arange(200, dtype=np.float64)
         result, fmt = prettyvalue(arr)
         # Should show first and last few elements with ellipsis
-        assert "…" in result or isinstance(result, str)
+        assert "…" in result
 
-    def test_prettyvalue_with_mock_2d_array(self):
-        """Test pretty printing of small 2D array-like objects."""
+    def test_prettyvalue_with_numpy_2d_array(self):
+        """Test pretty printing of small 2D numpy arrays."""
+        import numpy as np
 
-        class Mock2DArray:
-            shape = (2, 3)
-
-            def __getitem__(self, idx):
-                return [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]][idx]
-
-            def __iter__(self):
-                return iter([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-
-        arr = Mock2DArray()
+        arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
         result, fmt = prettyvalue(arr)
         # Should return nested list representation
-        assert isinstance(result, list) or "1.00" in result
+        assert isinstance(result, list)
+        assert len(result) == 2
 
     def test_object_member_with_poor_repr(self):
         """Test that object members with poor repr are skipped (lines 57-58)."""
@@ -324,30 +303,32 @@ class TestDictFormatting:
         assert result == "{}"
         assert fmt == "inline"
 
-    def test_small_dict_fits_on_line(self):
-        """Test formatting of small dict that fits on one line."""
+    def test_small_dict_structured(self):
+        """Test formatting of small dict returns structured data."""
         result, fmt = prettyvalue({"a": 1, "b": 2, "c": 3})
-        assert "{" in result and "}" in result
-        assert "'a'" in result
+        # Now returns structured data for rendering
+        assert isinstance(result, dict)
+        assert result["type"] == "keyvalue"
+        assert len(result["rows"]) == 3
         assert fmt == "inline"
 
-    def test_small_dict_too_long(self):
-        """Test dict with <= 5 items but single line > 120 chars (line 119)."""
-        # Create a dict with long keys/values that won't fit on 120 chars
-        long_dict = {
-            "very_long_key_name_1": "very_long_value_that_makes_this_line_exceed_limit_1",
-            "very_long_key_name_2": "very_long_value_that_makes_this_line_exceed_limit_2",
-        }
-        result, fmt = prettyvalue(long_dict)
-        # Should show item count instead of full repr
-        assert "2 items" in result
-        assert fmt == "inline"
+    def test_dict_key_value_pairs(self):
+        """Test that dict key-value pairs are correctly extracted."""
+        result, fmt = prettyvalue({"name": "Alice", "age": 30})
+        assert isinstance(result, dict)
+        assert result["type"] == "keyvalue"
+        rows = result["rows"]
+        # Check that keys and values are present
+        keys = [row[0] for row in rows]
+        assert "name" in keys
+        assert "age" in keys
 
     def test_large_dict(self):
-        """Test formatting of large dict with > 5 items."""
-        large_dict = {f"key_{i}": i for i in range(10)}
+        """Test formatting of large dict with > 10 items shows summary."""
+        large_dict = {f"key_{i}": i for i in range(15)}
         result, fmt = prettyvalue(large_dict)
-        assert "10 items" in result
+        # Large dicts show item count
+        assert "15 items" in result
         assert fmt == "inline"
 
 
@@ -407,14 +388,11 @@ class TestMultilineFormatting:
         assert fmt == "block"
 
     def test_block_format_single_line_under_200_chars(self):
-        """Test block format single line < 200 chars (branch 176->185)."""
-        # Single-line string > 80 chars (triggers block format) but < 200 (no truncation)
-        # This is the specific case for branch 176->185
+        """Test that long single-line strings are truncated inline."""
+        # Single-line string > 120 chars gets truncated
         single_long = "x" * 150
         result, fmt = prettyvalue(single_long)
-        # Should not truncate (< 200 chars, single line)
-        assert "⋯" not in result
-        assert " … " not in result
-        assert len(result) == 150
-        assert "\n" not in result
-        assert fmt == "block"
+        # Long single-line strings are truncated with ellipsis
+        assert "…" in result or " … " in result
+        assert len(result) < 150
+        assert fmt == "inline"

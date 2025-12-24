@@ -895,3 +895,350 @@ class TestReraiseExistingException:
             assert result is not None
             # Should have both exceptions in the chain
             assert len(result) >= 2
+
+
+class TestMissingCoverageBranches:
+    """Additional tests specifically for missing branch coverage in trace.py."""
+
+    def test_syntax_error_frame_returns_none_line_80(self):
+        """Test line 80->88: syntax_frame is None (condition is False).
+
+        When _extract_syntax_error_frame returns None for a SyntaxError,
+        the code should skip the is_user_code check and continue.
+        This happens when filename or lineno is None.
+        """
+        from tracerite.trace import extract_exception
+
+        e = SyntaxError("test error")
+        e.filename = None  # This will cause _extract_syntax_error_frame to return None
+        e.lineno = 1
+        e.__traceback__ = None
+
+        info = extract_exception(e)
+
+        assert info["type"] == "SyntaxError"
+        # Should handle gracefully without crashing
+
+    def test_extract_syntax_error_frame_non_syntaxerror_line_307(self):
+        """Test line 306->307: _extract_syntax_error_frame with non-SyntaxError.
+
+        Directly test the early return when passing a non-SyntaxError.
+        """
+        from tracerite.trace import _extract_syntax_error_frame
+
+        # Pass a regular exception - should return None
+        result = _extract_syntax_error_frame(ValueError("not a syntax error"))
+        assert result is None
+
+        # Pass an object that's not an exception
+        result = _extract_syntax_error_frame("not even an exception")
+        assert result is None
+
+    def test_notebook_cell_source_retrieval_lines_342_352(self):
+        """Test lines 342->352, 347-349: notebook cell source retrieval paths.
+
+        When notebook_cell is True and ipython is set, but linecache returns
+        empty lines, the code should fall through to the next path.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from tracerite import trace
+        from tracerite.trace import _extract_syntax_error_frame
+
+        mock_ipython = MagicMock()
+        mock_ipython.compile._filename_map = {"<ipython-input-1>": "cell_code"}
+
+        original = trace.ipython
+        try:
+            trace.ipython = mock_ipython
+
+            # Create a SyntaxError that looks like it's from a notebook cell
+            e = SyntaxError("test")
+            e.filename = "<ipython-input-1>"
+            e.lineno = 1
+            e.offset = 1
+            e.text = "x = ("
+
+            # Mock linecache.getlines to return empty list first time (for notebook path)
+            # then return actual lines for fallback
+            with patch("linecache.getlines") as mock_getlines:
+                # Empty lines for notebook path, then actual lines for fallback
+                mock_getlines.return_value = []
+
+                frame = _extract_syntax_error_frame(e)
+
+                # Should fall back to e.text
+                assert frame is not None
+                assert "x = (" in frame.get("lines", "")
+
+        finally:
+            trace.ipython = original
+
+    def test_syntax_error_source_exception_lines_362_365(self):
+        """Test lines 362-365: exception during source retrieval.
+
+        When an exception occurs in the try block during source retrieval,
+        the except block should use e.text as fallback.
+        """
+        from unittest.mock import patch
+
+        from tracerite.trace import _extract_syntax_error_frame
+
+        e = SyntaxError("test error")
+        e.filename = "test.py"
+        e.lineno = 1
+        e.offset = 1
+        e.text = "fallback source\n"
+
+        # Make linecache.getlines raise an exception
+        with patch("linecache.getlines", side_effect=RuntimeError("cache error")):
+            frame = _extract_syntax_error_frame(e)
+
+            assert frame is not None
+            # Should use e.text as fallback
+            assert "fallback source" in frame.get("lines", "")
+
+    def test_syntax_error_no_source_anywhere_line_367_368(self):
+        """Test lines 367->368: no source available anywhere.
+
+        When neither linecache nor e.text provides source, return None.
+        """
+        from unittest.mock import patch
+
+        from tracerite.trace import _extract_syntax_error_frame
+
+        e = SyntaxError("test error")
+        e.filename = "nonexistent.py"
+        e.lineno = 1
+        e.offset = 1
+        e.text = None  # No text fallback
+
+        with patch("linecache.getlines", return_value=[]):
+            frame = _extract_syntax_error_frame(e)
+
+            # Should return None when no source is available
+            assert frame is None
+
+    def test_syntax_error_no_column_info_line_428(self):
+        """Test line 428->435: SyntaxError without column info in fallback path.
+
+        When enhanced positions return None and start_col/end_col are None,
+        mark_range should stay None.
+        """
+        from unittest.mock import patch
+
+        from tracerite.trace import _extract_syntax_error_frame
+
+        e = SyntaxError("test error")
+        e.filename = "test.py"
+        e.lineno = 1
+        e.offset = None  # No column info
+        e.text = "some error\n"
+        # Ensure end_offset is also None to trigger the else branch
+        if hasattr(e, "end_offset"):
+            delattr(e, "end_offset")
+
+        # Mock extract_enhanced_positions to return None (fallback path)
+        with patch(
+            "tracerite.trace.extract_enhanced_positions", return_value=(None, None)
+        ), patch("linecache.getlines", return_value=["some error\n"]):
+            frame = _extract_syntax_error_frame(e)
+
+            # Frame should be created but range might be None due to no column info
+            # The test passes if no exception is raised
+            assert frame is not None
+
+    def test_tracebackhide_until_line_485(self):
+        """Test line 483->485: __tracebackhide__ == "until" clears frames.
+
+        When a frame has __tracebackhide__ = "until", all previous frames
+        should be cleared.
+        """
+        from tracerite.trace import extract_frames
+
+        def early_frame():
+            middle_frame()
+
+        def middle_frame():
+            # This frame sets __tracebackhide__ = "until"
+            # which should clear all frames collected so far
+            __tracebackhide__ = "until"
+            _use_var = __tracebackhide__  # Keep the variable in locals
+            final_frame()
+
+        def final_frame():
+            raise ValueError("error in final frame")
+
+        try:
+            early_frame()
+        except ValueError as e:
+            tb = inspect.getinnerframes(e.__traceback__)
+            frames = extract_frames(tb)
+
+            # early_frame and middle_frame should be cleared
+            # Only final_frame (and maybe test function) should remain
+            function_names = [f.get("function") for f in frames if f.get("function")]
+
+            # The "until" hide clears the frame list, but then continues
+            # So we should NOT see early_frame in the output
+            # Note: middle_frame is hidden due to __tracebackhide__ being truthy
+            # and previous frames are cleared by "until"
+            assert "early_frame" not in function_names, (
+                f"early_frame should be hidden by 'until', got: {function_names}"
+            )
+
+    def test_notebook_cell_linecache_success_line_347(self):
+        """Test line 345->347: notebook cell with successful linecache.
+
+        When notebook_cell is True, ipython is set, cell_source is not None,
+        AND linecache.getlines returns actual lines, use those lines.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from tracerite import trace
+        from tracerite.trace import _extract_syntax_error_frame
+
+        mock_ipython = MagicMock()
+        mock_ipython.compile._filename_map = {"<ipython-input-1>": "cell_source"}
+
+        original = trace.ipython
+        try:
+            trace.ipython = mock_ipython
+
+            e = SyntaxError("test")
+            e.filename = "<ipython-input-1>"
+            e.lineno = 1
+            e.offset = 1
+            e.text = "fallback text"  # Should not be used
+
+            # Make linecache return actual lines
+            with patch("linecache.getlines", return_value=["notebook cell code\n"]):
+                frame = _extract_syntax_error_frame(e)
+
+                assert frame is not None
+                # Should use the linecache result, not e.text
+                assert "notebook cell code" in frame.get("lines", "")
+
+        finally:
+            trace.ipython = original
+
+    def test_linecache_success_without_notebook_line_354_356(self):
+        """Test lines 354->356: linecache success without notebook.
+
+        When not a notebook cell, linecache.getlines returns lines successfully.
+        """
+        from unittest.mock import patch
+
+        from tracerite.trace import _extract_syntax_error_frame
+
+        e = SyntaxError("test")
+        e.filename = "regular_file.py"
+        e.lineno = 1
+        e.offset = 1
+        e.text = "fallback text"
+
+        # Mock linecache to return actual lines
+        with patch("linecache.getlines", return_value=["from linecache\n"]):
+            frame = _extract_syntax_error_frame(e)
+
+            assert frame is not None
+            # Should use linecache result
+            assert "from linecache" in frame.get("lines", "")
+
+    def test_notebook_cell_source_exception_lines_348_349(self):
+        """Test lines 348-349: exception inside notebook cell try block."""
+        from unittest.mock import MagicMock, patch
+
+        from tracerite import trace
+        from tracerite.trace import _extract_syntax_error_frame
+
+        mock_ipython = MagicMock()
+        mock_ipython.compile._filename_map.get.side_effect = RuntimeError("error")
+
+        original = trace.ipython
+        try:
+            trace.ipython = mock_ipython
+
+            e = SyntaxError("test")
+            e.filename = "<ipython-input-1>"
+            e.lineno = 1
+            e.offset = 1
+            e.text = "fallback text\n"
+
+            with patch("tracerite.trace._is_notebook_cell", return_value=True), patch(
+                "linecache.getlines", return_value=[]
+            ):
+                frame = _extract_syntax_error_frame(e)
+                assert frame is not None
+                assert "fallback" in frame.get("lines", "")
+        finally:
+            trace.ipython = original
+
+    def test_notebook_cell_source_is_none_branch_342_352(self):
+        """Test branch 342->352: cell_source is None."""
+        from unittest.mock import MagicMock, patch
+
+        from tracerite import trace
+        from tracerite.trace import _extract_syntax_error_frame
+
+        mock_ipython = MagicMock()
+        # Use a real dict that returns None for get()
+        mock_ipython.compile._filename_map = {"<ipython-input-1>": None}
+
+        original = trace.ipython
+        try:
+            trace.ipython = mock_ipython
+
+            e = SyntaxError("test")
+            e.filename = "<ipython-input-1>"
+            e.lineno = 1
+            e.offset = 1
+            e.text = "fallback text\n"
+
+            with patch("linecache.getlines", return_value=[]):
+                frame = _extract_syntax_error_frame(e)
+                assert frame is not None
+                assert "fallback" in frame.get("lines", "")
+        finally:
+            trace.ipython = original
+
+    def test_exception_handler_with_no_text_branch_363_367(self):
+        """Test branch 363->367: exception raised and e.text is None."""
+        from unittest.mock import MagicMock, patch
+
+        from tracerite import trace
+        from tracerite.trace import _extract_syntax_error_frame
+
+        mock_ipython = MagicMock()
+        mock_ipython.compile._filename_map = {}
+
+        original = trace.ipython
+        try:
+            trace.ipython = mock_ipython
+
+            e = SyntaxError("test")
+            e.filename = "<test>"
+            e.lineno = 1
+            e.offset = 1
+            e.text = None
+
+            with patch("linecache.getlines", side_effect=RuntimeError("boom")):
+                frame = _extract_syntax_error_frame(e)
+                assert frame is None
+        finally:
+            trace.ipython = original
+
+    def test_syntax_error_no_column_info_branch_428_435(self):
+        """Test branch 428->435: adjusted_start_col or adjusted_end_col is None."""
+
+        from tracerite.trace import _extract_syntax_error_frame
+
+        e = SyntaxError("test")
+        e.filename = "<test>"
+        e.lineno = 1
+        e.offset = None
+        e.end_offset = None
+        e.text = "x = 1\n"
+
+        frame = _extract_syntax_error_frame(e)
+        assert frame is not None

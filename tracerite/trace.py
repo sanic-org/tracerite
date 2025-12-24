@@ -73,7 +73,6 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         raw_tb = None
 
     # For SyntaxError, check if the error is in user code (notebook cell or matching skip_until)
-    # If so, skip all frames since the error is in user code being compiled
     syntax_frame = None
     if isinstance(e, SyntaxError):
         syntax_frame = _extract_syntax_error_frame(e)
@@ -325,6 +324,8 @@ def _extract_syntax_error_frame(e):
     else:
         end_col = start_col + 1  # Default to single character
 
+    assert start_col is not None and end_col is not None
+
     # Get source lines
     notebook_cell = _is_notebook_cell(filename)
     lines = None
@@ -416,20 +417,15 @@ def _extract_syntax_error_frame(e):
     else:
         # Fallback to Python's positions
         # Adjust columns for dedenting
-        adjusted_start_col = (
-            max(0, start_col - common_indent) if start_col is not None else None
-        )
-        adjusted_end_col = (
-            max(0, end_col - common_indent) if end_col is not None else None
-        )
+        adjusted_start_col = max(0, start_col - common_indent)
+        adjusted_end_col = max(0, end_col - common_indent)
 
         # Create mark range
         mark_range = None
-        if adjusted_start_col is not None and adjusted_end_col is not None:
-            mark_lfinal = end_line or error_line_in_context
-            mark_range = Range(
-                error_line_in_context, mark_lfinal, adjusted_start_col, adjusted_end_col
-            )
+        mark_lfinal = end_line or error_line_in_context
+        mark_range = Range(
+            error_line_in_context, mark_lfinal, adjusted_start_col, adjusted_end_col
+        )
 
         # Build emphasis range
         em_ranges = _extract_emphasis_columns(

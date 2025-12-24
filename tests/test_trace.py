@@ -327,7 +327,8 @@ def test_em_columns_unrelated_error_except():
         assert chain is not None
         assert len(chain) > 0
 
-        frame = chain[0]["frames"][-1]
+        # Use the last exception (newest - ZeroDivisionError)
+        frame = chain[-1]["frames"][-1]
 
         # Check that we have fragments
         assert "fragments" in frame
@@ -363,7 +364,8 @@ def test_em_columns_unrelated_error_finally():
         assert chain is not None
         assert len(chain) > 0
 
-        frame = chain[0]["frames"][-1]
+        # Use the last exception (newest - ZeroDivisionError)
+        frame = chain[-1]["frames"][-1]
 
         # Check that we have fragments
         assert "fragments" in frame
@@ -567,10 +569,11 @@ class TestExtractChain:
         except TypeError as e:
             chain = extract_chain(exc=e)
 
-        # When using 'from', only the newest exception is returned by default
-        assert len(chain) >= 1
-        assert chain[0]["type"] == "TypeError"
-        assert "wrapped error" in chain[0]["message"]
+        # Chain is now oldest-first (original exception first)
+        assert len(chain) == 2
+        assert chain[0]["type"] == "ValueError"  # Original
+        assert chain[1]["type"] == "TypeError"  # Wrapped
+        assert "wrapped error" in chain[1]["message"]
 
     def test_extract_context_exceptions(self):
         """Test extracting exceptions with implicit context (__context__)."""
@@ -582,10 +585,10 @@ class TestExtractChain:
         except TypeError as e:
             chain = extract_chain(exc=e)
 
-        # Should have both exceptions
+        # Chain is now oldest-first
         assert len(chain) == 2
-        assert chain[0]["type"] == "TypeError"
-        assert chain[1]["type"] == "ValueError"
+        assert chain[0]["type"] == "ValueError"  # First/original
+        assert chain[1]["type"] == "TypeError"  # Second/newer
 
     def test_suppress_context(self):
         """Test that __suppress_context__ stops chain extraction."""

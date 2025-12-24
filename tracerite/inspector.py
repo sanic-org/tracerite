@@ -285,17 +285,10 @@ def prettyvalue(val):
     # msgspec Struct and Pydantic BaseModel support (without importing either)
     # msgspec uses __struct_fields__ (tuple), Pydantic v2 uses model_fields (dict)
     struct_fields = None
-    for attr in ("__struct_fields__", "model_fields"):
-        try:
-            # Use getattr on type (safe - no instance side effects)
-            struct_fields = getattr(type(val), attr)
-            if isinstance(struct_fields, dict):
-                struct_fields = tuple(struct_fields.keys())
-            if isinstance(struct_fields, tuple):
-                break
-            struct_fields = None
-        except AttributeError:
-            pass
+    if isinstance(fields := getattr(type(val), "__struct_fields__", None), tuple):
+        struct_fields = fields
+    elif isinstance(fields := getattr(type(val), "model_fields", None), dict):
+        struct_fields = tuple(fields.keys())
     if struct_fields is not None:
         if not struct_fields:
             return (f"{type(val).__name__}()", "inline")
@@ -386,8 +379,5 @@ def prettyvalue(val):
         if len(lines) > 20:
             # Show first 10 and last 10 lines
             ret = "\n".join(lines[:10] + ["⋯"] + lines[-10:])
-        elif len(lines) == 1 and len(ret) >= 200:
-            # For single-line strings that are too long, truncate them
-            ret = ret[:100] + " … " + ret[-100:]
 
     return (ret, format_hint)

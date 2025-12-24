@@ -12,9 +12,9 @@ class TestNumpyArrays:
         """Test pretty printing of small 1D numpy array."""
         arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         result, fmt = prettyvalue(arr)
-        # Should format as comma-separated values
-        assert "1.00" in result
-        assert "5.00" in result
+        # Should format as comma-separated values (whole numbers shown without decimals)
+        assert "1" in result
+        assert "5" in result
 
     def test_numpy_1d_array_large(self):
         """Test pretty printing of large 1D numpy array."""
@@ -22,7 +22,7 @@ class TestNumpyArrays:
         result, fmt = prettyvalue(arr)
         # Should show first and last few elements with ellipsis
         assert "…" in result
-        assert "0.00" in result
+        assert "0" in result  # Whole numbers shown without decimals
 
     def test_numpy_2d_array_small(self):
         """Test pretty printing of small 2D numpy array."""
