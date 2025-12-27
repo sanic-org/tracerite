@@ -39,7 +39,11 @@ def load_ipython_extension(ipython: Any) -> None:
                 from IPython.display import display  # type: ignore[import]
 
                 display(
-                    html_traceback(skip_until="<ipython-input-", replace_previous=True)
+                    html_traceback(
+                        skip_until="<ipython-input-",
+                        replace_previous=True,
+                        autodark=False,
+                    )
                 )
             else:
                 tty_traceback(skip_until="<ipython-input-")
@@ -53,7 +57,11 @@ def load_ipython_extension(ipython: Any) -> None:
                 from IPython.display import display  # type: ignore[import]
 
                 display(
-                    html_traceback(skip_until="<ipython-input-", replace_previous=True)
+                    html_traceback(
+                        skip_until="<ipython-input-",
+                        replace_previous=True,
+                        autodark=False,
+                    )
                 )
             else:
                 tty_traceback(skip_until="<ipython-input-")

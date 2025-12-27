@@ -38,7 +38,10 @@ class TestHtmlCornercases:
             html = html_traceback(exc=e)
             html_str = str(html)
             # Should show chain indicator
-            assert "after" in html_str.lower() or "catching" in html_str.lower()
+            assert (
+                "while handling above" in html_str.lower()
+                or "from above" in html_str.lower()
+            )
 
     def test_frames_without_relevance_call(self):
         """Test scrollto generation skips call frames."""

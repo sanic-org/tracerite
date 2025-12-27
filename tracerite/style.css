@@ -6,16 +6,49 @@
   --tracerite-type: #5c8;
   --tracerite-val: #8af;
   --tracerite-tab: #aaaa;
-  --tracerite-highlight: #ff08;
+  --tracerite-highlight: #fe06;
+  --tracerite-highlight-text: inherit;
   --tracerite-symbol: #ff0;
   --tracerite-caret: #f00;
   --tracerite-exception: gray;
-  --tracerite-tab-hover: #ddd;
   --tracerite-tooltip: #000;
+  --tracerite-tooltip-text: inherit;
+  --tracerite-code: inherit;
+  --tracerite-lineno: #888;
+  --tracerite-floating-shadow: #000;
+  --tracerite-link-bg: #fff5;
+  --tracerite-link-hover: #fff8;
+  --tracerite-function: #68f;
+  --tracerite-location: #5a6;
   --tracerite-code-font: 'Monaspace Krypton', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Ubuntu Mono', 'Consolas', 'Courier New';
   --tracerite-ui-font: system-ui, -apple-system, 'Segoe UI', 'Roboto', 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
 }
 
+:root:has(.tracerite.autodark) {
+  color-scheme: light dark;
+  @media (prefers-color-scheme: dark) {
+    --tracerite-var: #8af;
+    --tracerite-type: #5c8;
+    --tracerite-val: #8af;
+    --tracerite-tab: #666;
+    --tracerite-highlight: #ff0;
+    --tracerite-highlight-text: #000;
+    --tracerite-symbol: #ff0;
+    --tracerite-caret: #f55;
+    --tracerite-exception: #aaa;
+    --tracerite-tooltip: #fff;
+    --tracerite-tooltip-text: #fff;
+    --tracerite-code: #ccc;
+    --tracerite-lineno: #888;
+    --tracerite-floating-shadow: #fff;
+    --tracerite-link-bg: #0005;
+    --tracerite-link-hover: #0008;
+    --tracerite-function: #8af;
+    --tracerite-location: #6b8;
+  }
+}
+
+.tracerite { font-family: var(--tracerite-ui-font); }
 .tracerite,
 .tracerite *,
 .tracerite .traceback-details table,
@@ -28,18 +61,17 @@
 .tracerite .traceback-details pre { overflow: visible; }
 
 /* Code font declarations with high specificity - only for code tags */
-.tracerite code,
-.tracerite pre code,
-.tracerite .traceback-details code {
+.tracerite pre,
+.tracerite code {
   font-family: var(--tracerite-code-font);
   font-feature-settings: "liga" 1, "ss01" 1, "ss02" 1;
   font-variant-ligatures: common-ligatures;
   background: none;
+  color: var(--tracerite-code);
 }
 
 .tracerite strong,
 .tracerite > h3 { font-weight: bold; padding: 0.2em 0; }
-.tracerite .after { margin: 0; padding: 1em 0 0 0; font-size: 1.2em; }
 .tracerite .excmessage { max-height: 12em; overflow: auto; }
 .tracerite .exctype { color: var(--tracerite-exception); }
 
@@ -49,7 +81,7 @@
 .tracerite .traceback-details .codeline { text-indent: 4ch each-line; }
 .tracerite .traceback-details .codeline::before {
   content: attr(data-lineno);
-  color: #888;
+  color: var(--tracerite-lineno);
   opacity: 0.0;
   transition: all 0.4s;
   display: inline-block;
@@ -62,7 +94,7 @@
 }
 .tracerite .traceback-details pre:hover .codeline::before { opacity: 1.0; }
 
-.tracerite .traceback-details mark { background: var(--tracerite-highlight); padding: 0.2em; margin: -0.1em; }
+.tracerite .traceback-details mark { background: var(--tracerite-highlight); color: var(--tracerite-highlight-text); padding: 0.2em; margin: -0.1em; }
 .tracerite .traceback-details em { font-style: normal; color: var(--tracerite-caret); }
 
 /* Symbol element - display symbol with specific styling */
@@ -95,6 +127,7 @@
   vertical-align: middle;
   font-family: var(--tracerite-ui-font);
   white-space: nowrap;
+  color: var(--tracerite-tooltip-text);
 }
 
 /* Display tooltip text using pseudo-element and data attribute */
@@ -116,7 +149,7 @@
   font-size: 1.4em;
   line-height: 1;
   pointer-events: auto;
-  text-shadow: 0 0 0.1em black;
+  text-shadow: 0 0 0.1em var(--tracerite-floating-shadow);
   transition: left 0.2s ease-out, top 0.2s ease-out, opacity 0.15s ease-out;
 }
 .tracerite .floating-symbol.visible { display: block; opacity: 1; }
@@ -182,22 +215,21 @@
   white-space: nowrap;
   z-index: 5;
 }
-.tracerite .frame-label strong { font-weight: 600; }
-.tracerite .frame-label .frame-function { opacity: 0.7; font-size: 0.9em; }
+.tracerite .frame-label strong { font-weight: 500; color: var(--tracerite-location); }
+.tracerite .frame-label .frame-function { font-weight: 600; color: var(--tracerite-function); }
 .tracerite .frame-label .frame-link {
   margin-left: 0.3em;
   padding: 0.1em 0.4em;
-  background: rgba(255,255,255,0.3);
+  background: var(--tracerite-link-bg);
   border-radius: 0.3em;
   color: inherit;
   text-decoration: none;
   font-size: 0.85em;
 }
-.tracerite .frame-label .frame-link:hover { background: rgba(255,255,255,0.5); }
+.tracerite .frame-label .frame-link:hover { background: var(--tracerite-link-hover); }
 
 .tracerite table.inspector { margin-left: 3.5em; width: auto; word-break: break-word; }
 .tracerite .inspector tbody tr,
-.tracerite .inspector th,
 .tracerite .inspector td {
   padding: 0;
   background: none;

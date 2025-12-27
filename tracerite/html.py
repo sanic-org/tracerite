@@ -77,12 +77,14 @@ def html_traceback(
     include_js_css: bool = True,
     local_urls: bool = False,
     replace_previous: bool = False,
+    autodark: bool = True,
     **extract_args: Any,
 ) -> Any:
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
     # Chain is oldest-first from extract_chain
+    classes = "tracerite autodark" if autodark else "tracerite"
     with E.div(
-        class_="tracerite", data_replace_previous="1" if replace_previous else None
+        class_=classes, data_replace_previous="1" if replace_previous else None
     ) as doc:
         if include_js_css:
             doc._style(style)
@@ -162,10 +164,10 @@ def _frame_label(doc: Any, frinfo: dict[str, Any], *, local_urls: bool = False) 
         title = frinfo["location"] or frinfo["function"] or ""
 
     with doc.div(class_="frame-label", title=title):
-        doc.strong(frinfo["location"])
         if frinfo["function"]:
-            doc(" ")
             doc.span(frinfo["function"], class_="frame-function")
+            doc(" ")
+        doc.strong(frinfo["location"])
         # Editor links if available
         urls = frinfo.get("urls", {})
         if local_urls and urls:
