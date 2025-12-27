@@ -2,17 +2,20 @@
 
 from .html import html_traceback
 from .logging import logger
+from .tty import load as load_tty
 
 _original_debug_response = None
 
 
-def patch_fastapi():
+def patch_fastapi(*, tty=True):
     """
     Load TraceRite extension for FastAPI by patching ServerErrorMiddleware.
 
     This patches Starlette's ServerErrorMiddleware.debug_response to return
     TraceRite HTML tracebacks instead of the default debug HTML when running
     in debug mode and the client accepts HTML.
+
+    Additionally, we load the TTY formatting for console output.
     """
     global _original_debug_response
     if _original_debug_response is not None:
@@ -43,4 +46,8 @@ def patch_fastapi():
 
     ServerErrorMiddleware.debug_response = tracerite_debug_response  # type: ignore
     fastapi.routing.__tracebackhide__ = "until"  # type: ignore
+
+    if tty:
+        load_tty()
+
     logger.info("TraceRite FastAPI extension loaded")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import textwrap
@@ -50,9 +51,10 @@ tooltips = {
 # Store the original hooks for unload
 _original_excepthook = None
 _original_threading_excepthook = None
+_original_stream_handler_emit = None
 
 
-def load():
+def load(capture_logging: bool = True):
     """Load TraceRite as the default exception handler.
 
     Replaces sys.excepthook to use TraceRite's pretty TTY formatting
@@ -60,17 +62,28 @@ def load():
     logging.exception() calls.
     Call unload() to restore the original exception handlers.
 
+    Args:
+        capture_logging: Whether to monkeypatch logging.StreamHandler.emit
+            to format exceptions in logging.exception() calls. Defaults to True.
+
     Usage:
         import tracerite
-        tracerite.load()
+        tracerite.load()  # Captures logging by default
+        tracerite.load(capture_logging=False)  # Only captures sys.excepthook
     """
-    global _original_excepthook, _original_threading_excepthook
+    global \
+        _original_excepthook, \
+        _original_threading_excepthook, \
+        _original_stream_handler_emit
 
     if _original_excepthook is None:
         _original_excepthook = sys.excepthook
 
     if _original_threading_excepthook is None:
         _original_threading_excepthook = threading.excepthook
+
+    if capture_logging and _original_stream_handler_emit is None:
+        _original_stream_handler_emit = logging.StreamHandler.emit
 
     def _tracerite_excepthook(exc_type, exc_value, exc_tb):
         try:
@@ -92,17 +105,45 @@ def load():
             else:
                 sys.__excepthook__(args.exc_type, args.exc_value, args.exc_traceback)
 
+    def _tracerite_stream_handler_emit(self, record: logging.LogRecord) -> None:
+        """Emit a log record with TraceRite formatting for exceptions."""
+        try:
+            # Check if we have exception info to format specially
+            if not record.exc_info or record.exc_info[1] is None:
+                # No exception, use original emit
+                return _original_stream_handler_emit(self, record)
+            # Temporarily clear exc_info so format() doesn't include traceback
+            exc_info = record.exc_info
+            record.exc_info = None
+            record.exc_text = None
+            try:
+                msg = self.format(record)
+            finally:
+                record.exc_info = exc_info
+
+            # Now format and write the exception using TraceRite
+            tty_traceback(exc=exc_info[1], file=self.stream, msg=msg + self.terminator)
+        except RecursionError:
+            raise
+        except Exception:
+            self.handleError(record)
+
     sys.excepthook = _tracerite_excepthook
     threading.excepthook = _tracerite_threading_excepthook
+    if capture_logging:
+        logging.StreamHandler.emit = _tracerite_stream_handler_emit
 
 
 def unload():
     """Restore the original exception handlers.
 
     Removes TraceRite from sys.excepthook, threading.excepthook, and
-    logging.Formatter.formatException, restoring the previous handlers.
+    logging.StreamHandler.emit, restoring the previous handlers.
     """
-    global _original_excepthook, _original_threading_excepthook
+    global \
+        _original_excepthook, \
+        _original_threading_excepthook, \
+        _original_stream_handler_emit
 
     if _original_excepthook is not None:
         sys.excepthook = _original_excepthook
@@ -112,8 +153,12 @@ def unload():
         threading.excepthook = _original_threading_excepthook
         _original_threading_excepthook = None
 
+    if _original_stream_handler_emit is not None:
+        logging.StreamHandler.emit = _original_stream_handler_emit
+        _original_stream_handler_emit = None
 
-def tty_traceback(exc=None, chain=None, *, file=None, **extract_args):
+
+def tty_traceback(exc=None, chain=None, *, file=None, msg=None, **extract_args):
     """Format and print a traceback for terminal output (TTY).
 
     Outputs directly to the terminal (or specified file) to adapt to
@@ -134,6 +179,12 @@ def tty_traceback(exc=None, chain=None, *, file=None, **extract_args):
 
     # Set dark grey background for entire traceback
     output = DARK_GREY_BG
+
+    # Print the original log message if provided
+    if msg:
+        # Replace ANSI reset codes with RST to preserve dark grey background
+        msg = re.sub(r"\033\[0m", RST, msg)
+        output += msg.replace("\n", "\033[K\n") + EOL
 
     # Get terminal width for potential future use
     try:
@@ -175,7 +226,7 @@ def tty_traceback(exc=None, chain=None, *, file=None, **extract_args):
         )
 
     # Reset to original terminal colors
-    output += RESET
+    output += EOL + RESET + "\033[K"
 
     if no_color:
         # Strip all ANSI escape sequences for non-TTY output
