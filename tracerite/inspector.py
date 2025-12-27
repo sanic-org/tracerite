@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import contextlib
 import dataclasses
 import math
@@ -5,6 +7,7 @@ import re
 import types
 from collections import namedtuple
 from functools import reduce
+from typing import Any, Callable
 
 from .logging import logger
 
@@ -12,7 +15,7 @@ from .logging import logger
 VarInfo = namedtuple("VarInfo", ["name", "typename", "value", "format_hint"])
 
 
-def _format_scalar(v):
+def _format_scalar(v: Any) -> str:
     """Format a single numeric value intelligently."""
     # Integer types (including numpy integers) - display without decimals
     if isinstance(v, int) or (hasattr(v, "dtype") and "int" in str(v.dtype)):
@@ -37,7 +40,7 @@ def _format_scalar(v):
 _SUPERSCRIPT_DIGITS = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
 
 
-def _get_flat(arr):
+def _get_flat(arr: Any) -> list[Any]:
     """Get a flat/1D view of an array, supporting numpy and torch."""
     # Try numpy-style .flat first
     if hasattr(arr, "flat"):
@@ -49,7 +52,7 @@ def _get_flat(arr):
     return arr
 
 
-def _array_formatter(arr):
+def _array_formatter(arr: Any) -> tuple[Callable[[Any], str], str]:
     """
     Create an optimal formatter for displaying array values consistently.
 
@@ -98,7 +101,7 @@ def _array_formatter(arr):
         log_scaled = log_max - scale_power if scale_power else log_max
         decimals = max(0, 2 - math.floor(log_scaled)) if max_abs > 0 else 0
 
-        def fmt(v, sf=scale_factor, d=decimals):
+        def fmt(v: Any, sf: float = scale_factor, d: int = decimals) -> str:
             if v != v:
                 return "NaN"
             if v == float("inf"):
@@ -127,7 +130,7 @@ blacklist_types = (
 no_str_conv = re.compile(r"<.* object at 0x[0-9a-fA-F]{5,}>")
 
 
-def extract_variables(variables, sourcecode):
+def extract_variables(variables: dict[str, Any], sourcecode: str) -> list[VarInfo]:
     identifiers = {
         m.group(0) for p in (r"\w+", r"\w+\.\w+") for m in re.finditer(p, sourcecode)
     }
@@ -200,7 +203,7 @@ def extract_variables(variables, sourcecode):
     return rows
 
 
-def safe_vars(obj):
+def safe_vars(obj: Any) -> dict[str, Any]:
     """Like vars(), but also supports objects with slots."""
     ret = {}
     for attr in dir(obj):
@@ -209,7 +212,7 @@ def safe_vars(obj):
     return ret
 
 
-def prettyvalue(val):
+def prettyvalue(val: Any) -> tuple[Any, str]:
     """
     Format a value for display in the inspector.
 

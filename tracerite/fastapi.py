@@ -1,5 +1,9 @@
 """TraceRite extension for FastAPI/Starlette applications."""
 
+from __future__ import annotations
+
+from typing import Any
+
 from .html import html_traceback
 from .logging import logger
 from .tty import load as load_tty
@@ -7,7 +11,7 @@ from .tty import load as load_tty
 _original_debug_response = None
 
 
-def patch_fastapi(*, tty=True):
+def patch_fastapi(*, tty: bool = True) -> None:
     """
     Load TraceRite extension for FastAPI by patching ServerErrorMiddleware.
 
@@ -29,7 +33,7 @@ def patch_fastapi(*, tty=True):
         return
     _original_debug_response = ServerErrorMiddleware.debug_response
 
-    def tracerite_debug_response(self, request, exc):
+    def tracerite_debug_response(self, request, exc) -> Any:
         """Return TraceRite HTML traceback instead of Starlette's debug response."""
         accept = request.headers.get("accept", "")
         if "text/html" not in accept:

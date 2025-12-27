@@ -43,7 +43,6 @@ nb = [
 [dependency-groups]
 dev = [
     "nox",
-    "ruff",
 ]
 
 test = [
@@ -56,6 +55,8 @@ test = [
     "pytest-cov>=4.0.0",
     "msgspec>=0.18.0",
     "pydantic>=2.0.0",
+    "ruff>=0.14.9",
+    "ty>=0.0.7",
 ]
 
 [tool.hatch.version]

@@ -1,11 +1,16 @@
-from importlib.resources import files
+from __future__ import annotations
 
-from html5tagger import HTML, E
+from importlib.resources import files
+from typing import Any, cast
+
+from html5tagger import HTML, E  # type: ignore[import]
 
 from .trace import chainmsg, extract_chain
 
-style = files(__package__).joinpath("style.css").read_text(encoding="UTF-8")
-javascript = files(__package__).joinpath("script.js").read_text(encoding="UTF-8")
+style = files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
+javascript = (
+    files(cast(str, __package__)).joinpath("script.js").read_text(encoding="UTF-8")
+)
 
 detail_show = "{display: inherit}"
 
@@ -18,7 +23,9 @@ tooltips = {
 }
 
 
-def _collapse_call_runs(frames, min_run_length=10):
+def _collapse_call_runs(
+    frames: list[dict[str, Any]], min_run_length: int = 10
+) -> list[Any]:
     """Collapse consecutive runs of 'call' frames, keeping first and last of each run.
 
     Only collapses runs of frames with relevance='call'. Non-call frames
@@ -64,14 +71,14 @@ def _collapse_call_runs(frames, min_run_length=10):
 
 
 def html_traceback(
-    exc=None,
-    chain=None,
+    exc: BaseException | None = None,
+    chain: list[dict[str, Any]] | None = None,
     *,
-    include_js_css=True,
-    local_urls=False,
-    replace_previous=False,
-    **extract_args,
-):
+    include_js_css: bool = True,
+    local_urls: bool = False,
+    replace_previous: bool = False,
+    **extract_args: Any,
+) -> Any:
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
     # Chain is oldest-first from extract_chain
     with E.div(
@@ -98,7 +105,9 @@ def html_traceback(
     return doc
 
 
-def _exception(doc, info, *, local_urls=False, chain_suffix=""):
+def _exception(
+    doc: Any, info: dict[str, Any], *, local_urls: bool = False, chain_suffix: str = ""
+) -> None:
     """Format single exception message and traceback"""
     summary, message = info["summary"], info["message"]
     doc.h3(E.span(f"{info['type']}{chain_suffix}:", class_="exctype")(f" {summary}"))
@@ -143,7 +152,7 @@ def _exception(doc, info, *, local_urls=False, chain_suffix=""):
                         variable_inspector(doc, frinfo["variables"])
 
 
-def _frame_label(doc, frinfo, *, local_urls=False):
+def _frame_label(doc: Any, frinfo: dict[str, Any], *, local_urls: bool = False) -> None:
     """Render sticky label for a code frame with optional editor links."""
     # Build title text: full path with line number
     if frinfo["filename"]:
@@ -164,7 +173,7 @@ def _frame_label(doc, frinfo, *, local_urls=False):
                 doc.a(name, href=href, class_="frame-link")
 
 
-def traceback_detail(doc, info, frinfo):
+def traceback_detail(doc: Any, info: dict[str, Any], frinfo: dict[str, Any]) -> None:
     # Code printout
     fragments = frinfo.get("fragments", [])
     if not fragments:
@@ -249,7 +258,7 @@ def traceback_detail(doc, info, frinfo):
                     _render_fragment(doc, fragment)
 
 
-def _render_fragment(doc, fragment):
+def _render_fragment(doc: Any, fragment: dict[str, Any]) -> None:
     """Render a single fragment with appropriate styling."""
     code = fragment["code"]
 
@@ -272,7 +281,7 @@ def _render_fragment(doc, fragment):
         doc(HTML("</mark>"))
 
 
-def variable_inspector(doc, variables):
+def variable_inspector(doc: Any, variables: list[Any]) -> None:
     if not variables:
         return
     with doc.table(class_="inspector key-value"):
@@ -313,7 +322,7 @@ def variable_inspector(doc, variables):
                 _format_matrix(doc, v)
 
 
-def _format_keyvalue(doc, rows):
+def _format_keyvalue(doc: Any, rows: list[tuple[str, Any]]) -> None:
     """Format key-value pairs (dicts, dataclasses) as a definition list."""
     with doc.dl(class_="keyvalue-dl"):
         for key, val in rows:
@@ -321,7 +330,7 @@ def _format_keyvalue(doc, rows):
             doc.dd(val)
 
 
-def _format_matrix(doc, v):
+def _format_matrix(doc: Any, v: Any) -> None:
     skipcol = skiprow = False
     with doc.table:
         for row in v:

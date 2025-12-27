@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import contextlib
 import sys
+from typing import Any
 
 from . import trace
 from .html import html_traceback
@@ -7,7 +10,7 @@ from .logging import logger
 from .tty import tty_traceback
 
 
-def _can_display_html():
+def _can_display_html() -> bool:
     # Spyder runs IPython ZMQInteractiveShell but lacks HTML support. Using
     # argv seems like the most portable way to autodetect HTML capability.
     #
@@ -17,12 +20,12 @@ def _can_display_html():
     return any(name in sys.argv[0] for name in ["ipykernel", "colab_kernel_launcher"])
 
 
-def load_ipython_extension(ipython):
+def load_ipython_extension(ipython: Any) -> None:
     trace.ipython = ipython
 
     # Hide IPython's internal frames from tracebacks
     try:
-        from IPython.core import interactiveshell
+        from IPython.core import interactiveshell  # type: ignore[import]
 
         interactiveshell.__tracebackhide__ = True  # type: ignore[attr-defined]
     except ImportError:
@@ -30,10 +33,10 @@ def load_ipython_extension(ipython):
 
     # Define handlers that check HTML capability at call time, not load time.
     # This allows the same extension to work in both Jupyter and terminal.
-    def showtraceback(*args, **kwargs):
+    def showtraceback(*args: Any, **kwargs: Any) -> None:
         try:
             if _can_display_html():
-                from IPython.display import display
+                from IPython.display import display  # type: ignore[import]
 
                 display(
                     html_traceback(skip_until="<ipython-input-", replace_previous=True)
@@ -44,10 +47,10 @@ def load_ipython_extension(ipython):
             # Fall back to built-in showtraceback
             ipython.__class__.showtraceback(ipython, *args, **kwargs)
 
-    def showsyntaxerror(*args, **kwargs):
+    def showsyntaxerror(*args: Any, **kwargs: Any) -> None:
         try:
             if _can_display_html():
-                from IPython.display import display
+                from IPython.display import display  # type: ignore[import]
 
                 display(
                     html_traceback(skip_until="<ipython-input-", replace_previous=True)
@@ -67,14 +70,14 @@ def load_ipython_extension(ipython):
         raise
 
 
-def unload_ipython_extension(ipython):
+def unload_ipython_extension(ipython: Any) -> None:
     with contextlib.suppress(AttributeError):
         del ipython.showtraceback
     with contextlib.suppress(AttributeError):
         del ipython.showsyntaxerror
     # Remove the __tracebackhide__ we injected
     try:
-        from IPython.core import interactiveshell
+        from IPython.core import interactiveshell  # type: ignore[import]
 
         with contextlib.suppress(AttributeError):
             del interactiveshell.__tracebackhide__  # type: ignore[attr-defined]

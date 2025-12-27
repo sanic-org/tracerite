@@ -6,6 +6,7 @@ import sys
 import textwrap
 import threading
 from pathlib import Path
+from typing import Any, TextIO
 
 from .trace import chainmsg, extract_chain
 
@@ -60,7 +61,7 @@ _original_threading_excepthook = None
 _original_stream_handler_emit = None
 
 
-def load(capture_logging: bool = True):
+def load(capture_logging: bool = True) -> None:
     """Load TraceRite as the default exception handler.
 
     Replaces sys.excepthook to use TraceRite's pretty TTY formatting
@@ -148,7 +149,7 @@ def load(capture_logging: bool = True):
         logging.StreamHandler.emit = _tracerite_stream_handler_emit  # type: ignore[attr-defined]
 
 
-def unload():
+def unload() -> None:
     """Restore the original exception handlers.
 
     Removes TraceRite from sys.excepthook, threading.excepthook, and
@@ -173,8 +174,14 @@ def unload():
 
 
 def tty_traceback(
-    exc=None, chain=None, *, file=None, msg=None, term_width=None, **extract_args
-):
+    exc: BaseException | None = None,
+    chain: list[dict[str, Any]] | None = None,
+    *,
+    file: TextIO | None = None,
+    msg: str | None = None,
+    term_width: int | None = None,
+    **extract_args: Any,
+) -> None:
     """Format and print a traceback for terminal output (TTY).
 
     Outputs directly to the terminal (or specified file) to adapt to
@@ -251,7 +258,9 @@ def tty_traceback(
 
 
 def _find_inspector_frame_idx(
-    frame_info_list: list, exception_idx: int, inspector_allowed: set | None
+    frame_info_list: list[dict[str, Any]],
+    exception_idx: int,
+    inspector_allowed: set[tuple[int, int]] | None,
 ) -> int | None:
     """Find the first non-call frame that is allowed to show inspector.
 
@@ -266,7 +275,7 @@ def _find_inspector_frame_idx(
 
 
 def _find_frame_line_range(
-    output_lines: list, inspector_frame_idx: int
+    output_lines: list[tuple[str, int, int, bool]], inspector_frame_idx: int
 ) -> tuple[int, int]:
     """Find the line range for the inspector frame in output_lines.
 
@@ -288,7 +297,9 @@ def _find_frame_line_range(
 
 
 def _find_last_marked_line(
-    output_lines: list, frame_line_start: int, frame_line_end: int
+    output_lines: list[tuple[str, int, int, bool]],
+    frame_line_start: int,
+    frame_line_end: int,
 ) -> int:
     """Find the last marked line within the frame range.
 
@@ -304,7 +315,9 @@ def _find_last_marked_line(
     return last_marked
 
 
-def _find_collapsible_call_runs(frame_info_list, min_run_length=10):
+def _find_collapsible_call_runs(
+    frame_info_list: list[dict[str, Any]], min_run_length: int = 10
+) -> list[tuple[int, int]]:
     """Find consecutive runs of 'call' frames that should be collapsed.
 
     Returns list of (start_idx, end_idx) tuples for runs of consecutive
@@ -329,13 +342,13 @@ def _find_collapsible_call_runs(frame_info_list, min_run_length=10):
 
 
 def _print_exception(
-    e,
-    term_width,
-    exception_idx=0,
-    inspector_allowed=None,
-    chain_suffix="",
-    no_inspector=False,
-):
+    e: dict[str, Any],
+    term_width: int,
+    exception_idx: int = 0,
+    inspector_allowed: set[tuple[int, int]] | None = None,
+    chain_suffix: str = "",
+    no_inspector: bool = False,
+) -> str:
     """Print a single exception with its frames."""
     output = _build_exception_header(e, term_width, chain_suffix)
     output += _build_frames_output(
@@ -344,7 +357,9 @@ def _print_exception(
     return output
 
 
-def _build_exception_header(e, term_width, chain_suffix):
+def _build_exception_header(
+    e: dict[str, Any], term_width: int, chain_suffix: str
+) -> str:
     """Build the exception header output."""
     output = ""
     # Exception header (not indented)
@@ -406,7 +421,13 @@ def _build_exception_header(e, term_width, chain_suffix):
     return output
 
 
-def _build_frames_output(e, term_width, exception_idx, inspector_allowed, no_inspector):
+def _build_frames_output(
+    e: dict[str, Any],
+    term_width: int,
+    exception_idx: int,
+    inspector_allowed: set[tuple[int, int]] | None,
+    no_inspector: bool,
+) -> str:
     """Build the frames output for an exception."""
     output = ""
     # Frames: caller first, then callee (deepest last)
@@ -482,8 +503,11 @@ def _build_frames_output(e, term_width, exception_idx, inspector_allowed, no_ins
 
 
 def _merge_inspector_output(
-    output_lines, inspector_lines, term_width, inspector_frame_idx
-):
+    output_lines: list[tuple[str, int, int, bool]],
+    inspector_lines: list[tuple[str, int]],
+    term_width: int,
+    inspector_frame_idx: int | None,
+) -> str:
     """Merge output lines with inspector lines using cursor positioning."""
     output = ""
     assert inspector_frame_idx is not None
@@ -596,7 +620,7 @@ def _merge_inspector_output(
     return output
 
 
-def _get_frame_label(frinfo):
+def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     """Get the label for a frame (path:lineno function)."""
     frame_range = frinfo.get("range")
     lineno = frame_range.lfirst if frame_range else "?"
@@ -626,7 +650,7 @@ def _get_frame_label(frinfo):
     return label, label_plain
 
 
-def _get_frame_info(e, frinfo):
+def _get_frame_info(e: dict[str, Any], frinfo: dict[str, Any]) -> dict[str, Any]:
     """Gather all info needed to print a frame."""
     label, label_plain = _get_frame_label(frinfo)
     fragments = frinfo.get("fragments", [])
@@ -652,7 +676,9 @@ def _get_frame_info(e, frinfo):
     }
 
 
-def _build_frame_lines(info, label_width, term_width):
+def _build_frame_lines(
+    info: dict[str, Any], label_width: int, term_width: int
+) -> list[tuple[str, int, bool]]:
     """Build output lines for a frame. Returns list of (colored_line, plain_length, is_marked)."""
     label = info["label"]
     label_plain = info["label_plain"]
@@ -768,7 +794,7 @@ def _build_frame_lines(info, label_width, term_width):
     return lines
 
 
-def _format_fragment(fragment):
+def _format_fragment(fragment: dict[str, Any]) -> tuple[str, str]:
     """Format a fragment returning (colored_string, plain_string)."""
     code = fragment["code"].rstrip("\n\r")
     mark = fragment.get("mark")
@@ -798,7 +824,7 @@ def _format_fragment(fragment):
     return "".join(colored_parts), code
 
 
-def _format_fragment_call(fragment):
+def _format_fragment_call(fragment: dict[str, Any]) -> tuple[str, str]:
     """Format a fragment for call frames: default color, only em in yellow."""
     code = fragment["code"].rstrip("\n\r")
     em = fragment.get("em")
@@ -819,7 +845,7 @@ def _format_fragment_call(fragment):
     return "".join(colored_parts), code
 
 
-def _print_fragment(file, fragment):
+def _print_fragment(file: TextIO, fragment: dict[str, Any]) -> None:
     """Print a single fragment with appropriate ANSI styling.
 
     Follows the same nesting order as html.py:
@@ -853,7 +879,9 @@ def _print_fragment(file, fragment):
         print(RST, end="", file=file)
 
 
-def _build_variable_inspector(variables, term_width):
+def _build_variable_inspector(
+    variables: list[Any], term_width: int
+) -> list[tuple[str, int]]:
     """Build variable inspector lines. Returns list of (colored_line, width).
 
     Uses simple left-side vertical bar only, no top/bottom borders.

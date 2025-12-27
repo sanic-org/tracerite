@@ -313,7 +313,7 @@ def _compute_suggestion_error(exc_value, tb, wrong_name):
                 return f"self.{wrong_name}"
 
     try:
-        import _suggestions
+        import _suggestions  # type: ignore[import]
     except ImportError:
         pass
     else:

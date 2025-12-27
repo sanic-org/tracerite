@@ -20,7 +20,7 @@ nox.options.error_on_external_run = True
 
 # Default sessions to run (in order) when no session is specified
 # Format first for convenience (incl. lint), clean coverage, run tests, then report
-nox.options.sessions = ["format", "clean-coverage", "test", "coverage"]
+nox.options.sessions = ["format", "lint", "clean-coverage", "test", "coverage"]
 
 # Python versions to test against
 PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
@@ -55,10 +55,11 @@ def test(session):
 
 @nox.session(python=TOOLS_PYTHON)
 def lint(session):
-    """Run linting checks with ruff."""
-    session.install("ruff")
+    """Run linting checks with ruff and type checking with ty."""
+    session.install("ruff", "ty")
     session.run("ruff", "check", ".")
     session.run("ruff", "format", "--check", ".")
+    session.run("ty", "check", "tracerite")
 
 
 @nox.session(python=TOOLS_PYTHON)
@@ -131,22 +132,7 @@ def clean(session):
                     shutil.rmtree(path, ignore_errors=True)
 
 
-@nox.session(python=TOOLS_PYTHON, name="test-latest")
-def test_latest(session):
-    """Run tests quickly on the latest Python version only (for rapid development)."""
-    session.install(".", "--group", "test")
-
-    # If no args provided, default to "tests" directory
-    test_args = session.posargs if session.posargs else ["tests"]
-
-    # Run tests with coverage using parallel mode to avoid conflicts
-    session.run(
-        "coverage",
-        "run",
-        "--parallel-mode",
-        "--source",
-        "tracerite",
-        "-m",
-        "pytest",
-        *test_args,
-    )
+@nox.session(python=TOOLS_PYTHON)
+def ty(session):
+    """Run type checking with ty."""
+    session.run("uvx", "ty", "check", "tracerite")
