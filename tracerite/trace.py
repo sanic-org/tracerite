@@ -136,7 +136,7 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
 def _is_notebook_cell(filename):
     """Check if the filename corresponds to a Jupyter notebook cell."""
     try:
-        return filename in ipython.compile._filename_map
+        return filename in ipython.compile._filename_map  # type: ignore[attr-defined]
     except (AttributeError, KeyError, TypeError):
         return False
 
@@ -207,7 +207,7 @@ def format_location(filename, lineno):
     urls = {}
     location = None
     try:
-        ipython_in = ipython.compile._filename_map[filename]
+        ipython_in = ipython.compile._filename_map[filename]  # type: ignore[attr-defined]
         location = f"In [{ipython_in}]"
         filename = None
     except (AttributeError, KeyError):

@@ -23,7 +23,8 @@ def load_ipython_extension(ipython):
     # Hide IPython's internal frames from tracebacks
     try:
         from IPython.core import interactiveshell
-        interactiveshell.__tracebackhide__ = True
+
+        interactiveshell.__tracebackhide__ = True  # type: ignore[attr-defined]
     except ImportError:
         pass
 
@@ -74,8 +75,9 @@ def unload_ipython_extension(ipython):
     # Remove the __tracebackhide__ we injected
     try:
         from IPython.core import interactiveshell
+
         with contextlib.suppress(AttributeError):
-            del interactiveshell.__tracebackhide__
+            del interactiveshell.__tracebackhide__  # type: ignore[attr-defined]
     except ImportError:
         pass
     trace.ipython = None
