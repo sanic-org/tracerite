@@ -19,16 +19,19 @@ Range = namedtuple("Range", ["lfirst", "lfinal", "cbeg", "cend"])
 # Will be set to an instance if loaded as an IPython extension by %load_ext
 ipython = None
 
-# Locations considered to be bug-free (library code, not user code)
+# Locations considered to be bug-free (library code, not user code), capture pretty suffix
 libdir = re.compile(
-    r"/usr/.*|.*(site-packages|dist-packages).*|.*/lib/python\d+\.\d+/.*|.*/\.cache/.*|.*/bin/[^/]+(?<!\.py)"
+    r".*(?:site-packages|dist-packages)/(.+)"
+    r"|.*/lib/python\d+\.\d+/(.+)"
+    r"|.*/bin/([^/]+)(?<!\.py)"  # CLI scripts
+    r"|.*/\.cache/(.+)"
 )
 
 # Messages for exception chaining (oldest-first order)
 # Suffix added to exception type when chained from a previous exception
 chainmsg = {
     "cause": " from above",
-    "context": " while handling previous exception",
+    "context": " in handling above",
     "none": "",
 }
 
@@ -144,19 +147,43 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
         if start == 0:
             start = 1
         # For notebook cells, show only the error lines (no context)
-        # For regular files, show 15 lines before and 3 lines after
+        # For regular files, show 10 lines before and 2 lines after
         if notebook_cell:
             lines_before = 0
             lines_after = (end_lineno - lineno) if end_lineno else 0
         else:
-            lines_before = 15
-            lines_after = (end_lineno - lineno + 3) if end_lineno else 3
+            lines_before = 10
+            lines_after = (end_lineno - lineno + 2) if end_lineno else 2
         lines = lines[
             max(0, lineno - start - lines_before) : max(
                 0, lineno - start + lines_after + 1
             )
         ]
         start += max(0, lineno - start - lines_before)
+
+        # For regular files, trim to start from the line with minimal indentation
+        if not notebook_cell:
+            lines_list = lines
+            if lines_list:
+                # Find minimal indentation
+                min_indent = min(
+                    (
+                        len(line) - len(line.lstrip())
+                        for line in lines_list
+                        if line.strip()
+                    ),
+                    default=0,
+                )
+                # Find the first line with minimal indentation
+                for i, line in enumerate(lines_list):
+                    if len(line) - len(line.lstrip()) == min_indent:
+                        break
+                else:
+                    i = 0  # If no line has min_indent, keep all
+                # Trim from the beginning
+                lines_list = lines_list[i:]
+                start += i
+                lines = lines_list
 
         # Calculate common indentation before dedenting
         common_indent = _calculate_common_indent(lines)
@@ -166,6 +193,14 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
         return dedented_content, start, common_indent
     except OSError:
         return "", lineno, 0  # Source not available (non-Python module)
+
+
+def _libdir_match(path):
+    """Check if path is in a library directory and return the short suffix if so."""
+    m = libdir.fullmatch(path)
+    if m:
+        return next((g for g in m.groups() if g), "")
+    return None
 
 
 def format_location(filename, lineno):
@@ -187,10 +222,15 @@ def format_location(filename, lineno):
                 urls["Jupyter"] = f"/edit/{quote(fn.as_posix())}"
         filename = fn.as_posix()
     if not location and filename:
-        split = (
-            filename.rfind("/", 10, len(filename) - 20) + 1 if len(filename) > 40 else 0
-        )
-        location = filename[split:]
+        # Use library short path if available, otherwise truncate long paths
+        location = _libdir_match(filename)
+        if location is None:
+            split = (
+                filename.rfind("/", 10, len(filename) - 20) + 1
+                if len(filename) > 40
+                else 0
+            )
+            location = filename[split:]
     return filename, location, urls
 
 
@@ -294,7 +334,7 @@ def _find_bug_frame(tb):
         (
             f
             for f in reversed(tb)
-            if f.code_context and not libdir.fullmatch(Path(f.filename).as_posix())
+            if f.code_context and _libdir_match(Path(f.filename).as_posix()) is None
         ),
         tb[-1],
     ).frame
