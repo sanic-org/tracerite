@@ -5,7 +5,6 @@ from collections import namedtuple
 from contextlib import suppress
 from pathlib import Path
 from secrets import token_urlsafe
-from textwrap import dedent
 from urllib.parse import quote
 
 from . import trace_cpy
@@ -31,7 +30,7 @@ libdir = re.compile(
 # Suffix added to exception type when chained from a previous exception
 chainmsg = {
     "cause": " from above",
-    "context": " in handling above",
+    "context": " while handling above",
     "none": "",
 }
 
@@ -161,38 +160,17 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
         ]
         start += max(0, lineno - start - lines_before)
 
-        # For regular files, trim to start from the line with minimal indentation
-        if not notebook_cell:
-            lines_list = lines
-            if lines_list:
-                # Find minimal indentation
-                min_indent = min(
-                    (
-                        len(line) - len(line.lstrip())
-                        for line in lines_list
-                        if line.strip()
-                    ),
-                    default=0,
-                )
-                # Find the first line with minimal indentation
-                for i, line in enumerate(lines_list):
-                    if len(line) - len(line.lstrip()) == min_indent:
-                        break
-                else:
-                    i = 0  # If no line has min_indent, keep all
-                # Trim from the beginning
-                lines_list = lines_list[i:]
-                start += i
-                lines = lines_list
-
-        # Calculate common indentation before dedenting
+        # Calculate common indentation and dedent
         common_indent = _calculate_common_indent(lines)
+        lines = [ln.removeprefix(common_indent) for ln in lines]
+        # Start with the first minimal indent line (trim prior lines)
+        while lines and lines[0].strip() and lines[0][0] in " \t":
+            start += 1
+            lines.pop(0)
 
-        # Return both dedented content and the common indentation amount
-        dedented_content = dedent("".join(lines))
-        return dedented_content, start, common_indent
+        return "".join(lines), start, common_indent
     except OSError:
-        return "", lineno, 0  # Source not available (non-Python module)
+        return "", lineno, ""  # Source not available (non-Python module)
 
 
 def _libdir_match(path):
@@ -437,8 +415,8 @@ def _extract_syntax_error_frame(e):
         mark_range = Range(
             1,
             enhanced_mark.lfinal - start + 1,
-            max(0, enhanced_mark.cbeg - common_indent),
-            max(0, enhanced_mark.cend - common_indent),
+            max(0, enhanced_mark.cbeg - len(common_indent)),
+            max(0, enhanced_mark.cend - len(common_indent)),
         )
         # Convert list of em ranges to context-relative
         em_ranges = (
@@ -446,8 +424,8 @@ def _extract_syntax_error_frame(e):
                 Range(
                     em.lfirst - start + 1,
                     em.lfinal - start + 1,
-                    max(0, em.cbeg - common_indent),
-                    max(0, em.cend - common_indent),
+                    max(0, em.cbeg - len(common_indent)),
+                    max(0, em.cend - len(common_indent)),
                 )
                 for em in enhanced_em
             ]
@@ -457,8 +435,8 @@ def _extract_syntax_error_frame(e):
     else:
         # Fallback to Python's positions
         # Adjust columns for dedenting
-        adjusted_start_col = max(0, start_col - common_indent)
-        adjusted_end_col = max(0, end_col - common_indent)
+        adjusted_start_col = max(0, start_col - len(common_indent))
+        adjusted_end_col = max(0, end_col - len(common_indent))
 
         # Create mark range
         mark_range = None
@@ -552,9 +530,9 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         # Python's column numbers are based on the original indented code,
         # but we display dedented code, so we need to subtract the common indentation
         adjusted_start_col = (
-            start_col - common_indent if start_col is not None else None
+            start_col - len(common_indent) if start_col is not None else None
         )
-        adjusted_end_col = end_col - common_indent if end_col is not None else None
+        adjusted_end_col = end_col - len(common_indent) if end_col is not None else None
 
         # Create mark range (1-based inclusive lines, 0-based exclusive columns)
         mark_range = None
@@ -606,9 +584,10 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
 def _calculate_common_indent(lines):
     """Calculate common indentation across all non-empty lines."""
     non_empty_lines = [line.rstrip("\r\n") for line in lines if line.strip()]
-    if non_empty_lines:
-        return min(len(line) - len(line.lstrip()) for line in non_empty_lines)
-    return 0
+    if not non_empty_lines:
+        return ""
+    indent_len = min(len(ln) - len(ln.lstrip(" \t")) for ln in non_empty_lines)
+    return non_empty_lines[0][:indent_len]
 
 
 def _convert_range_to_positions(range_obj, lines):
@@ -652,9 +631,7 @@ def _convert_range_to_positions(range_obj, lines):
     return positions
 
 
-def _create_unified_fragments(
-    lines_text, common_indent_len, mark_positions, em_positions
-):
+def _create_unified_fragments(lines_text, common_indent, mark_positions, em_positions):
     """Create fragments with unified mark/em highlighting."""
     lines = lines_text.splitlines(keepends=True)
     result = []
@@ -663,7 +640,7 @@ def _create_unified_fragments(
         line_num = line_idx + 1
         fragments = _parse_line_to_fragments_unified(
             line,
-            common_indent_len,
+            common_indent,
             mark_positions,
             em_positions,
             sum(len(lines[i]) for i in range(line_idx)),  # char offset for this line
@@ -674,7 +651,7 @@ def _create_unified_fragments(
 
 
 def _parse_line_to_fragments_unified(
-    line, common_indent_len, mark_positions, em_positions, line_char_offset
+    line, common_indent, mark_positions, em_positions, line_char_offset
 ):
     """Parse a single line into fragments using unified highlighting."""
     line_content, line_ending = _split_line_content(line)
@@ -682,7 +659,7 @@ def _parse_line_to_fragments_unified(
         return []
 
     # Process indentation
-    fragments, remaining, pos = _process_indentation(line_content, common_indent_len)
+    fragments, remaining, pos = _process_indentation(line_content, common_indent)
 
     # Find comment split
     comment_start = _find_comment_start(remaining)
@@ -773,7 +750,7 @@ def _parse_lines_to_fragments(lines_text, mark_range=None, em_ranges=None):
     if not lines:
         return []
 
-    common_indent_len = _calculate_common_indent(lines)
+    common_indent = _calculate_common_indent(lines)
 
     # Convert both mark and em to position sets using unified logic
     mark_positions = _convert_range_to_positions(mark_range, lines)
@@ -789,7 +766,7 @@ def _parse_lines_to_fragments(lines_text, mark_range=None, em_ranges=None):
 
     # Create fragments using unified highlighting
     return _create_unified_fragments(
-        lines_text, common_indent_len, mark_positions, em_positions
+        lines_text, common_indent, mark_positions, em_positions
     )
 
 
@@ -805,16 +782,16 @@ def _split_line_content(line):
         return line, ""
 
 
-def _process_indentation(line_content, common_indent_len):
+def _process_indentation(line_content, common_indent):
     """Process dedent and additional indentation, return fragments and remaining content."""
     fragments = []
     pos = 0
 
     # Handle dedent (common indentation)
-    if common_indent_len > 0 and len(line_content) > common_indent_len:
-        dedent_text = line_content[:common_indent_len]
+    if common_indent and len(line_content) > len(common_indent):
+        dedent_text = line_content[: len(common_indent)]
         fragments.append({"code": dedent_text, "dedent": "solo"})
-        pos = common_indent_len
+        pos = len(common_indent)
 
     # Handle additional indentation
     remaining = line_content[pos:]
