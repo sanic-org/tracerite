@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import textwrap
 import threading
 from pathlib import Path
 
@@ -9,7 +10,11 @@ from .trace import chainmsg, extract_chain
 
 # ANSI escape codes for terminal colors
 RESET = "\033[0m"
-YELLOW_BG = "\033[43m"
+DARK_GREY_BG = "\033[48;5;232m"  # Very dark grey background
+RST = RESET + DARK_GREY_BG  # Reset but preserve dark grey background
+CLR = "\033[K"  # Clear to end of line (extends background color)
+EOL = CLR + "\n" + DARK_GREY_BG  # End of line: clear, newline, restore background
+YELLOW_BG = "\033[103m"  # Bright yellow background
 BLACK_TEXT = "\033[30m"
 RED_TEXT = "\033[31m"
 GREEN = "\033[32m"
@@ -29,6 +34,7 @@ BOX_BL = "╰"  # Rounded bottom-left
 BOX_TR = "╮"  # Rounded top-right
 BOX_BR = "╯"  # Rounded bottom-right
 ARROW_LEFT = "◀"
+SINGLE_T = "❴"  # T-junction for single line
 
 INDENT = "  "
 CODE_INDENT = "    "  # Double indent for code lines
@@ -50,7 +56,8 @@ def load():
     """Load TraceRite as the default exception handler.
 
     Replaces sys.excepthook to use TraceRite's pretty TTY formatting
-    for all unhandled exceptions, including those in threads.
+    for all unhandled exceptions, including those in threads and
+    logging.exception() calls.
     Call unload() to restore the original exception handlers.
 
     Usage:
@@ -92,8 +99,8 @@ def load():
 def unload():
     """Restore the original exception handlers.
 
-    Removes TraceRite from sys.excepthook and threading.excepthook,
-    restoring the previous handlers.
+    Removes TraceRite from sys.excepthook, threading.excepthook, and
+    logging.Formatter.formatException, restoring the previous handlers.
     """
     global _original_excepthook, _original_threading_excepthook
 
@@ -113,11 +120,20 @@ def tty_traceback(exc=None, chain=None, *, file=None, **extract_args):
     terminal features like window size. The chain is printed with the
     oldest exception first (order they occurred).
     """
+    import re
+
     chain = chain or extract_chain(exc=exc, **extract_args)
     # Chain is already oldest-first from extract_chain
 
     if file is None:
         file = sys.stderr
+
+    is_tty = file.isatty() if hasattr(file, "isatty") else False
+    no_color = not is_tty
+    no_inspector = not is_tty
+
+    # Set dark grey background for entire traceback
+    output = DARK_GREY_BG
 
     # Get terminal width for potential future use
     try:
@@ -151,10 +167,21 @@ def tty_traceback(exc=None, chain=None, *, file=None, **extract_args):
         # Get chaining suffix for exception header
         chain_suffix = ""
         if i > 0:
-            print(file=file)  # Empty line between exceptions
+            output += EOL  # Empty line between exceptions
             chain_suffix = chainmsg.get(e.get("from", "none"), "")
 
-        _print_exception(file, e, term_width, i, inspector_allowed, chain_suffix)
+        output += _print_exception(
+            e, term_width, i, inspector_allowed, chain_suffix, no_inspector
+        )
+
+    # Reset to original terminal colors
+    output += RESET
+
+    if no_color:
+        # Strip all ANSI escape sequences for non-TTY output
+        output = re.sub(r"\033\[[0-9;]*[A-Za-z]", "", output)
+
+    file.write(output)
 
 
 def _find_inspector_frame_idx(
@@ -236,20 +263,104 @@ def _find_collapsible_call_runs(frame_info_list, min_run_length=10):
 
 
 def _print_exception(
-    file, e, term_width, exception_idx=0, inspector_allowed=None, chain_suffix=""
+    e,
+    term_width,
+    exception_idx=0,
+    inspector_allowed=None,
+    chain_suffix="",
+    no_inspector=False,
 ):
     """Print a single exception with its frames."""
+    output = _build_exception_header(e, term_width, chain_suffix)
+    output += _build_frames_output(
+        e, term_width, exception_idx, inspector_allowed, no_inspector
+    )
+    return output
+
+
+def _build_exception_header(e, term_width, chain_suffix):
+    """Build the exception header output."""
+    output = ""
     # Exception header (not indented)
     summary, message = e["summary"], e["message"]
-    print(
-        f"{DARK_GREY}{e['type']}{chain_suffix}: {RESET}{BOLD}{summary}{RESET}",
-        file=file,
-    )
+    exc_type = e["type"]
+    type_prefix = f"{exc_type}{chain_suffix}: "
+    type_prefix_len = len(type_prefix)
+    cont_prefix = f"{DARK_GREY}{BOX_V}{RST} "
+    cont_prefix_len = 2  # "│ "
+
+    # Check if the full title fits on one line
+    full_title_len = type_prefix_len + len(summary)
+    if full_title_len <= term_width:
+        # Fits on one line
+        output += f"{DARK_GREY}{type_prefix}{RST}{BOLD}{summary}{RST}{EOL}"
+    elif len(summary) <= term_width - cont_prefix_len:
+        # Summary fits on its own line after wrapping
+        output += f"{DARK_GREY}{type_prefix}{RST}{EOL}"
+        output += f"{cont_prefix}{BOLD}{summary}{RST}{EOL}"
+    else:
+        # Word wrap the entire title, starting from the first row
+        # First line has type prefix, continuation lines have BOX_V prefix
+        first_line_width = term_width - type_prefix_len
+        cont_line_width = term_width - cont_prefix_len
+        # Wrap with the continuation width, then handle first line specially
+        words = summary.split()
+        lines = []
+        current_line = []
+        current_len = 0
+        is_first = True
+        max_width = first_line_width if is_first else cont_line_width
+
+        for word in words:
+            word_len = len(word)
+            if current_len == 0:
+                current_line.append(word)
+                current_len = word_len
+            elif current_len + 1 + word_len <= max_width:
+                current_line.append(word)
+                current_len += 1 + word_len
+            else:
+                lines.append(" ".join(current_line))
+                current_line = [word]
+                current_len = word_len
+                is_first = False
+                max_width = cont_line_width
+        if current_line:
+            lines.append(" ".join(current_line))
+
+        # Print lines
+        for i, line in enumerate(lines):
+            if i == 0:
+                output += f"{DARK_GREY}{type_prefix}{RST}{BOLD}{line}{RST}{EOL}"
+            else:
+                output += f"{cont_prefix}{BOLD}{line}{RST}{EOL}"
+
     if summary != message:
         if message.startswith(summary):
-            message = message[len(summary) :]
-        print(message, file=file)
+            message = message[len(summary) :].strip("\n")
+        # Format additional message lines with BOX_V prefix
+        if message:
+            wrap_width = term_width - cont_prefix_len
+            for line in message.split("\n"):
+                if line:
+                    wrapped = textwrap.wrap(
+                        line,
+                        width=wrap_width,
+                        break_long_words=False,
+                        break_on_hyphens=False,
+                    ) or [line]
+                    for wrapped_line in wrapped:
+                        output += f"{cont_prefix}{wrapped_line}{EOL}"
+                else:
+                    # Preserve empty lines
+                    output += f"{cont_prefix.rstrip()}{EOL}"
 
+    return output
+
+
+def _build_frames_output(e, term_width, exception_idx, inspector_allowed, no_inspector):
+    """Build the frames output for an exception."""
+    output = ""
     # Frames: caller first, then callee (deepest last)
     frames = e["frames"]
 
@@ -298,13 +409,13 @@ def _print_exception(
         # Add ellipsis line after first frame of a collapsed run
         if i in ellipsis_after:
             skipped = ellipsis_after[i]
-            ellipsis_line = f"{INDENT}{DARK_GREY}⋮ {skipped} more calls{RESET}"
+            ellipsis_line = f"{INDENT}{DARK_GREY}⋮ {skipped} more calls{RST}"
             ellipsis_plain_len = len(INDENT) + 2 + len(f"{skipped} more calls")
             output_lines.append((ellipsis_line, ellipsis_plain_len, i, False))
 
     # Get variable inspector lines if we have a non-call frame
     inspector_lines = []
-    if inspector_frame_idx is not None:
+    if not no_inspector and inspector_frame_idx is not None:
         frinfo = frame_info_list[inspector_frame_idx]["frinfo"]
         variables = frinfo.get("variables", [])
         if variables:
@@ -312,128 +423,129 @@ def _print_exception(
 
     # Merge output with inspector
     if inspector_lines:
-        frame_line_start, frame_line_end = _find_frame_line_range(
-            output_lines, inspector_frame_idx
+        output += _merge_inspector_output(
+            output_lines, inspector_lines, term_width, inspector_frame_idx
         )
-        error_line = _find_last_marked_line(
-            output_lines, frame_line_start, frame_line_end
-        )
-        inspector_height = len(inspector_lines)
+    else:
+        # No inspector or no frame lines found, just print the code
+        for line, _, _, _ in output_lines:
+            output += f"{line}{EOL}"
+    return output
 
-        # Smart centering logic:
-        # 1. Center around error line (last marked line where 💣 appears)
-        # 2. Shift if centering goes out of bounds
-        # 3. Prefer extending into call frames (above) over empty lines (below)
-        # 4. Only add empty lines at the end as last resort
 
-        # Calculate ideal centered position (error line in middle of inspector)
-        ideal_arrow_pos = inspector_height // 2
-        ideal_start = error_line - ideal_arrow_pos
+def _merge_inspector_output(
+    output_lines, inspector_lines, term_width, inspector_frame_idx
+):
+    """Merge output lines with inspector lines using cursor positioning."""
+    output = ""
+    assert inspector_frame_idx is not None
+    frame_line_start, frame_line_end = _find_frame_line_range(
+        output_lines, inspector_frame_idx
+    )
+    error_line = _find_last_marked_line(output_lines, frame_line_start, frame_line_end)
+    inspector_height = len(inspector_lines)
 
-        # Determine bounds: can extend upward into call frames (line 0),
-        # but only extend into "call" relevance frames, not beyond output
-        # The minimum start is 0 (can use all call frames above)
-        min_start = 0
+    # Smart centering logic:
+    # 1. Center around error line (last marked line where 💣 appears)
+    # 2. Shift if centering goes out of bounds
+    # 3. Prefer extending into call frames (above) over empty lines (below)
+    # 4. Only add empty lines at the end as last resort
 
-        # Apply centering with constraints
-        inspector_start = ideal_start
+    # Calculate ideal centered position (error line in middle of inspector)
+    ideal_arrow_pos = inspector_height // 2
+    ideal_start = error_line - ideal_arrow_pos
 
-        # Shift down if we're trying to go above available lines
-        if inspector_start < min_start:
-            inspector_start = min_start
+    # Determine bounds: can extend upward into call frames (line 0),
+    # but only extend into "call" relevance frames, not beyond output
+    # The minimum start is 0 (can use all call frames above)
+    min_start = 0
 
-        # Shift up if we're extending too far below available lines
-        # First, see how many lines of output we have below inspector_start
-        lines_available_below = len(output_lines) - inspector_start
-        if lines_available_below < inspector_height:
-            # Try to shift up, but not beyond min_start
-            needed_shift = inspector_height - lines_available_below
-            inspector_start = max(min_start, inspector_start - needed_shift)
+    # Apply centering with constraints
+    inspector_start = ideal_start
 
-        # Arrow line is where the error line falls within inspector
-        arrow_line_idx = error_line - inspector_start
-        assert 0 <= arrow_line_idx < inspector_height
+    # Shift down if we're trying to go above available lines
+    if inspector_start < min_start:
+        inspector_start = min_start
 
-        # Calculate inspector column: find the max line length in the range we'll use
-        max_line_len = 0
-        for li in range(
-            inspector_start,
-            min(inspector_start + inspector_height, len(output_lines)),
-        ):
-            max_line_len = max(max_line_len, output_lines[li][1])
+    # Shift up if we're extending too far below available lines
+    # First, see how many lines of output we have below inspector_start
+    lines_available_below = len(output_lines) - inspector_start
+    if lines_available_below < inspector_height:
+        # Try to shift up, but not beyond min_start
+        needed_shift = inspector_height - lines_available_below
+        inspector_start = max(min_start, inspector_start - needed_shift)
 
-        # Inspector width: arrow/spaces(2) + bar(1) + space(1) + content
-        max_insp_width = max(w for _, w in inspector_lines) if inspector_lines else 0
-        total_insp_width = 4 + max_insp_width  # "◀─┤ " or "  │ " + content
+    # Arrow line is where the error line falls within inspector
+    arrow_line_idx = error_line - inspector_start
+    assert 0 <= arrow_line_idx < inspector_height
 
-        # Place inspector right after the longest line, with some padding
-        inspector_col = max_line_len + 2
+    # Calculate inspector column: find the max line length in the range we'll use
+    max_line_len = 0
+    for li in range(
+        inspector_start,
+        min(inspector_start + inspector_height, len(output_lines)),
+    ):
+        max_line_len = max(max_line_len, output_lines[li][1])
 
-        # But don't go beyond terminal width
-        if inspector_col + total_insp_width > term_width:
-            inspector_col = term_width - total_insp_width
+    # Inspector width: arrow/spaces(2) + bar(1) + space(1) + content
+    max_insp_width = max(w for _, w in inspector_lines) if inspector_lines else 0
+    total_insp_width = 4 + max_insp_width  # "◀─❴ " or "  │ " + content
 
-        # Print output with inspector merged using cursor positioning
-        inspector_count = len(inspector_lines)
-        for li, (line, *_) in enumerate(output_lines):
-            insp_idx = li - inspector_start
-            if 0 <= insp_idx < inspector_count:
-                insp_line, insp_width = inspector_lines[insp_idx]
-                # Use cursor positioning to place inspector
-                cursor_pos = (
-                    f"\033[{inspector_col + 1}G"  # +1 because columns are 1-indexed
-                )
-                # Determine which box character to use
-                is_first = insp_idx == 0
-                is_last = insp_idx == inspector_count - 1
-                is_arrow = insp_idx == arrow_line_idx
+    # Place inspector right after the longest line, with some padding
+    inspector_col = max_line_len + 2
 
-                if is_arrow:
-                    # Arrow line: use appropriate corner or T-junction
-                    if is_first and is_last:
-                        box_char = BOX_VL  # ┤ T-junction for single line
-                    elif is_first:
-                        box_char = BOX_TR  # ╮ curved corner for first+arrow
-                    elif is_last:
-                        box_char = BOX_BR  # ╯ curved corner for last+arrow
-                    else:
-                        box_char = BOX_VL  # ┤ T-junction for middle arrow
-                    print(
-                        f"{line}{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RESET} {insp_line}",
-                        file=file,
-                    )
+    # But don't go beyond terminal width
+    if inspector_col + total_insp_width > term_width:
+        inspector_col = term_width - total_insp_width
+
+    # Build output with inspector merged using cursor positioning
+    inspector_count = len(inspector_lines)
+    for li, (line, *_) in enumerate(output_lines):
+        insp_idx = li - inspector_start
+        if 0 <= insp_idx < inspector_count:
+            insp_line, insp_width = inspector_lines[insp_idx]
+            # Use cursor positioning to place inspector
+            cursor_pos = (
+                f"\033[{inspector_col + 1}G"  # +1 because columns are 1-indexed
+            )
+            # Determine which box character to use
+            is_first = insp_idx == 0
+            is_last = insp_idx == inspector_count - 1
+            is_arrow = insp_idx == arrow_line_idx
+
+            if is_arrow:
+                # Arrow line: use appropriate corner or T-junction
+                if is_first and is_last:
+                    box_char = SINGLE_T  # {-junction for single line
+                elif is_first:
+                    box_char = BOX_TR  # curved corner for first+arrow
+                elif is_last:
+                    box_char = BOX_BR  # curved corner for last+arrow
                 else:
-                    # Non-arrow line: use corner or vertical
-                    if is_first:
-                        box_char = BOX_TL  # ╭ curved corner for first
-                    elif is_last:
-                        box_char = BOX_BL  # ╰ curved corner for last
-                    else:
-                        box_char = BOX_V  # │ vertical for middle
-                    print(
-                        f"{line}{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}",
-                        file=file,
-                    )
+                    box_char = BOX_VL  # ┤-junction for middle arrow
+                output += f"{line}{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RST} {insp_line}{EOL}"
             else:
-                print(line, file=file)
+                # Non-arrow line: use corner or vertical
+                if is_first:
+                    box_char = BOX_TL  # ╭ curved corner for first
+                elif is_last:
+                    box_char = BOX_BL  # ╰ curved corner for last
+                else:
+                    box_char = BOX_V  # │ vertical for middle
+                output += f"{line}{cursor_pos}  {DIM}{box_char}{RST} {insp_line}{EOL}"
+        else:
+            output += f"{line}{EOL}"
 
-        # If inspector is taller than available lines, print remaining
-        remaining_start = len(output_lines) - inspector_start
-        if remaining_start < inspector_count:
-            for idx in range(remaining_start, inspector_count):
-                insp_line, insp_width = inspector_lines[idx]
-                cursor_pos = f"\033[{inspector_col + 1}G"
-                is_last = idx == inspector_count - 1
-                box_char = BOX_BL if is_last else BOX_V
-                print(
-                    f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}",
-                    file=file,
-                )
-        return
-
-    # No inspector or no frame lines found, just print the code
-    for line, _, _, _ in output_lines:
-        print(line, file=file)
+    # If inspector is taller than available lines, print remaining
+    remaining_start = len(output_lines) - inspector_start
+    if remaining_start < inspector_count:
+        for idx in range(remaining_start, inspector_count):
+            insp_line, insp_width = inspector_lines[idx]
+            cursor_pos = f"\033[{inspector_col + 1}G"
+            is_last = idx == inspector_count - 1
+            box_char = BOX_BL if is_last else BOX_V
+            output += f"{cursor_pos}  {DIM}{box_char}{RST} {insp_line}{EOL}"
+    return output
 
 
 def _get_frame_label(frinfo):
@@ -458,10 +570,11 @@ def _get_frame_label(frinfo):
     label_plain = ""
     if frinfo["function"]:
         label_plain += f"{frinfo['function']} "
-        label += f"{LIGHT_BLUE}{frinfo['function']} {RESET}"
+        label += f"{LIGHT_BLUE}{frinfo['function']} {RST}"
     label_plain += f"{location}:{lineno}"
-    label += f"{GREEN}{location}{DARK_GREY}:{lineno}{RESET}"
-
+    label += f"{GREEN}{location}{DARK_GREY}:{lineno}{RST}"
+    if frinfo["relevance"] != "call":
+        label += ":"
     return label, label_plain
 
 
@@ -509,14 +622,14 @@ def _build_frame_lines(info, label_width, term_width):
             msg = f"Source code not available but {e['type']} was raised from here"
         else:
             msg = "Source code not available"
-        line = f"{INDENT}{label}  {DARK_GREY}{msg}{RESET}"
+        line = f"{INDENT}{label}  {DARK_GREY}{msg}{RST}"
         plain_len = len(INDENT) + len(label_plain) + 2 + len(msg)
         lines.append((line, plain_len, False))
         return lines
 
     start = frinfo["linenostart"]
     symbol = symbols.get(relevance, "")
-    symbol_colored = f"{YELLOW}{symbol}{RESET}" if symbol else ""
+    symbol_colored = f"{YELLOW}{symbol}{RST}" if symbol else ""
 
     # Generate tooltip text like HTML does
     tooltip_text = ""
@@ -604,7 +717,7 @@ def _build_frame_lines(info, label_width, term_width):
             # Add symbol and tooltip text on final line
             if frame_range and abs_line == frame_range.lfinal and symbol:
                 if tooltip_text and relevance != "call":
-                    line = f"{CODE_INDENT}{code_colored} {symbol_colored}  {DARK_GREY}{tooltip_text}{RESET}"
+                    line = f"{CODE_INDENT}{code_colored} {symbol_colored}  {DARK_GREY}{tooltip_text}{RST}"
                     plain_len = (
                         len(CODE_INDENT)
                         + len(code_plain)
@@ -650,28 +763,28 @@ def _format_fragment(fragment):
 
     # Close mark if ending
     if mark in ("fin", "solo"):
-        colored_parts.append(RESET)
+        colored_parts.append(RST)
 
     return "".join(colored_parts), code
 
 
 def _format_fragment_call(fragment):
-    """Format a fragment for call frames: default color, only em in red."""
+    """Format a fragment for call frames: default color, only em in yellow."""
     code = fragment["code"].rstrip("\n\r")
     em = fragment.get("em")
 
     colored_parts = []
 
-    # Open em if starting (red text)
+    # Open em if starting (yellow text)
     if em in ("solo", "beg"):
-        colored_parts.append(RED_TEXT)
+        colored_parts.append(YELLOW)
 
     # Add the code
     colored_parts.append(code)
 
     # Close em if ending
     if em in ("fin", "solo"):
-        colored_parts.append(RESET)
+        colored_parts.append(RST)
 
     return "".join(colored_parts), code
 
@@ -707,7 +820,7 @@ def _print_fragment(file, fragment):
 
     # Close mark if ending
     if mark in ("fin", "solo"):
-        print(RESET, end="", file=file)
+        print(RST, end="", file=file)
 
 
 def _build_variable_inspector(variables, term_width):
@@ -763,10 +876,10 @@ def _build_variable_inspector(variables, term_width):
 
         # Build the line
         if typename:
-            line = f"{CYAN}{name}{RESET}{DIM}: {typename}{RESET} = {val_str}"
+            line = f"{CYAN}{name}{RST}{DIM}: {typename}{RST} = {val_str}"
             line_plain = f"{name}: {typename} = {val_str}"
         else:
-            line = f"{CYAN}{name}{RESET} = {val_str}"
+            line = f"{CYAN}{name}{RST} = {val_str}"
             line_plain = f"{name} = {val_str}"
 
         var_lines.append((line, line_plain))
@@ -784,7 +897,7 @@ def _build_variable_inspector(variables, term_width):
         # Truncate if too long
         if len(line_plain) > max_width:
             truncated_plain = line_plain[: max_width - 1] + "…"
-            line = f"{CYAN}{line_plain[: max_width - 1]}…{RESET}"
+            line = f"{CYAN}{line_plain[: max_width - 1]}…{RST}"
             line_plain = truncated_plain
 
         # Just content, bar added during printing
