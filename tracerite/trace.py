@@ -21,7 +21,7 @@ ipython = None
 
 # Locations considered to be bug-free (library code, not user code)
 libdir = re.compile(
-    r"/usr/.*|.*(site-packages|dist-packages).*|.*/lib/python\d+\.\d+/.*|.*/\.cache/.*"
+    r"/usr/.*|.*(site-packages|dist-packages).*|.*/lib/python\d+\.\d+/.*|.*/\.cache/.*|.*/bin/[^/]+(?<!\.py)"
 )
 
 # Messages for exception chaining (oldest-first order)
