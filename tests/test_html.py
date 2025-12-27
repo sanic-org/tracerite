@@ -326,3 +326,56 @@ def test_html_traceback_comprehensive():
             assert len(code_elements) > 0, (
                 f"No code elements found for {test_func.__name__}"
             )
+
+
+def test_collapse_call_runs_empty_frames():
+    """Test _collapse_call_runs with empty frames list."""
+    from tracerite.html import _collapse_call_runs
+
+    result = _collapse_call_runs([])
+    assert result == []
+
+
+def test_collapse_call_runs_final_run_collapsed():
+    """Test _collapse_call_runs with final run of call frames that gets collapsed."""
+    from tracerite.html import _collapse_call_runs
+
+    # Create frames with a final run of 12 'call' frames (more than min_run_length=10)
+    frames = [
+        {"relevance": "error", "id": 1},  # Non-call frame
+    ] + [
+        {"relevance": "call", "id": i}
+        for i in range(2, 14)  # 12 call frames at the end
+    ]
+
+    result = _collapse_call_runs(frames)
+
+    # Should have: error frame, first call frame, ..., last call frame
+    expected = [
+        {"relevance": "error", "id": 1},
+        {"relevance": "call", "id": 2},  # First of the run
+        ...,  # Ellipsis
+        {"relevance": "call", "id": 13},  # Last of the run
+    ]
+    assert result == expected
+
+
+def test_collapse_call_runs_final_run_not_collapsed():
+    """Test _collapse_call_runs with final run of call frames that doesn't get collapsed."""
+    from tracerite.html import _collapse_call_runs
+
+    # Create frames with a final run of 8 'call' frames (less than min_run_length=10)
+    frames = [
+        {"relevance": "error", "id": 1},  # Non-call frame
+    ] + [
+        {"relevance": "call", "id": i}
+        for i in range(2, 10)  # 8 call frames at the end
+    ]
+
+    result = _collapse_call_runs(frames)
+
+    # Should have: error frame, all 8 call frames
+    expected = [
+        {"relevance": "error", "id": 1},
+    ] + [{"relevance": "call", "id": i} for i in range(2, 10)]
+    assert result == expected

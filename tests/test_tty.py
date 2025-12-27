@@ -9,7 +9,6 @@ import pytest
 from tracerite import extract_chain
 from tracerite.tty import (
     ARROW_LEFT,
-    BLACK_TEXT,
     BOLD,
     BOX_BL,
     BOX_BR,
@@ -18,16 +17,17 @@ from tracerite.tty import (
     BOX_TR,
     BOX_V,
     BOX_VL,
-    CYAN,
     DARK_GREY,
     DIM,
-    GREEN,
+    EM,
+    EM_CALL,
+    FUNC,
     INDENT,
-    LIGHT_BLUE,
-    RED_TEXT,
+    LOCFN,
+    MARK_BG,
+    MARK_TEXT,
     RESET,
-    YELLOW,
-    YELLOW_BG,
+    VAR,
     _build_frame_lines,
     _build_variable_inspector,
     _format_fragment,
@@ -43,6 +43,8 @@ from tracerite.tty import (
 from .errorcases import (
     binomial_operator,
     chained_from_and_without,
+    function_with_many_locals,
+    function_with_single_local,
     max_type_error_case,
     multiline_marking,
     reraise_context,
@@ -185,6 +187,22 @@ class TestTtyTraceback:
         assert "ValueError" in captured.err
         assert "stderr test" in captured.err
 
+    def test_defaults_to_stderr_with_color(self, capsys, monkeypatch):
+        """Test that output defaults to stderr with colors when tty."""
+        # Mock isatty to return True
+        monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+
+        try:
+            chained_from_and_without()
+        except Exception as e:
+            tty_traceback(exc=e)
+
+        captured = capsys.readouterr()
+        assert "AttributeError" in captured.err
+        assert "NameError" in captured.err
+        # Should contain ANSI codes
+        assert "\x1b[" in captured.err
+
     def test_with_explicit_chain(self):
         """Test tty_traceback with pre-extracted chain."""
         output = io.StringIO()
@@ -211,6 +229,34 @@ class TestTtyTraceback:
 
         result = output.getvalue()
         assert "ValueError" in result
+
+    def test_narrow_terminal_width_with_color(self):
+        """Test narrow terminal with colors enabled."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            raise ValueError("very long exception message that should cause wrapping")
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=40)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "\x1b[" in result
+
+    def test_title_wraps_type_but_summary_fits(self):
+        """Test title where type+summary overflows but summary alone fits."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        # term_width=30, "ValueError: " is 12 chars, need summary > 18 but <= 28
+        try:
+            raise ValueError("twenty char summary!")  # 20 chars
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=30)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "twenty char summary!" in result
+        assert "\x1b[" in result
 
 
 class TestChainedExceptions:
@@ -348,6 +394,188 @@ class TestLoadUnload:
         finally:
             unload()
 
+    def test_load_with_capture_logging_true(self):
+        """Test that load(capture_logging=True) replaces StreamHandler.emit."""
+        import logging
+
+        original_emit = logging.StreamHandler.emit
+        try:
+            load(capture_logging=True)
+            assert logging.StreamHandler.emit != original_emit
+            assert (
+                logging.StreamHandler.emit.__name__ == "_tracerite_stream_handler_emit"
+            )
+        finally:
+            unload()
+
+    def test_load_with_capture_logging_false(self):
+        """Test that load(capture_logging=False) doesn't replace StreamHandler.emit."""
+        import logging
+
+        original_emit = logging.StreamHandler.emit
+        try:
+            load(capture_logging=False)
+            assert logging.StreamHandler.emit == original_emit
+        finally:
+            unload()
+
+    def test_unload_restores_stream_handler_emit(self):
+        """Test that unload() restores original StreamHandler.emit."""
+        import logging
+
+        original_emit = logging.StreamHandler.emit
+        load(capture_logging=True)
+        unload()
+        assert logging.StreamHandler.emit == original_emit
+
+    def test_stream_handler_formats_exceptions(self, capsys):
+        """Test that StreamHandler.emit formats exceptions with TraceRite."""
+        import logging
+
+        # Set up a logger with a stream handler
+        logger = logging.getLogger("test_logger")
+        logger.setLevel(logging.ERROR)
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setLevel(logging.ERROR)
+        logger.addHandler(handler)
+
+        load(capture_logging=True)
+        try:
+            try:
+                raise ValueError("stream handler test")
+            except ValueError:
+                logger.exception("Test exception logging")
+
+            captured = capsys.readouterr()
+            assert "ValueError" in captured.err
+            assert "stream handler test" in captured.err
+        finally:
+            unload()
+            logger.removeHandler(handler)
+
+    def test_stream_handler_formats_exceptions_with_color(self, capsys, monkeypatch):
+        """Test that StreamHandler.emit formats exceptions with colors when tty."""
+        import logging
+
+        # Mock isatty to return True
+        monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+
+        # Set up a logger with a stream handler
+        logger = logging.getLogger("test_logger")
+        logger.setLevel(logging.ERROR)
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setLevel(logging.ERROR)
+        logger.addHandler(handler)
+
+        load(capture_logging=True)
+        try:
+            try:
+                chained_from_and_without()
+            except Exception:
+                logger.exception("Test exception logging")
+
+            captured = capsys.readouterr()
+            assert "AttributeError" in captured.err
+            assert "NameError" in captured.err
+            # Should contain ANSI codes
+            assert "\x1b[" in captured.err
+        finally:
+            unload()
+            logger.removeHandler(handler)
+
+    def test_stream_handler_no_exception_uses_original(self, capsys):
+        """Test that StreamHandler.emit uses original for non-exception records."""
+        import logging
+
+        # Set up a logger
+        logger = logging.getLogger("test_logger_no_exc")
+        logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler(sys.stderr)
+        logger.addHandler(handler)
+
+        load(capture_logging=True)
+        try:
+            logger.info("Normal log message")
+            captured = capsys.readouterr()
+            assert "Normal log message" in captured.err
+        finally:
+            unload()
+            logger.removeHandler(handler)
+
+    def test_stream_handler_tty_traceback_error_falls_back(self, capsys, monkeypatch):
+        """Test that StreamHandler.emit falls back when tty_traceback fails."""
+        import logging
+
+        # Mock tty_traceback to raise an exception
+        from tracerite import tty
+
+        original_tty_traceback = tty.tty_traceback
+
+        def failing_tty_traceback(**kwargs):
+            raise RuntimeError("tty_traceback failed")
+
+        monkeypatch.setattr(tty, "tty_traceback", failing_tty_traceback)
+
+        # Set up a handler
+        handler = logging.StreamHandler(sys.stderr)
+
+        load(capture_logging=True)
+        try:
+            # Create a log record with exception info
+            record = logging.LogRecord(
+                name="test",
+                level=logging.ERROR,
+                pathname="test.py",
+                lineno=1,
+                msg="Test message",
+                args=(),
+                exc_info=(ValueError, ValueError("test"), None),
+            )
+
+            # Call emit directly - should not raise
+            handler.emit(record)
+
+            captured = capsys.readouterr()
+            # handleError should have written something to stderr
+            assert len(captured.err) > 0
+        finally:
+            unload()
+            monkeypatch.setattr(tty, "tty_traceback", original_tty_traceback)
+
+    def test_stream_handler_recursion_error_propagates(self, monkeypatch):
+        """Test that RecursionError in tty_traceback is re-raised."""
+        import logging
+
+        from tracerite import tty
+
+        original_tty_traceback = tty.tty_traceback
+
+        def recursion_tty_traceback(**kwargs):
+            raise RecursionError("infinite recursion")
+
+        monkeypatch.setattr(tty, "tty_traceback", recursion_tty_traceback)
+
+        handler = logging.StreamHandler(sys.stderr)
+
+        load(capture_logging=True)
+        try:
+            record = logging.LogRecord(
+                name="test",
+                level=logging.ERROR,
+                pathname="test.py",
+                lineno=1,
+                msg="Test message",
+                args=(),
+                exc_info=(ValueError, ValueError("test"), None),
+            )
+
+            # RecursionError should propagate
+            with pytest.raises(RecursionError):
+                handler.emit(record)
+        finally:
+            unload()
+            monkeypatch.setattr(tty, "tty_traceback", original_tty_traceback)
+
 
 class TestFrameFormatting:
     """Tests for frame label and info extraction."""
@@ -362,10 +590,10 @@ class TestFrameFormatting:
             label, label_plain = _get_frame_label(frame)
 
             # Should contain function name in light blue
-            assert LIGHT_BLUE in label
+            assert FUNC in label
             assert "test_get_frame_label_with_function" in label_plain
             # Should contain filename in green
-            assert GREEN in label
+            assert LOCFN in label
             assert "test_tty" in label_plain
 
     def test_get_frame_info_structure(self):
@@ -421,8 +649,8 @@ class TestFragmentFormatting:
         fragment = {"code": "error_code", "mark": "solo"}
         colored, plain = _format_fragment(fragment)
         assert plain == "error_code"
-        assert YELLOW_BG in colored
-        assert BLACK_TEXT in colored
+        assert MARK_BG in colored
+        assert MARK_TEXT in colored
         assert RESET in colored
 
     def test_format_fragment_with_mark_beg_fin(self):
@@ -430,7 +658,7 @@ class TestFragmentFormatting:
         # Beginning of marked region
         frag_beg = {"code": "start", "mark": "beg"}
         colored_beg, plain_beg = _format_fragment(frag_beg)
-        assert YELLOW_BG in colored_beg
+        assert MARK_BG in colored_beg
         assert RESET not in colored_beg  # Should not close yet
 
         # End of marked region
@@ -443,7 +671,7 @@ class TestFragmentFormatting:
         fragment = {"code": "+", "em": "solo", "mark": "solo"}
         colored, plain = _format_fragment(fragment)
         assert plain == "+"
-        assert RED_TEXT in colored
+        assert EM in colored
 
     def test_format_fragment_call_plain(self):
         """Test call frame fragment formatting without emphasis."""
@@ -457,7 +685,7 @@ class TestFragmentFormatting:
         fragment = {"code": "bad_call", "em": "solo"}
         colored, plain = _format_fragment_call(fragment)
         assert plain == "bad_call"
-        assert RED_TEXT in colored
+        assert EM_CALL in colored
         assert RESET in colored
 
     def test_format_fragment_strips_newlines(self):
@@ -505,7 +733,7 @@ class TestVariableInspector:
         assert len(result) == 1
         colored, width = result[0]
         # Should format as "y = 100" not "y: None = 100"
-        assert CYAN in colored  # Variable name in cyan
+        assert VAR in colored  # Variable name in cyan
         assert "= 100" in colored or "100" in colored
 
     def test_build_variable_inspector_keyvalue(self):
@@ -590,14 +818,14 @@ class TestAnsiCodes:
     def test_color_codes_format(self):
         """Test that color codes follow ANSI format."""
         codes = [
-            YELLOW_BG,
-            BLACK_TEXT,
-            RED_TEXT,
-            GREEN,
-            YELLOW,
+            MARK_BG,
+            MARK_TEXT,
+            EM,
+            LOCFN,
+            EM_CALL,
             DARK_GREY,
-            LIGHT_BLUE,
-            CYAN,
+            FUNC,
+            VAR,
             BOLD,
             DIM,
         ]
@@ -701,6 +929,30 @@ class TestEdgeCases:
         # Should contain at least part of the message
         assert "x" in result
 
+    def test_exception_title_word_wrapping(self):
+        """Test word wrapping of long exception titles."""
+        output = io.StringIO()
+        # Create a long summary that will require word wrapping
+        long_summary = "This is a very long exception summary that should definitely wrap to multiple lines when displayed in a narrow terminal"
+        try:
+            raise ValueError(long_summary)
+        except Exception as e:
+            # Use a narrow terminal width to force wrapping
+            tty_traceback(exc=e, file=output, term_width=50)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        # Should contain the wrapped text
+        assert "This is a very long" in result
+        # Should have multiple lines (wrapping occurred)
+        lines = result.split("\n")
+        title_lines = [
+            line
+            for line in lines
+            if "This is a very long" in line or "exception summary" in line
+        ]
+        assert len(title_lines) > 1  # Should be wrapped to multiple lines
+
     def test_multiline_exception_message(self):
         """Test handling of multiline exception messages."""
         output = io.StringIO()
@@ -713,6 +965,20 @@ class TestEdgeCases:
         result = output.getvalue()
         assert "ValueError" in result
         assert "Line 1" in result
+
+    def test_exception_message_with_empty_lines(self):
+        """Test handling of exception messages with empty lines."""
+        output = io.StringIO()
+        msg = "Line 1\n\nLine 3"
+        try:
+            raise ValueError(msg)
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "Line 1" in result
+        assert "Line 3" in result
 
 
 class TestRealWorldScenarios:
@@ -911,16 +1177,104 @@ class TestOutputFormatting:
     def test_ansi_codes_in_output(self):
         """Test that ANSI color codes are present in output."""
         output = io.StringIO()
+        # Mock isatty to return True so colors are included
+        output.isatty = lambda: True
         try:
-            raise ValueError("color test")
+            function_with_many_locals()
         except Exception as e:
             tty_traceback(exc=e, file=output)
 
         result = output.getvalue()
         # Should contain escape sequences
-        assert "\033[" in result
+        assert "\x1b[" in result
         # Should contain reset codes
         assert RESET in result
+
+    def test_very_long_exception_message_wrapping(self):
+        """Test exception message wrapping with very long messages."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        # Message longer than term_width that needs wrapping
+        long_msg = "This is a very long exception message " * 5
+        try:
+            raise ValueError(long_msg)
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=60)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "\x1b[" in result
+
+    def test_multiline_exception_message(self):
+        """Test exception with multiline message including empty lines."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        # Message with newlines and empty lines - empty line NOT at start after summary
+        multiline_msg = "First line\nSecond line\n\nAfter empty"
+        try:
+            raise ValueError(multiline_msg)
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=80)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "First line" in result
+        assert "\x1b[" in result
+
+    def test_exception_with_summary_prefix(self):
+        """Test exception where message starts with summary."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            # Create an exception where summary equals first part of message
+            raise ValueError("short\nmore details here")
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=80)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "\x1b[" in result
+
+    def test_single_variable_inspector(self):
+        """Test inspector with single variable (single-line inspector box)."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            function_with_single_local()
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=120)
+
+        result = output.getvalue()
+        assert "RuntimeError" in result
+        assert "single local test" in result
+        assert "\x1b[" in result
+
+    def test_error_frame_with_symbol_desc(self):
+        """Test error frame formatting with symbol and description."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            binomial_operator()
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=120)
+
+        result = output.getvalue()
+        assert "TypeError" in result
+        # Should have ANSI codes for coloring
+        assert "\x1b[" in result
+
+    def test_warning_frame_formatting(self):
+        """Test warning frame (user code calling stdlib that fails)."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            max_type_error_case()
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=120)
+
+        result = output.getvalue()
+        assert "TypeError" in result
+        assert "\x1b[" in result
 
 
 class TestThreadingHook:
@@ -952,6 +1306,37 @@ class TestThreadingHook:
         finally:
             unload()
 
+    def test_threading_hook_format_with_color(self):
+        """Test that threading hook includes colors when tty."""
+        load()
+        try:
+            exception_output = []
+
+            def thread_func():
+                try:
+                    chained_from_and_without()
+                except Exception:
+                    # Capture what the hook would output
+                    output = io.StringIO()
+                    # Mock isatty to return True
+                    output.isatty = lambda: True
+                    exc_type, exc_value, exc_tb = sys.exc_info()
+                    tty_traceback(exc=exc_value, file=output)
+                    exception_output.append(output.getvalue())
+
+            t = threading.Thread(target=thread_func)
+            t.start()
+            t.join(timeout=5)
+
+            assert len(exception_output) == 1
+            result = exception_output[0]
+            assert "AttributeError" in result
+            assert "NameError" in result
+            # Should contain ANSI codes
+            assert "\x1b[" in result
+        finally:
+            unload()
+
 
 class TestExcepthookFallback:
     """Tests for exception hook fallback when tty_traceback fails."""
@@ -979,6 +1364,28 @@ class TestExcepthookFallback:
             captured = capsys.readouterr()
             # Should show original exception via fallback
             assert "ValueError" in captured.err or "test fallback" in captured.err
+        finally:
+            unload()
+
+    def test_excepthook_formats_with_color(self, capsys, monkeypatch):
+        """Test that excepthook formats exceptions with colors when tty."""
+        # Mock isatty to return True
+        monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+
+        load()
+        try:
+            # Manually invoke the hook
+            try:
+                chained_from_and_without()
+            except Exception:
+                exc_type, exc_value, exc_tb = sys.exc_info()
+                sys.excepthook(exc_type, exc_value, exc_tb)
+
+            captured = capsys.readouterr()
+            assert "AttributeError" in captured.err
+            assert "NameError" in captured.err
+            # Should contain ANSI codes
+            assert "\x1b[" in captured.err
         finally:
             unload()
 
@@ -1049,8 +1456,8 @@ class TestPrintFragment:
         fragment = {"code": "marked", "mark": "solo"}
         _print_fragment(output, fragment)
         result = output.getvalue()
-        assert YELLOW_BG in result
-        assert BLACK_TEXT in result
+        assert MARK_BG in result
+        assert MARK_TEXT in result
         assert "marked" in result
         assert RESET in result
 
@@ -1062,7 +1469,7 @@ class TestPrintFragment:
         fragment = {"code": "+", "em": "solo", "mark": "solo"}
         _print_fragment(output, fragment)
         result = output.getvalue()
-        assert RED_TEXT in result
+        assert EM in result
         assert "+" in result
 
     def test_print_fragment_em_beg_fin(self):
@@ -1074,14 +1481,14 @@ class TestPrintFragment:
         fragment = {"code": "start", "em": "beg", "mark": "beg"}
         _print_fragment(output, fragment)
         result = output.getvalue()
-        assert RED_TEXT in result
+        assert EM in result
 
         # Test em finishing (without mark finishing)
         output2 = io.StringIO()
         fragment2 = {"code": "middle", "em": "fin"}
         _print_fragment(output2, fragment2)
         result2 = output2.getvalue()
-        assert BLACK_TEXT in result2
+        assert MARK_TEXT in result2
 
     def test_print_fragment_mark_beg_fin(self):
         """Test printing fragment with mark beginning and finishing."""
@@ -1092,7 +1499,7 @@ class TestPrintFragment:
         fragment = {"code": "begin", "mark": "beg"}
         _print_fragment(output, fragment)
         result = output.getvalue()
-        assert YELLOW_BG in result
+        assert MARK_BG in result
         assert RESET not in result
 
         # Finishing
@@ -1203,6 +1610,7 @@ class TestFrameLabelEdgeCases:
             "location": "unknown_location",
             "function": "test_func",
             "range": None,
+            "relevance": "error",
         }
         label, label_plain = _get_frame_label(frinfo)
 
@@ -1217,6 +1625,7 @@ class TestFrameLabelEdgeCases:
             "location": "other/path/file.py",
             "function": "external_func",
             "range": None,
+            "relevance": "error",
         }
         label, label_plain = _get_frame_label(frinfo)
 
@@ -1234,7 +1643,7 @@ class TestFrameWithoutSource:
     def test_build_frame_lines_no_fragments(self):
         """Test building frame lines when no fragments (source unavailable)."""
         info = {
-            "label": f"{LIGHT_BLUE}test_func {GREEN}test.py{DARK_GREY}:10{RESET}",
+            "label": f"{FUNC}test_func {LOCFN}test.py{DARK_GREY}:10{RESET}",
             "label_plain": "test_func test.py:10",
             "fragments": [],
             "frame_range": None,
@@ -1254,7 +1663,7 @@ class TestFrameWithoutSource:
     def test_build_frame_lines_no_fragments_deepest(self):
         """Test building frame lines for deepest frame without source."""
         info = {
-            "label": f"{LIGHT_BLUE}deep_func {GREEN}test.py{DARK_GREY}:20{RESET}",
+            "label": f"{FUNC}deep_func {LOCFN}test.py{DARK_GREY}:20{RESET}",
             "label_plain": "deep_func test.py:20",
             "fragments": [],
             "frame_range": None,
@@ -1342,8 +1751,6 @@ class TestPrintExceptionInternals:
         """Test _print_exception with controlled exception data."""
         from tracerite.tty import _print_exception
 
-        output = io.StringIO()
-
         # Create a minimal exception dict structure
         e = {
             "type": "TestError",
@@ -1362,8 +1769,7 @@ class TestPrintExceptionInternals:
             ],
         }
 
-        _print_exception(output, e, term_width=80)
-        result = output.getvalue()
+        result = _print_exception(e, 80)
         assert "TestError" in result
         assert "Test summary" in result
 
@@ -1375,6 +1781,7 @@ class TestPrintExceptionInternals:
             "location": "fallback_location",
             "function": "test_func",
             "range": None,
+            "relevance": "error",
         }
         label, label_plain = _get_frame_label(frinfo)
         # Should fall back to location
@@ -1389,7 +1796,7 @@ class TestInspectorTallerThanOutput:
         from tracerite.inspector import VarInfo
         from tracerite.tty import _print_exception
 
-        output = io.StringIO()
+        io.StringIO()
 
         # Create exception with many variables but minimal frames
         e = {
@@ -1431,8 +1838,7 @@ class TestInspectorTallerThanOutput:
             ],
         }
 
-        _print_exception(output, e, term_width=120, exception_idx=0)
-        result = output.getvalue()
+        result = _print_exception(e, 120, 0)
         assert "ValueError" in result
         # Should show some variables
         assert "var" in result
@@ -1442,7 +1848,7 @@ class TestInspectorTallerThanOutput:
         from tracerite.inspector import VarInfo
         from tracerite.tty import _print_exception
 
-        output = io.StringIO()
+        io.StringIO()
 
         # Create a scenario where inspector is taller than output
         # and arrow line ends up in the overflow region
@@ -1468,8 +1874,7 @@ class TestInspectorTallerThanOutput:
             ],
         }
 
-        _print_exception(output, e, term_width=120, exception_idx=0)
-        result = output.getvalue()
+        result = _print_exception(e, 120, 0)
         assert "TestError" in result
 
     def test_inspector_arrow_at_first_line(self):
@@ -1477,7 +1882,7 @@ class TestInspectorTallerThanOutput:
         from tracerite.inspector import VarInfo
         from tracerite.tty import _print_exception
 
-        output = io.StringIO()
+        io.StringIO()
 
         e = {
             "type": "ArrowFirstError",
@@ -1501,8 +1906,7 @@ class TestInspectorTallerThanOutput:
             ],
         }
 
-        _print_exception(output, e, term_width=120, exception_idx=0)
-        result = output.getvalue()
+        result = _print_exception(e, 120, 0)
         assert "ArrowFirstError" in result
 
     def test_inspector_arrow_at_last_line(self):
@@ -1510,7 +1914,7 @@ class TestInspectorTallerThanOutput:
         from tracerite.inspector import VarInfo
         from tracerite.tty import _print_exception
 
-        output = io.StringIO()
+        io.StringIO()
 
         e = {
             "type": "ArrowLastError",
@@ -1537,9 +1941,38 @@ class TestInspectorTallerThanOutput:
             ],
         }
 
-        _print_exception(output, e, term_width=120, exception_idx=0)
-        result = output.getvalue()
+        result = _print_exception(e, 120, 0)
         assert "ArrowLastError" in result
+
+    def test_inspector_arrow_in_middle(self):
+        """Test inspector when arrow is in the middle of multiple inspector lines."""
+        from tracerite.inspector import VarInfo
+        from tracerite.tty import _print_exception
+
+        e = {
+            "type": "ArrowMiddleError",
+            "summary": "test arrow middle",
+            "message": "test arrow middle",
+            "frames": [
+                {
+                    "filename": __file__,
+                    "location": "test_tty.py",
+                    "function": "arrow_middle_func",
+                    "range": None,
+                    "relevance": "error",
+                    "linenostart": 1,
+                    "fragments": [
+                        {"line": 1, "fragments": [{"code": "x = bad", "mark": "solo"}]},
+                    ],
+                    "variables": [
+                        VarInfo(f"var{i}", "int", str(i), None) for i in range(10)
+                    ],
+                }
+            ],
+        }
+
+        result = _print_exception(e, 120, 0)
+        assert "ArrowMiddleError" in result
 
 
 class TestArrowLineEdgeCases:
@@ -1550,7 +1983,7 @@ class TestArrowLineEdgeCases:
         from tracerite.inspector import VarInfo
         from tracerite.tty import _print_exception
 
-        output = io.StringIO()
+        io.StringIO()
 
         # Create a scenario where arrow_line_idx might go out of bounds
         e = {
@@ -1575,8 +2008,7 @@ class TestArrowLineEdgeCases:
             ],
         }
 
-        _print_exception(output, e, term_width=80, exception_idx=0)
-        result = output.getvalue()
+        result = _print_exception(e, 80, 0)
         assert "BoundsError" in result
 
     def test_inspector_overflow_remaining_lines(self):
@@ -1588,7 +2020,7 @@ class TestArrowLineEdgeCases:
         from tracerite.inspector import VarInfo
         from tracerite.tty import _print_exception
 
-        output = io.StringIO()
+        io.StringIO()
 
         # Key insight: We need inspector_height > (len(output_lines) - inspector_start)
         # With minimal output (just header + 2 frame lines) and many variables
@@ -1615,8 +2047,7 @@ class TestArrowLineEdgeCases:
             ],
         }
 
-        _print_exception(output, e, term_width=200, exception_idx=0)
-        result = output.getvalue()
+        result = _print_exception(e, 200, 0)
         assert "OverflowTest" in result
         # Should print all 60 variables
         assert "v59" in result
@@ -1629,7 +2060,7 @@ class TestArrowLineEdgeCases:
         from tracerite.inspector import VarInfo
         from tracerite.tty import _print_exception
 
-        output = io.StringIO()
+        io.StringIO()
 
         e = {
             "type": "ArrowOverflow",
@@ -1653,8 +2084,7 @@ class TestArrowLineEdgeCases:
             ],
         }
 
-        _print_exception(output, e, term_width=200, exception_idx=0)
-        result = output.getvalue()
+        result = _print_exception(e, 200, 0)
         assert "ArrowOverflow" in result
 
 
@@ -1691,6 +2121,7 @@ class TestFrameLabelPathExceptions:
             "location": "different/file.py",
             "function": "func",
             "range": None,
+            "relevance": "error",
         }
         label, label_plain = _get_frame_label(frinfo)
         # Should use location fallback

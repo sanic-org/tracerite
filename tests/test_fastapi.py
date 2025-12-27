@@ -88,6 +88,26 @@ class TestFastAPIIntegration:
             # Verify tracebackhide was set
             assert mock_modules["fastapi.routing"].__tracebackhide__ == "until"
 
+    def test_patch_fastapi_tty_parameter(self, reset_fastapi_module):
+        """Test that tty parameter controls TTY loading."""
+        fastapi_module = reset_fastapi_module
+        mock_modules = create_mock_fastapi_modules()
+
+        with mock.patch.dict(sys.modules, mock_modules), mock.patch(
+            "tracerite.fastapi.load_tty"
+        ) as mock_load_tty:
+            # Test tty=True (default)
+            fastapi_module.patch_fastapi(tty=True)
+            mock_load_tty.assert_called_once()
+
+            # Reset state for second call
+            fastapi_module._original_debug_response = None
+            mock_load_tty.reset_mock()
+
+            # Test tty=False
+            fastapi_module.patch_fastapi(tty=False)
+            mock_load_tty.assert_not_called()
+
 
 class TestFastAPIDebugResponse:
     """Test the debug response replacement function."""

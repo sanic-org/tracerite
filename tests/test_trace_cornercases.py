@@ -628,23 +628,23 @@ hidden_frame()
         # All empty lines
         lines = ["   \n", "\n", "  \n"]
         indent = _calculate_common_indent(lines)
-        assert indent == 0
+        assert indent == ""
 
         # No lines
         lines = []
         indent = _calculate_common_indent(lines)
-        assert indent == 0
+        assert indent == ""
 
     def test_parse_line_empty(self):
         """Test _parse_line_to_fragments_unified with empty line (lines 408, 412)."""
         from tracerite.trace import _parse_line_to_fragments_unified
 
         # Empty line
-        result = _parse_line_to_fragments_unified("", 0, set(), set(), 0)
+        result = _parse_line_to_fragments_unified("", "", set(), set(), 0)
         assert result == []
 
         # Line with only ending
-        result = _parse_line_to_fragments_unified("\n", 0, set(), set(), 0)
+        result = _parse_line_to_fragments_unified("\n", "", set(), set(), 0)
         # Should handle line ending only
         assert isinstance(result, list)
 
@@ -654,17 +654,17 @@ hidden_frame()
 
         # Line with comment and trailing whitespace after comment (line 441->445)
         line = "code  # comment  \n"
-        result = _parse_line_to_fragments_unified(line, 0, set(), set(), 0)
+        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert len(result) > 0
 
         # Line with only comment (no code part) (line 446->464)
         line = "# comment only\n"
-        result = _parse_line_to_fragments_unified(line, 0, set(), set(), 0)
+        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert len(result) > 0
 
         # Line without comment but with trailing whitespace (line 461->464)
         line = "code  \n"
-        result = _parse_line_to_fragments_unified(line, 0, set(), set(), 0)
+        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert len(result) > 0
 
     def test_parse_line_empty_comment_branches(self):
@@ -674,19 +674,19 @@ hidden_frame()
         # Line 441->445: Empty comment_with_leading_space (comment is only whitespace+#)
         # When code_whitespace + comment_trimmed is empty
         line = "code#\n"  # No space before/after #, comment_trimmed would be "#"
-        result = _parse_line_to_fragments_unified(line, 0, set(), set(), 0)
+        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert isinstance(result, list)
 
         # Line 446->464: Empty trailing_content after comment
         # When comment_trailing + line_ending is empty (no \n, comment already trimmed)
         line = "code  # comment"  # No line ending
-        result = _parse_line_to_fragments_unified(line, 0, set(), set(), 0)
+        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert isinstance(result, list)
 
         # Line 461->464: Empty trailing_content for line without comment
         # When trailing_whitespace + line_ending is empty
         line = "code"  # No trailing whitespace or line ending
-        result = _parse_line_to_fragments_unified(line, 0, set(), set(), 0)
+        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert isinstance(result, list)
 
     def test_parse_line_only_line_ending(self):
@@ -696,7 +696,7 @@ hidden_frame()
         # Line with only line ending (no content)
         # This is when line_content is empty and line_ending exists
         line = "\n"
-        result = _parse_line_to_fragments_unified(line, 0, set(), set(), 0)
+        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
         # Should return empty list or handle gracefully
         assert isinstance(result, list)
 
@@ -767,13 +767,13 @@ hidden_frame()
 
         # Test with common indent that needs to be removed
         line_content = "    indented code"
-        fragments, remaining, pos = _process_indentation(line_content, 4)
+        fragments, remaining, pos = _process_indentation(line_content, "    ")
         # Should have dedent fragment
         assert any(f.get("dedent") for f in fragments)
         assert pos == 4
 
         # Test with no common indent
-        fragments, remaining, pos = _process_indentation(line_content, 0)
+        fragments, remaining, pos = _process_indentation(line_content, "")
         assert pos >= 0
 
     def test_positions_to_consecutive_ranges_gaps(self):
