@@ -9,22 +9,28 @@ from pathlib import Path
 
 from .trace import chainmsg, extract_chain
 
-# ANSI escape codes for terminal colors
-RESET = "\033[0m"
-DARK_GREY_BG = "\033[48;5;232m"  # Very dark grey background
-RST = RESET + DARK_GREY_BG  # Reset but preserve dark grey background
-CLR = "\033[K"  # Clear to end of line (extends background color)
-EOL = CLR + "\n" + DARK_GREY_BG  # End of line: clear, newline, restore background
-YELLOW_BG = "\033[103m"  # Bright yellow background
-BLACK_TEXT = "\033[30m"
-RED_TEXT = "\033[31m"
-GREEN = "\033[32m"
-YELLOW = "\033[93m"  # Bright yellow
-DARK_GREY = "\033[90m"
-LIGHT_BLUE = "\033[94m"
-CYAN = "\033[36m"
-BOLD = "\033[1m"
-DIM = "\033[2m"
+# ANSI escape codes for terminal colors (can be monkeypatched for styling)
+ESC = "\x1b["
+RESET = f"{ESC}0m"
+BG = f"{ESC}48;5;232m"  # Very dark grey background
+RST = RESET + BG  # Reset but preserve dark grey background
+CLR = f"{ESC}K"  # Clear to end of line (extends background color)
+EOL = f"{CLR}\n{BG}"  # End of line: clear, newline, restore background
+MARK_BG = f"{ESC}103m"  # Bright yellow background
+MARK_TEXT = f"{ESC}30m"
+EM = f"{ESC}31m"
+LOCFN = f"{ESC}32m"
+EM_CALL = f"{ESC}93m"  # Bright yellow
+DARK_GREY = f"{ESC}90m"
+EXC = f"{ESC}90m"  # Dark grey for exception text
+ELLIPSIS = f"{ESC}90m"  # Dark grey for ellipsis/skipped calls
+LOC_LINENO = f"{ESC}90m"  # Dark grey for :lineno
+INS_TYPE = f"{ESC}90m"  # Dark grey for message text in inspector
+SYMBOLDESC = f"{ESC}90m"  # Dark grey for symbol desc / exception type
+FUNC = f"{ESC}94m"
+VAR = f"{ESC}36m"
+BOLD = f"{ESC}1m"
+DIM = f"{ESC}2m"
 
 # Box drawing characters
 BOX_H = "─"
@@ -37,11 +43,11 @@ BOX_BR = "╯"  # Rounded bottom-right
 ARROW_LEFT = "◀"
 SINGLE_T = "❴"  # T-junction for single line
 
-INDENT = "  "
-CODE_INDENT = "    "  # Double indent for code lines
+INDENT = "  "  # Indent for call frame lines
+CODE_INDENT = "    "  # Indent for code in frame
 
 symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑"}
-tooltips = {
+symdesc = {
     "call": "Call",
     "warning": "Call from your code",
     "error": "{type}",
@@ -121,8 +127,16 @@ def load(capture_logging: bool = True):
             finally:
                 record.exc_info = exc_info
 
-            # Now format and write the exception using TraceRite
-            tty_traceback(exc=exc_info[1], file=self.stream, msg=msg + self.terminator)
+            # Temporarily restore original handler to avoid recursion
+            original_emit = logging.StreamHandler.emit
+            logging.StreamHandler.emit = _original_stream_handler_emit
+            try:
+                # Now format and write the exception using TraceRite
+                tty_traceback(
+                    exc=exc_info[1], file=self.stream, msg=msg + self.terminator
+                )
+            finally:
+                logging.StreamHandler.emit = original_emit
         except RecursionError:
             raise
         except Exception:
@@ -131,7 +145,7 @@ def load(capture_logging: bool = True):
     sys.excepthook = _tracerite_excepthook
     threading.excepthook = _tracerite_threading_excepthook
     if capture_logging:
-        logging.StreamHandler.emit = _tracerite_stream_handler_emit
+        logging.StreamHandler.emit = _tracerite_stream_handler_emit  # type: ignore[attr-defined]
 
 
 def unload():
@@ -158,7 +172,9 @@ def unload():
         _original_stream_handler_emit = None
 
 
-def tty_traceback(exc=None, chain=None, *, file=None, msg=None, **extract_args):
+def tty_traceback(
+    exc=None, chain=None, *, file=None, msg=None, term_width=None, **extract_args
+):
     """Format and print a traceback for terminal output (TTY).
 
     Outputs directly to the terminal (or specified file) to adapt to
@@ -178,19 +194,18 @@ def tty_traceback(exc=None, chain=None, *, file=None, msg=None, **extract_args):
     no_inspector = not is_tty
 
     # Set dark grey background for entire traceback
-    output = DARK_GREY_BG
+    output = BG
 
     # Print the original log message if provided
     if msg:
-        # Replace ANSI reset codes with RST to preserve dark grey background
-        msg = re.sub(r"\033\[0m", RST, msg)
-        output += msg.replace("\n", "\033[K\n") + EOL
+        # Preserve custom background color for full lines, beyond resets
+        output += CLR + msg.replace(RESET, RST).replace("\n", f"{CLR}\n") + EOL
 
-    # Get terminal width for potential future use
-    try:
-        term_width = os.get_terminal_size(file.fileno()).columns
-    except (OSError, ValueError):
-        term_width = 80
+    if term_width is None:
+        try:
+            term_width = os.get_terminal_size(file.fileno()).columns
+        except (OSError, ValueError):
+            term_width = 80
 
     # Pre-scan all frames to find duplicates and determine which should show inspector
     # Key: (filename, function) -> list of (exception_idx, frame_idx, relevance)
@@ -226,11 +241,11 @@ def tty_traceback(exc=None, chain=None, *, file=None, msg=None, **extract_args):
         )
 
     # Reset to original terminal colors
-    output += EOL + RESET + "\033[K"
+    output += EOL + RESET + CLR
 
     if no_color:
         # Strip all ANSI escape sequences for non-TTY output
-        output = re.sub(r"\033\[[0-9;]*[A-Za-z]", "", output)
+        output = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", output)
 
     file.write(output)
 
@@ -337,52 +352,35 @@ def _build_exception_header(e, term_width, chain_suffix):
     exc_type = e["type"]
     type_prefix = f"{exc_type}{chain_suffix}: "
     type_prefix_len = len(type_prefix)
-    cont_prefix = f"{DARK_GREY}{BOX_V}{RST} "
+    cont_prefix = f"{EXC}{BOX_V}{RST} "
     cont_prefix_len = 2  # "│ "
 
     # Check if the full title fits on one line
     full_title_len = type_prefix_len + len(summary)
     if full_title_len <= term_width:
         # Fits on one line
-        output += f"{DARK_GREY}{type_prefix}{RST}{BOLD}{summary}{RST}{EOL}"
+        output += f"{EXC}{type_prefix}{RST}{BOLD}{summary}{RST}{EOL}"
     elif len(summary) <= term_width - cont_prefix_len:
         # Summary fits on its own line after wrapping
-        output += f"{DARK_GREY}{type_prefix}{RST}{EOL}"
+        output += f"{EXC}{type_prefix}{RST}{EOL}"
         output += f"{cont_prefix}{BOLD}{summary}{RST}{EOL}"
     else:
-        # Word wrap the entire title, starting from the first row
-        # First line has type prefix, continuation lines have BOX_V prefix
-        first_line_width = term_width - type_prefix_len
-        cont_line_width = term_width - cont_prefix_len
-        # Wrap with the continuation width, then handle first line specially
-        words = summary.split()
-        lines = []
-        current_line = []
-        current_len = 0
-        is_first = True
-        max_width = first_line_width if is_first else cont_line_width
-
-        for word in words:
-            word_len = len(word)
-            if current_len == 0:
-                current_line.append(word)
-                current_len = word_len
-            elif current_len + 1 + word_len <= max_width:
-                current_line.append(word)
-                current_len += 1 + word_len
-            else:
-                lines.append(" ".join(current_line))
-                current_line = [word]
-                current_len = word_len
-                is_first = False
-                max_width = cont_line_width
-        if current_line:
-            lines.append(" ".join(current_line))
+        # Word wrap with uniform width by padding first line to account for type_prefix
+        # The padding simulates the type_prefix width, then we strip it from output
+        padding = "\x00" * (type_prefix_len - cont_prefix_len)
+        wrapped = textwrap.wrap(
+            padding + summary,
+            width=term_width - cont_prefix_len,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        # Remove padding from first line
+        wrapped[0] = wrapped[0].lstrip("\x00")
 
         # Print lines
-        for i, line in enumerate(lines):
+        for i, line in enumerate(wrapped):
             if i == 0:
-                output += f"{DARK_GREY}{type_prefix}{RST}{BOLD}{line}{RST}{EOL}"
+                output += f"{EXC}{type_prefix}{RST}{BOLD}{line}{RST}{EOL}"
             else:
                 output += f"{cont_prefix}{BOLD}{line}{RST}{EOL}"
 
@@ -390,21 +388,20 @@ def _build_exception_header(e, term_width, chain_suffix):
         if message.startswith(summary):
             message = message[len(summary) :].strip("\n")
         # Format additional message lines with BOX_V prefix
-        if message:
-            wrap_width = term_width - cont_prefix_len
-            for line in message.split("\n"):
-                if line:
-                    wrapped = textwrap.wrap(
-                        line,
-                        width=wrap_width,
-                        break_long_words=False,
-                        break_on_hyphens=False,
-                    ) or [line]
-                    for wrapped_line in wrapped:
-                        output += f"{cont_prefix}{wrapped_line}{EOL}"
-                else:
-                    # Preserve empty lines
-                    output += f"{cont_prefix.rstrip()}{EOL}"
+        wrap_width = term_width - cont_prefix_len
+        for line in message.split("\n"):
+            if line:
+                wrapped = textwrap.wrap(
+                    line,
+                    width=wrap_width,
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                ) or [line]
+                for wrapped_line in wrapped:
+                    output += f"{cont_prefix}{wrapped_line}{EOL}"
+            else:
+                # Preserve empty lines
+                output += f"{cont_prefix.rstrip()}{EOL}"
 
     return output
 
@@ -460,7 +457,7 @@ def _build_frames_output(e, term_width, exception_idx, inspector_allowed, no_ins
         # Add ellipsis line after first frame of a collapsed run
         if i in ellipsis_after:
             skipped = ellipsis_after[i]
-            ellipsis_line = f"{INDENT}{DARK_GREY}⋮ {skipped} more calls{RST}"
+            ellipsis_line = f"{INDENT}{ELLIPSIS}⋮ {skipped} more calls{RST}"
             ellipsis_plain_len = len(INDENT) + 2 + len(f"{skipped} more calls")
             output_lines.append((ellipsis_line, ellipsis_plain_len, i, False))
 
@@ -557,7 +554,7 @@ def _merge_inspector_output(
             insp_line, insp_width = inspector_lines[insp_idx]
             # Use cursor positioning to place inspector
             cursor_pos = (
-                f"\033[{inspector_col + 1}G"  # +1 because columns are 1-indexed
+                f"{ESC}{inspector_col + 1}G"  # +1 because columns are 1-indexed
             )
             # Determine which box character to use
             is_first = insp_idx == 0
@@ -568,7 +565,7 @@ def _merge_inspector_output(
                 # Arrow line: use appropriate corner or T-junction
                 if is_first and is_last:
                     box_char = SINGLE_T  # {-junction for single line
-                elif is_first:
+                elif is_first:  # pragma: no cover
                     box_char = BOX_TR  # curved corner for first+arrow
                 elif is_last:
                     box_char = BOX_BR  # curved corner for last+arrow
@@ -592,7 +589,7 @@ def _merge_inspector_output(
     if remaining_start < inspector_count:
         for idx in range(remaining_start, inspector_count):
             insp_line, insp_width = inspector_lines[idx]
-            cursor_pos = f"\033[{inspector_col + 1}G"
+            cursor_pos = f"{ESC}{inspector_col + 1}G"
             is_last = idx == inspector_count - 1
             box_char = BOX_BL if is_last else BOX_V
             output += f"{cursor_pos}  {DIM}{box_char}{RST} {insp_line}{EOL}"
@@ -621,9 +618,9 @@ def _get_frame_label(frinfo):
     label_plain = ""
     if frinfo["function"]:
         label_plain += f"{frinfo['function']} "
-        label += f"{LIGHT_BLUE}{frinfo['function']} {RST}"
+        label += f"{FUNC}{frinfo['function']} {RST}"
     label_plain += f"{location}:{lineno}"
-    label += f"{GREEN}{location}{DARK_GREY}:{lineno}{RST}"
+    label += f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RST}"
     if frinfo["relevance"] != "call":
         label += ":"
     return label, label_plain
@@ -673,24 +670,15 @@ def _build_frame_lines(info, label_width, term_width):
             msg = f"Source code not available but {e['type']} was raised from here"
         else:
             msg = "Source code not available"
-        line = f"{INDENT}{label}  {DARK_GREY}{msg}{RST}"
+        line = f"{INDENT}{label}  {INS_TYPE}{msg}{RST}"
         plain_len = len(INDENT) + len(label_plain) + 2 + len(msg)
         lines.append((line, plain_len, False))
         return lines
 
     start = frinfo["linenostart"]
     symbol = symbols.get(relevance, "")
-    symbol_colored = f"{YELLOW}{symbol}{RST}" if symbol else ""
-
-    # Generate tooltip text like HTML does
-    tooltip_text = ""
-    if relevance in tooltips:
-        try:
-            tooltip_text = tooltips[relevance].format(**e, **frinfo)
-            # Replace newlines with spaces
-            tooltip_text = tooltip_text.replace("\n", " ")
-        except Exception:
-            tooltip_text = ""
+    symbol_colored = f"{EM_CALL}{symbol}{RST}" if symbol else ""
+    desc = symdesc[relevance].format(**e, **frinfo)
 
     if relevance == "call":
         # One-liner for call frames: label + marked region only + symbol
@@ -765,21 +753,12 @@ def _build_frame_lines(info, label_width, term_width):
                 code_plain += plain
             code_colored = "".join(code_parts)
 
-            # Add symbol and tooltip text on final line
+            # Add symbol and desc on final line
             if frame_range and abs_line == frame_range.lfinal and symbol:
-                if tooltip_text and relevance != "call":
-                    line = f"{CODE_INDENT}{code_colored} {symbol_colored}  {DARK_GREY}{tooltip_text}{RST}"
-                    plain_len = (
-                        len(CODE_INDENT)
-                        + len(code_plain)
-                        + 1
-                        + len(symbol)
-                        + 2
-                        + len(tooltip_text)
-                    )
-                else:
-                    line = f"{CODE_INDENT}{code_colored} {symbol_colored}"
-                    plain_len = len(CODE_INDENT) + len(code_plain) + 1 + len(symbol)
+                line = f"{CODE_INDENT}{code_colored} {symbol_colored}  {SYMBOLDESC}{desc}{RST}"
+                plain_len = (
+                    len(CODE_INDENT) + len(code_plain) + 1 + len(symbol) + 2 + len(desc)
+                )
             else:
                 line = f"{CODE_INDENT}{code_colored}"
                 plain_len = len(CODE_INDENT) + len(code_plain)
@@ -799,18 +778,18 @@ def _format_fragment(fragment):
 
     # Open mark if starting
     if mark in ("solo", "beg"):
-        colored_parts.append(YELLOW_BG + BLACK_TEXT)
+        colored_parts.append(MARK_BG + MARK_TEXT)
 
     # Open em if starting (red text within the mark)
     if em in ("solo", "beg"):
-        colored_parts.append(RED_TEXT)
+        colored_parts.append(EM)
 
     # Add the code
     colored_parts.append(code)
 
     # Close em if ending
     if em in ("fin", "solo") and mark not in ("fin", "solo"):
-        colored_parts.append(BLACK_TEXT)
+        colored_parts.append(MARK_TEXT)
 
     # Close mark if ending
     if mark in ("fin", "solo"):
@@ -828,7 +807,7 @@ def _format_fragment_call(fragment):
 
     # Open em if starting (yellow text)
     if em in ("solo", "beg"):
-        colored_parts.append(YELLOW)
+        colored_parts.append(EM_CALL)
 
     # Add the code
     colored_parts.append(code)
@@ -856,18 +835,18 @@ def _print_fragment(file, fragment):
 
     # Open mark if starting
     if mark in ("solo", "beg"):
-        print(YELLOW_BG + BLACK_TEXT, end="", file=file)
+        print(MARK_BG + MARK_TEXT, end="", file=file)
 
     # Open em if starting (red text within the mark)
     if em in ("solo", "beg"):
-        print(RED_TEXT, end="", file=file)
+        print(EM, end="", file=file)
 
     # Print the code
     print(code, end="", file=file)
 
     # Close em if ending
     if em in ("fin", "solo") and mark not in ("fin", "solo"):
-        print(BLACK_TEXT, end="", file=file)
+        print(MARK_TEXT, end="", file=file)
 
     # Close mark if ending
     if mark in ("fin", "solo"):
@@ -927,10 +906,10 @@ def _build_variable_inspector(variables, term_width):
 
         # Build the line
         if typename:
-            line = f"{CYAN}{name}{RST}{DIM}: {typename}{RST} = {val_str}"
+            line = f"{VAR}{name}{RST}{DIM}: {typename}{RST} = {val_str}"
             line_plain = f"{name}: {typename} = {val_str}"
         else:
-            line = f"{CYAN}{name}{RST} = {val_str}"
+            line = f"{VAR}{name}{RST} = {val_str}"
             line_plain = f"{name} = {val_str}"
 
         var_lines.append((line, line_plain))
@@ -948,7 +927,7 @@ def _build_variable_inspector(variables, term_width):
         # Truncate if too long
         if len(line_plain) > max_width:
             truncated_plain = line_plain[: max_width - 1] + "…"
-            line = f"{CYAN}{line_plain[: max_width - 1]}…{RST}"
+            line = f"{VAR}{line_plain[: max_width - 1]}…{RST}"
             line_plain = truncated_plain
 
         # Just content, bar added during printing
