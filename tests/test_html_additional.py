@@ -226,7 +226,7 @@ class TestHtmlAdditional:
 
             assert "ValueError" in html_str
             assert "TypeError" in html_str
-            assert "from above" in html_str
+            assert "from previous" in html_str
 
     def test_exception_from_context(self):
         """Test exception chain with implicit context."""

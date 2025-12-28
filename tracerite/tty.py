@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import sys
@@ -8,6 +9,7 @@ import threading
 from pathlib import Path
 from typing import Any, TextIO
 
+from .chain_analysis import build_chronological_frames
 from .trace import chainmsg, extract_chain
 
 # ANSI escape codes for terminal colors (can be monkeypatched for styling)
@@ -47,12 +49,13 @@ SINGLE_T = "❴"  # T-junction for single line
 INDENT = "  "  # Indent for call frame lines
 CODE_INDENT = "    "  # Indent for code in frame
 
-symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑"}
+symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑", "except": "⚡"}
 symdesc = {
     "call": "Call",
     "warning": "Call from your code",
     "error": "{type}",
     "stop": "{type}",
+    "except": "Exception handler",
 }
 
 # Store the original hooks for unload
@@ -180,6 +183,7 @@ def tty_traceback(
     file: TextIO | None = None,
     msg: str | None = None,
     term_width: int | None = None,
+    chronological: bool = True,
     **extract_args: Any,
 ) -> None:
     """Format and print a traceback for terminal output (TTY).
@@ -187,6 +191,10 @@ def tty_traceback(
     Outputs directly to the terminal (or specified file) to adapt to
     terminal features like window size. The chain is printed with the
     oldest exception first (order they occurred).
+
+    Args:
+        chronological: If True (default), print frames in chronological order
+            with exception info after error frames. If False, use legacy format.
     """
     import re
 
@@ -214,14 +222,17 @@ def tty_traceback(
         except (OSError, ValueError):
             term_width = 80
 
-    for i, e in enumerate(chain):
-        # Get chaining suffix for exception header
-        chain_suffix = ""
-        if i > 0:
-            output += EOL  # Empty line between exceptions
-            chain_suffix = chainmsg.get(e.get("from", "none"), "")
+    if chronological:
+        output += _print_chronological(chain, term_width, no_inspector)
+    else:
+        for i, e in enumerate(chain):
+            # Get chaining suffix for exception header
+            chain_suffix = ""
+            if i > 0:
+                output += EOL  # Empty line between exceptions
+                chain_suffix = chainmsg.get(e.get("from", "none"), "")
 
-        output += _print_exception(e, term_width, chain_suffix, no_inspector)
+            output += _print_exception(e, term_width, chain_suffix, no_inspector)
 
     # Reset to original terminal colors
     output += EOL + RESET + CLR
@@ -320,9 +331,428 @@ def _print_exception(
     chain_suffix: str = "",
     no_inspector: bool = False,
 ) -> str:
-    """Print a single exception with its frames."""
+    """Print a single exception with its frames (legacy format)."""
     output = _build_exception_header(e, term_width, chain_suffix)
     output += _build_frames_output(e, term_width, no_inspector)
+    return output
+
+
+def _print_chronological(
+    chain: list[dict[str, Any]],
+    term_width: int,
+    no_inspector: bool = False,
+) -> str:
+    """Print frames in chronological order with exception info after error frames."""
+    output = ""
+    chrono_frames = build_chronological_frames(chain)
+    if not chrono_frames:
+        # No frames, but still show exception banners for any exceptions in chain
+        for exc in chain:
+            exc_info = {
+                "type": exc.get("type"),
+                "message": exc.get("message"),
+                "summary": exc.get("summary"),
+                "from": exc.get("from"),
+            }
+            output += _build_exception_banner(exc_info, term_width)
+        return output
+
+    # Build frame info list for all chronological frames
+    frame_info_list = []
+    for frinfo in chrono_frames:
+        info = _get_chrono_frame_info(frinfo)
+        frame_info_list.append(info)
+
+    # Find collapsible call runs
+    collapse_ranges = _find_collapsible_call_runs(frame_info_list, min_run_length=10)
+
+    # Build set of frame indices to skip
+    skip_indices = set()
+    ellipsis_after = {}
+    for start_idx, end_idx in collapse_ranges:
+        skipped_count = end_idx - start_idx - 1
+        for i in range(start_idx + 1, end_idx):
+            skip_indices.add(i)
+        ellipsis_after[start_idx] = skipped_count
+
+    # Find first non-call frame with variables for inspector
+    inspector_frame_idx = _find_inspector_frame_idx(frame_info_list)
+
+    # Calculate max label width for call frame alignment
+    call_label_widths = [
+        len(info["label_plain"])
+        for i, info in enumerate(frame_info_list)
+        if info["relevance"] == "call" and i not in skip_indices
+    ]
+    label_width = max(call_label_widths, default=0)
+
+    # Build output lines
+    output_lines = []
+    exception_banners = []  # List of (insert_after_line_idx, banner_output)
+
+    for i, info in enumerate(frame_info_list):
+        if i in skip_indices:
+            continue
+
+        lines = _build_chrono_frame_lines(info, label_width, term_width)
+        len(output_lines)
+        for line, plain_len, is_marked in lines:
+            output_lines.append((line, plain_len, i, is_marked))
+
+        # Add ellipsis after first frame of collapsed run
+        if i in ellipsis_after:
+            skipped = ellipsis_after[i]
+            ellipsis_line = f"{INDENT}{ELLIPSIS}⋮ {skipped} more calls{RST}"
+            ellipsis_plain_len = len(INDENT) + 2 + len(f"{skipped} more calls")
+            output_lines.append((ellipsis_line, ellipsis_plain_len, i, False))
+
+        # Check if this frame has exception info to print after it
+        exc_info = info["frinfo"].get("exception")
+        relevance = info["relevance"]
+        if exc_info and relevance in ("error", "stop"):
+            # Record that we need to insert exception banner after this frame's lines
+            banner = _build_exception_banner(exc_info, term_width)
+            exception_banners.append((len(output_lines), banner))
+
+    # Get variable inspector lines
+    inspector_lines = []
+    if not no_inspector and inspector_frame_idx is not None:
+        frinfo = frame_info_list[inspector_frame_idx]["frinfo"]
+        variables = frinfo.get("variables", [])
+        if variables:
+            inspector_lines = _build_variable_inspector(variables, term_width)
+
+    # Build final output, inserting exception banners at the right positions
+    if inspector_lines:
+        # Complex case: merge inspector and banners
+        output += _merge_chrono_output(
+            output_lines,
+            inspector_lines,
+            term_width,
+            inspector_frame_idx,
+            exception_banners,
+        )
+    else:
+        # Simpler case: just insert banners
+        banner_idx = 0
+        for li, (line, _, _, _) in enumerate(output_lines):
+            output += f"{line}{EOL}"
+            # Check if we need to insert a banner after this line
+            while banner_idx < len(exception_banners):
+                insert_pos, banner = exception_banners[banner_idx]
+                if li + 1 == insert_pos:
+                    output += banner
+                    banner_idx += 1
+                else:
+                    break
+        # Any remaining banners
+        for _, banner in exception_banners[banner_idx:]:
+            output += banner
+
+    return output
+
+
+def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
+    """Build exception banner output to show after error frame."""
+    output = ""
+    exc_type = exc_info.get("type", "Exception")
+    summary = exc_info.get("summary", "")
+    message = exc_info.get("message", "")
+    from_type = exc_info.get("from", "none")
+
+    chain_suffix = chainmsg.get(from_type, "")
+    type_prefix = f"{exc_type}{chain_suffix}: "
+    type_prefix_len = len(type_prefix)
+    cont_prefix = f"{EXC}{BOX_V}{RST} "
+    cont_prefix_len = 2
+
+    # Check if the full title fits on one line
+    full_title_len = type_prefix_len + len(summary)
+    if full_title_len <= term_width:
+        output += f"{EXC}{type_prefix}{RST}{BOLD}{summary}{RST}{EOL}"
+    elif len(summary) <= term_width - cont_prefix_len:
+        output += f"{EXC}{type_prefix}{RST}{EOL}"
+        output += f"{cont_prefix}{BOLD}{summary}{RST}{EOL}"
+    else:
+        padding = "\x00" * (type_prefix_len - cont_prefix_len)
+        wrapped = textwrap.wrap(
+            padding + summary,
+            width=term_width - cont_prefix_len,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        wrapped[0] = wrapped[0].lstrip("\x00")
+        for i, line in enumerate(wrapped):
+            if i == 0:
+                output += f"{EXC}{type_prefix}{RST}{BOLD}{line}{RST}{EOL}"
+            else:
+                output += f"{cont_prefix}{BOLD}{line}{RST}{EOL}"
+
+    if summary != message:
+        if message.startswith(summary):
+            message = message[len(summary) :].strip("\n")
+        wrap_width = term_width - cont_prefix_len
+        for line in message.split("\n"):
+            if line:
+                wrapped = textwrap.wrap(
+                    line,
+                    width=wrap_width,
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                ) or [line]
+                for wrapped_line in wrapped:
+                    output += f"{cont_prefix}{wrapped_line}{EOL}"
+            else:
+                output += f"{cont_prefix.rstrip()}{EOL}"
+
+    return output
+
+
+def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
+    """Gather info needed to print a chronological frame."""
+    label, label_plain = _get_frame_label(frinfo)
+    fragments = frinfo.get("fragments", [])
+    frame_range = frinfo.get("range")
+    relevance = frinfo.get("relevance", "call")
+    exc_info = frinfo.get("exception")
+
+    # Get marked lines
+    marked_lines = [
+        li for li in fragments if any(f.get("mark") for f in li.get("fragments", []))
+    ]
+
+    return {
+        "label": label,
+        "label_plain": label_plain,
+        "fragments": fragments,
+        "frame_range": frame_range,
+        "relevance": relevance,
+        "exc_info": exc_info,
+        "marked_lines": marked_lines,
+        "frinfo": frinfo,
+    }
+
+
+def _build_chrono_frame_lines(
+    info: dict[str, Any], label_width: int, term_width: int
+) -> list[tuple[str, int, bool]]:
+    """Build output lines for a chronological frame."""
+    label = info["label"]
+    label_plain = info["label_plain"]
+    fragments = info["fragments"]
+    frame_range = info["frame_range"]
+    relevance = info["relevance"]
+    exc_info = info["exc_info"]
+    frinfo = info["frinfo"]
+
+    lines = []
+
+    if not fragments:
+        if exc_info:
+            msg = f"Source code not available but {exc_info.get('type', 'Exception')} was raised from here"
+        else:
+            msg = "Source code not available"
+        line = f"{INDENT}{label}  {INS_TYPE}{msg}{RST}"
+        plain_len = len(INDENT) + len(label_plain) + 2 + len(msg)
+        lines.append((line, plain_len, False))
+        return lines
+
+    start = frinfo.get("linenostart", 1)
+    symbol = symbols.get(relevance, "")
+    symbol_colored = f"{EM_CALL}{symbol}{RST}" if symbol else ""
+
+    # Get description - use exception type if available
+    if exc_info:
+        desc = exc_info.get("type", relevance)
+    else:
+        desc = symdesc.get(relevance, relevance)
+        with contextlib.suppress(KeyError, ValueError):
+            desc = desc.format(**frinfo)
+
+    if relevance == "call":
+        # One-liner for call frames
+        padding = " " * (label_width - len(label_plain))
+
+        if info["marked_lines"]:
+            line_info = info["marked_lines"][0]
+            code_parts = []
+            code_plain = ""
+            for fragment in line_info.get("fragments", []):
+                mark = fragment.get("mark")
+                if mark:
+                    colored, plain = _format_fragment_call(fragment)
+                    code_parts.append(colored)
+                    code_plain += plain
+            code_colored = "".join(code_parts)
+
+            full_plain_len = (
+                len(INDENT)
+                + len(label_plain)
+                + len(padding)
+                + 1
+                + len(code_plain)
+                + 2
+                + len(symbol)
+            )
+            if full_plain_len <= term_width:
+                line = f"{INDENT}{label}{padding} {code_colored} {symbol_colored}"
+                lines.append((line, full_plain_len, False))
+            else:
+                line = f"{INDENT}{label}{padding} {symbol_colored}"
+                lines.append(
+                    (
+                        line,
+                        len(INDENT) + len(label_plain) + len(padding) + 1 + len(symbol),
+                        False,
+                    )
+                )
+        else:
+            line = f"{INDENT}{label}{padding} {symbol_colored}"
+            lines.append(
+                (
+                    line,
+                    len(INDENT) + len(label_plain) + len(padding) + 1 + len(symbol),
+                    False,
+                )
+            )
+    else:
+        # Full format for error/warning/stop/except frames
+        lines.append((f"{INDENT}{label}", len(INDENT) + len(label_plain), False))
+
+        marked_line_nums = set()
+        for ml in info["marked_lines"]:
+            marked_line_nums.add(ml["line"])
+
+        for line_info in fragments:
+            line_num = line_info["line"]
+            abs_line = start + line_num - 1
+            line_fragments = line_info.get("fragments", [])
+            is_marked = line_num in marked_line_nums
+
+            code_parts = []
+            code_plain = ""
+            for fragment in line_fragments:
+                colored, plain = _format_fragment(fragment)
+                code_parts.append(colored)
+                code_plain += plain
+            code_colored = "".join(code_parts)
+
+            if frame_range and abs_line == frame_range.lfinal and symbol:
+                line = f"{CODE_INDENT}{code_colored} {symbol_colored}  {SYMBOLDESC}{desc}{RST}"
+                plain_len = (
+                    len(CODE_INDENT) + len(code_plain) + 1 + len(symbol) + 2 + len(desc)
+                )
+            else:
+                line = f"{CODE_INDENT}{code_colored}"
+                plain_len = len(CODE_INDENT) + len(code_plain)
+
+            lines.append((line, plain_len, is_marked))
+
+    return lines
+
+
+def _merge_chrono_output(
+    output_lines: list[tuple[str, int, int, bool]],
+    inspector_lines: list[tuple[str, int]],
+    term_width: int,
+    inspector_frame_idx: int | None,
+    exception_banners: list[tuple[int, str]],
+) -> str:
+    """Merge chronological output with inspector and exception banners."""
+    assert inspector_frame_idx is not None
+    output = ""
+    frame_line_start, frame_line_end = _find_frame_line_range(
+        output_lines, inspector_frame_idx
+    )
+    error_line = _find_last_marked_line(output_lines, frame_line_start, frame_line_end)
+    inspector_height = len(inspector_lines)
+
+    ideal_arrow_pos = inspector_height // 2
+    ideal_start = error_line - ideal_arrow_pos
+    min_start = 0
+    inspector_start = ideal_start
+
+    if inspector_start < min_start:
+        inspector_start = min_start
+
+    lines_available_below = len(output_lines) - inspector_start
+    if lines_available_below < inspector_height:
+        needed_shift = inspector_height - lines_available_below
+        inspector_start = max(min_start, inspector_start - needed_shift)
+
+    arrow_line_idx = error_line - inspector_start
+    assert 0 <= arrow_line_idx < inspector_height
+
+    max_line_len = 0
+    for li in range(
+        inspector_start,
+        min(inspector_start + inspector_height, len(output_lines)),
+    ):
+        max_line_len = max(max_line_len, output_lines[li][1])
+
+    max_insp_width = max(w for _, w in inspector_lines) if inspector_lines else 0
+    total_insp_width = 4 + max_insp_width
+    inspector_col = max_line_len + 2
+
+    if inspector_col + total_insp_width > term_width:
+        inspector_col = term_width - total_insp_width
+
+    inspector_count = len(inspector_lines)
+    banner_idx = 0
+
+    for li, (line, *_) in enumerate(output_lines):
+        insp_idx = li - inspector_start
+        if 0 <= insp_idx < inspector_count:
+            insp_line, insp_width = inspector_lines[insp_idx]
+            cursor_pos = f"{ESC}{inspector_col + 1}G"
+            is_first = insp_idx == 0
+            is_last = insp_idx == inspector_count - 1
+            is_arrow = insp_idx == arrow_line_idx
+
+            if is_arrow:
+                if is_first and is_last:
+                    box_char = SINGLE_T
+                elif is_first:
+                    box_char = BOX_TR
+                elif is_last:
+                    box_char = BOX_BR
+                else:
+                    box_char = BOX_VL
+                output += f"{line}{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RST} {insp_line}{EOL}"
+            else:
+                if is_first:
+                    box_char = BOX_TL
+                elif is_last:
+                    box_char = BOX_BL
+                else:
+                    box_char = BOX_V
+                output += f"{line}{cursor_pos}  {DIM}{box_char}{RST} {insp_line}{EOL}"
+        else:
+            output += f"{line}{EOL}"
+
+        # Insert exception banner if needed
+        while banner_idx < len(exception_banners):
+            insert_pos, banner = exception_banners[banner_idx]
+            if li + 1 == insert_pos:
+                output += banner
+                banner_idx += 1
+            else:
+                break
+
+    # Remaining inspector lines
+    remaining_start = len(output_lines) - inspector_start
+    if remaining_start < inspector_count:
+        for idx in range(remaining_start, inspector_count):
+            insp_line, insp_width = inspector_lines[idx]
+            cursor_pos = f"{ESC}{inspector_col + 1}G"
+            is_last = idx == inspector_count - 1
+            box_char = BOX_BL if is_last else BOX_V
+            output += f"{cursor_pos}  {DIM}{box_char}{RST} {insp_line}{EOL}"
+
+    # Any remaining banners
+    for _, banner in exception_banners[banner_idx:]:
+        output += banner
+
     return output
 
 

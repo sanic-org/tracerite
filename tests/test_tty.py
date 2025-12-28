@@ -131,8 +131,8 @@ class TestTtyTraceback:
         # Should show both exceptions
         assert "NameError" in result
         assert "RuntimeError" in result
-        # Should show the chaining message
-        assert "while handling" in result or "from" in result.lower()
+        # Should show the chaining message (using new chain message format)
+        assert "in except" in result or "from previous" in result.lower()
 
     def test_suppressed_context_exception(self):
         """Test exception with suppressed context (raise ... from None)."""
@@ -277,8 +277,8 @@ class TestChainedExceptions:
         # Both should be present
         assert "ValueError" in result
         assert "RuntimeError" in result
-        # "from above" indicates the second exception was raised from the first
-        assert "from above" in result
+        # "from previous" indicates the second exception was raised from the first
+        assert "from previous" in result
 
     def test_context_chain_ordering(self):
         """Test implicit context chain (without 'from')."""
@@ -294,8 +294,8 @@ class TestChainedExceptions:
         result = output.getvalue()
         assert "ValueError" in result
         assert "RuntimeError" in result
-        # Should indicate this happened while handling previous
-        assert "while handling" in result
+        # Should indicate this happened while handling previous (new format: "in except")
+        assert "in except" in result
 
     def test_deeply_nested_chain(self):
         """Test handling of deeply nested exception chains."""

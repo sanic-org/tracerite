@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 import re
 import sys
@@ -29,8 +31,8 @@ libdir = re.compile(
 # Messages for exception chaining (oldest-first order)
 # Suffix added to exception type when chained from a previous exception
 chainmsg = {
-    "cause": " from above",
-    "context": " while handling above",
+    "cause": " from previous",
+    "context": " in except",
     "none": "",
 }
 
@@ -57,28 +59,84 @@ def extract_chain(exc=None, **kwargs) -> list:
 
 
 def _deduplicate_variables(chain: list) -> None:
-    """Remove duplicate variable inspectors, keeping only the last occurrence.
+    """Remove duplicate variables from inspectors, showing each only once.
 
-    For frames that appear multiple times (same filename and function),
-    only the last non-call occurrence keeps its variables.
+    Variables are only shown if they appear in the frame's highlighted code
+    (the lines indicated by the error range, expanded to include full
+    comprehensions). If a variable appears in multiple frames' highlighted
+    code (same filename/function), it's only shown in the last frame where
+    it appears.
     """
-    # First pass: find the last non-call occurrence of each (filename, function)
-    last_occurrence: dict[tuple, tuple[int, int]] = {}  # key -> (exception_idx, frame_idx)
-    for ei, exc in enumerate(chain):
-        for fi, frame in enumerate(exc.get("frames", [])):
-            if frame.get("relevance") == "call":
-                continue
-            key = (frame.get("filename"), frame.get("function"))
-            last_occurrence[key] = (ei, fi)
 
-    # Second pass: clear variables from all but the last occurrence
+    def _get_highlighted_lines(frame: dict) -> str:
+        """Extract the highlighted lines from a frame based on its range.
+
+        Expands to include full comprehension if error is inside one.
+        """
+        lines = frame.get("lines", "")
+        range_obj = frame.get("range")
+        if not range_obj or not lines:
+            return lines  # Fall back to all lines if no range
+
+        start = frame.get("linenostart", 1)
+        lfirst, lfinal = range_obj.lfirst, range_obj.lfinal
+
+        # Check if error is inside a comprehension - if so, return full comprehension
+        comp_range = _find_comprehension_range(lines, lfirst, start)
+        if comp_range is not None:
+            # Error is inside a comprehension - return full lines (already trimmed to comprehension)
+            return lines
+
+        # No comprehension, return just the highlighted lines
+        lines_list = lines.splitlines()
+
+        # Convert to 0-based indices relative to displayed lines
+        first_idx = lfirst - start
+        final_idx = lfinal - start + 1
+
+        if first_idx < 0 or first_idx >= len(lines_list):
+            return lines  # Fall back if range is invalid
+
+        return "\n".join(lines_list[first_idx:final_idx])
+
+    def _variable_in_code(name: str, lines: str) -> bool:
+        """Check if a variable name appears in the code as a word."""
+        return bool(re.search(rf"\b{re.escape(name)}\b", lines))
+
+    # First pass: collect frames by (filename, function) key
+    # Maps key -> list of (exception_idx, frame_idx)
+    frame_groups: dict[tuple, list[tuple[int, int]]] = {}
     for ei, exc in enumerate(chain):
         for fi, frame in enumerate(exc.get("frames", [])):
             if frame.get("relevance") == "call":
                 continue
             key = (frame.get("filename"), frame.get("function"))
-            if last_occurrence.get(key) != (ei, fi):
-                frame["variables"] = []
+            if key not in frame_groups:
+                frame_groups[key] = []
+            frame_groups[key].append((ei, fi))
+
+    # Second pass: for each group, determine which variables to show in each frame
+    for _key, occurrences in frame_groups.items():
+        # For each variable, find the LAST frame where it appears in highlighted code
+        # variable_name -> (exception_idx, frame_idx) of last appearance in highlighted code
+        last_appearance: dict[str, tuple[int, int]] = {}
+
+        for ei, fi in occurrences:
+            frame = chain[ei]["frames"][fi]
+            highlighted = _get_highlighted_lines(frame)
+            for v in frame.get("variables", []):
+                if v.name and _variable_in_code(v.name, highlighted):
+                    # Update to this frame (later frames overwrite earlier)
+                    last_appearance[v.name] = (ei, fi)
+
+        # Now filter each frame's variables: keep only if this is the last appearance
+        for ei, fi in occurrences:
+            frame = chain[ei]["frames"][fi]
+            frame["variables"] = [
+                v
+                for v in frame.get("variables", [])
+                if v.name and last_appearance.get(v.name) == (ei, fi)
+            ]
 
 
 def _create_summary(message):
@@ -189,17 +247,143 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
         ]
         start += max(0, lineno - start - lines_before)
 
-        # Calculate common indentation and dedent
-        common_indent = _calculate_common_indent(lines)
-        lines = [ln.removeprefix(common_indent) for ln in lines]
-        # Start with the first minimal indent line (trim prior lines)
-        while lines and lines[0].strip() and lines[0][0] in " \t":
+        # Calculate error line position
+        error_idx = lineno - start
+        end_idx = (end_lineno - start) if end_lineno else error_idx
+
+        # Get the indentation of the first marked line (error line) before any dedenting
+        error_indent = 0
+        if 0 <= error_idx < len(lines):
+            error_line = lines[error_idx]
+            error_indent = len(error_line) - len(error_line.lstrip(" \t"))
+
+        # Trim leading lines that have more indentation than error line
+        while lines and error_idx > 0:
+            first_line = lines[0]
+            if first_line.strip():
+                first_indent = len(first_line) - len(first_line.lstrip(" \t"))
+                if first_indent <= error_indent:
+                    break  # This line has same or less indent, keep it
             start += 1
             lines.pop(0)
+            error_idx -= 1
+            end_idx -= 1
+
+        # Trim trailing lines with less indentation than the error line
+        # (hides external structures like else/except that aren't relevant)
+        if 0 <= error_idx < len(lines):
+            trim_after = end_idx + 1
+            while trim_after < len(lines):
+                line = lines[trim_after]
+                # Keep empty lines, but check non-empty lines for indentation
+                if line.strip():
+                    line_indent = len(line) - len(line.lstrip(" \t"))
+                    if line_indent < error_indent:
+                        break  # Found a line with less indent, trim from here
+                trim_after += 1
+            lines = lines[:trim_after]
+
+        # Calculate common indentation and dedent AFTER pruning
+        common_indent = _calculate_common_indent(lines)
+        lines = [ln.removeprefix(common_indent) for ln in lines]
 
         return "".join(lines), start, common_indent
     except OSError:
         return "", lineno, ""  # Source not available (non-Python module)
+
+
+def reprocess_frame_from_line(
+    frame: dict, from_line: int, to_line: int | None = None
+) -> dict:
+    """Reprocess a frame's source context starting from a specific line.
+
+    This is used to adjust a frame to show only a subset of its context,
+    such as trimming to show only an except block. The function applies
+    the same dedenting and fragment parsing as normal frame extraction.
+
+    Args:
+        frame: The original frame dict
+        from_line: The absolute line number to start from
+        to_line: Optional absolute line number to end at (inclusive)
+
+    Returns:
+        A new frame dict with adjusted lines, fragments, and variables
+    """
+    import re
+
+    # Get current source info
+    lines = frame.get("lines", "")
+    linenostart = frame.get("linenostart", 1)
+    frame_range = frame.get("range")
+
+    if not lines:
+        return frame
+
+    lines_list = lines.splitlines(keepends=True)
+
+    # Calculate where from_line is relative to current context (0-based index)
+    from_offset = from_line - linenostart
+
+    # If from_line is before our current context, we can't adjust
+    if from_offset < 0 or from_offset >= len(lines_list):
+        return frame
+
+    # Calculate end index for slicing (exclusive, 0-based)
+    if to_line is not None:
+        end_idx = to_line - linenostart + 1
+        end_idx = min(end_idx, len(lines_list))
+    else:
+        end_idx = len(lines_list)
+
+    # Trim to the requested range
+    trimmed_lines = lines_list[from_offset:end_idx]
+
+    # Calculate common indent and dedent AFTER trimming
+    common_indent = _calculate_common_indent(trimmed_lines)
+    dedented_lines = [ln.removeprefix(common_indent) for ln in trimmed_lines]
+    new_lines = "".join(dedented_lines)
+
+    # Create a copy of the frame
+    new_frame = {**frame}
+    new_frame["lines"] = new_lines
+    new_frame["linenostart"] = from_line
+
+    # Recalculate fragments with proper dedenting
+    if frame_range and new_lines:
+        # Adjust column positions for the dedented code
+        indent_removed = len(common_indent)
+        adjusted_start_col = max(0, frame_range.cbeg - indent_removed)
+        adjusted_end_col = max(0, frame_range.cend - indent_removed)
+
+        # Calculate mark range relative to new context
+        error_line_in_new_context = frame_range.lfirst - from_line + 1
+        end_line_in_new_context = frame_range.lfinal - from_line + 1
+
+        if 1 <= error_line_in_new_context <= len(dedented_lines):
+            mark_range = Range(
+                error_line_in_new_context,
+                end_line_in_new_context,
+                adjusted_start_col,
+                adjusted_end_col,
+            )
+            new_frame["fragments"] = _parse_lines_to_fragments(
+                new_lines, mark_range, None
+            )
+        else:
+            new_frame["fragments"] = _parse_lines_to_fragments(new_lines, None, None)
+    elif new_lines:
+        new_frame["fragments"] = _parse_lines_to_fragments(new_lines, None, None)
+
+    # Filter variables to only include those that appear in the new trimmed code
+    if new_frame.get("variables") and new_lines:
+        identifiers = {
+            m.group(0) for p in (r"\w+", r"\w+\.\w+") for m in re.finditer(p, new_lines)
+        }
+        new_frame["variables"] = [
+            v for v in new_frame["variables"] if v.name in identifiers
+        ]
+
+    return new_frame
 
 
 def _libdir_match(path):
@@ -264,6 +448,89 @@ def _get_frame_relevance(is_last_frame, is_bug_frame, suppress_inner):
     elif is_bug_frame:
         return "warning"
     return "call"
+
+
+def _expand_source_for_comprehension(lines: str, lineno: int, start: int) -> str:
+    """Expand source to include full comprehension/generator expression if error is inside one.
+
+    This helps show relevant variables like the iterator source (e.g., `data` in `for item in data`).
+
+    Args:
+        lines: The source code snippet
+        lineno: The 1-based line number where the error occurred
+        start: The 1-based starting line number of the snippet
+
+    Returns:
+        Source code that includes the full comprehension, or original lines if not in one.
+    """
+    result = _find_comprehension_range(lines, lineno, start)
+    if result:
+        lines_list = lines.splitlines(keepends=True)
+        comp_start, comp_end = result
+        return "".join(lines_list[comp_start:comp_end])
+    return lines
+
+
+def _find_comprehension_range(lines: str, lineno: int, start: int):
+    """Find the line range of a comprehension containing the error line.
+
+    Args:
+        lines: The source code snippet
+        lineno: The 1-based line number where the error occurred
+        start: The 1-based starting line number of the snippet
+
+    Returns:
+        Tuple of (start_idx, end_idx) as 0-based indices into lines_list,
+        or None if error is not inside a comprehension.
+    """
+    import ast
+
+    # Try to parse the source and find comprehensions containing the error line
+    try:
+        tree = ast.parse(lines)
+    except SyntaxError:
+        return None
+
+    error_line_in_source = lineno - start + 1
+
+    # Find comprehension nodes that contain the error line
+    comprehension_types = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, comprehension_types)
+            and hasattr(node, "lineno")
+            and hasattr(node, "end_lineno")
+            and (
+                node.lineno <= error_line_in_source <= (node.end_lineno or node.lineno)
+            )
+        ):
+            comp_start = node.lineno - 1  # 0-based
+            comp_end = node.end_lineno or node.lineno  # 1-based, inclusive
+            return (comp_start, comp_end)
+
+    return None
+
+
+def _trim_source_to_comprehension(lines: str, lineno: int, start: int):
+    """Trim source context to just the comprehension if error is inside one.
+
+    Args:
+        lines: The source code snippet
+        lineno: The 1-based line number where the error occurred
+        start: The 1-based starting line number of the snippet
+
+    Returns:
+        Tuple of (trimmed_lines, new_start) where new_start is adjusted line number,
+        or (lines, start) if not inside a comprehension.
+    """
+    result = _find_comprehension_range(lines, lineno, start)
+    if result:
+        lines_list = lines.splitlines(keepends=True)
+        comp_start_idx, comp_end_idx = result
+        trimmed = "".join(lines_list[comp_start_idx:comp_end_idx])
+        new_start = start + comp_start_idx
+        return trimmed, new_start
+    return lines, start
 
 
 def _extract_emphasis_columns(
@@ -545,23 +812,26 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         if not lines and relevance == "call":
             continue
 
+        # For comprehensions/generators, trim context to just the expression
+        lines, start = _trim_source_to_comprehension(lines, lineno, start)
+        # Recalculate common indent after trimming and dedent again if needed
+        lines_list = lines.splitlines(keepends=True)
+        extra_indent = _calculate_common_indent(lines_list)
+        lines = "".join(ln.removeprefix(extra_indent) for ln in lines_list)
+        # Total indent removed is original + any extra from trimming
+        total_indent = len(original_common_indent) + len(extra_indent)
+
         filename, location, urls = format_location(filename, lineno)
         function = _get_qualified_function_name(frame, function)
 
         error_line_in_context = lineno - start + 1
         end_line = pos_end_lineno - start + 1 if pos_end_lineno else None
 
-        # Calculate common indentation that will be removed for display
-        # (we already have this from extract_source_lines, no need to recalculate)
-        common_indent = original_common_indent
-
         # Adjust column positions to account for dedenting
         # Python's column numbers are based on the original indented code,
-        # but we display dedented code, so we need to subtract the common indentation
-        adjusted_start_col = (
-            start_col - len(common_indent) if start_col is not None else None
-        )
-        adjusted_end_col = end_col - len(common_indent) if end_col is not None else None
+        # but we display dedented code, so we need to subtract total indentation removed
+        adjusted_start_col = start_col - total_indent if start_col is not None else None
+        adjusted_end_col = end_col - total_indent if end_col is not None else None
 
         # Create mark range (1-based inclusive lines, 0-based exclusive columns)
         mark_range = None
@@ -585,6 +855,9 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         )
         fragments = _parse_lines_to_fragments(lines, mark_range, em_range)
 
+        # Expand source to include full comprehension for variable inspection
+        variable_source = _expand_source_for_comprehension(lines, lineno, start)
+
         frames.append(
             {
                 "id": f"tb-{token_urlsafe(12)}",
@@ -595,12 +868,13 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
                 "range": Range(lineno, pos_end_lineno or lineno, start_col, end_col)
                 if start_col is not None
                 else None,
+                "lineno": lineno,  # Actual error line from traceback (always available)
                 "linenostart": start,
                 "lines": lines,
                 "fragments": fragments,
                 "function": function,
                 "urls": urls,
-                "variables": extract_variables(frame.f_locals, lines),
+                "variables": extract_variables(frame.f_locals, variable_source),
             }
         )
 

@@ -65,6 +65,19 @@ def unrelated_error_in_finally():
         0 / 0
 
 
+def _helper_raise():
+    """Helper that raises an error."""
+    raise RuntimeError("from helper")
+
+
+def error_via_call_in_except():
+    """Exception raised from a function call within an except block."""
+    try:
+        wrongname
+    except NameError:
+        _helper_raise()  # Call from except block
+
+
 def error_in_stdlib_mimetypes():
     import mimetypes
 

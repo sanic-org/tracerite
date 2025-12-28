@@ -37,10 +37,9 @@ class TestHtmlCornercases:
         except TypeError as e:
             html = html_traceback(exc=e)
             html_str = str(html)
-            # Should show chain indicator
+            # Should show chain indicator (using new chain message format)
             assert (
-                "while handling above" in html_str.lower()
-                or "from above" in html_str.lower()
+                "in except" in html_str.lower() or "from previous" in html_str.lower()
             )
 
     def test_frames_without_relevance_call(self):

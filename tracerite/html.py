@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from html5tagger import HTML, E  # type: ignore[import]
 
+from .chain_analysis import build_chronological_frames
 from .trace import chainmsg, extract_chain
 
 style = files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
@@ -14,10 +15,11 @@ javascript = (
 
 detail_show = "{display: inherit}"
 
-symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑"}
+symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑", "except": "⚠️"}
 tooltips = {
     "call": "Call",
     "warning": "Call from your code",
+    "except": "Call from except",
     "error": "{type}",
     "stop": "{type}",
 }
@@ -78,6 +80,7 @@ def html_traceback(
     local_urls: bool = False,
     replace_previous: bool = False,
     autodark: bool = True,
+    chronological: bool = True,
     **extract_args: Any,
 ) -> Any:
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
@@ -97,23 +100,226 @@ def html_traceback(
             doc.label("Compact", for_="mode-toggle")
         if include_js_css:
             doc._style(style)
-        for i, e in enumerate(chain):
-            # Get chaining suffix for exception header
-            chain_suffix = ""
-            if i > 0:
-                chain_suffix = chainmsg.get(e.get("from", "none"), "")
-            _exception(doc, e, local_urls=local_urls, chain_suffix=chain_suffix)
+
+        if chronological:
+            _chronological_output(doc, chain, local_urls=local_urls)
+        else:
+            for i, e in enumerate(chain):
+                # Get chaining suffix for exception header
+                chain_suffix = ""
+                if i > 0:
+                    chain_suffix = chainmsg.get(e.get("from", "none"), "")
+                _exception(doc, e, local_urls=local_urls, chain_suffix=chain_suffix)
 
         if include_js_css:
-            # Build scrollto calls
-            scrollto_calls = []
-            for e in reversed(chain):
-                for info in e["frames"]:
-                    if info["relevance"] != "call":
-                        scrollto_calls.append(f"tracerite_scrollto('{info['id']}')")
+            # Build scrollto calls for chronological mode
+            if chronological:
+                chrono_frames = build_chronological_frames(chain)
+                scrollto_calls = []
+                for frinfo in reversed(chrono_frames):
+                    if frinfo.get("relevance") not in ("call", "except"):
+                        scrollto_calls.append(f"tracerite_scrollto('{frinfo['id']}')")
                         break
+            else:
+                scrollto_calls = []
+                for e in reversed(chain):
+                    for info in e["frames"]:
+                        if info["relevance"] != "call":
+                            scrollto_calls.append(f"tracerite_scrollto('{info['id']}')")
+                            break
             doc._script(javascript + "\n" + "\n".join(scrollto_calls))
     return doc
+
+
+def _chronological_output(
+    doc: Any, chain: list[dict[str, Any]], *, local_urls: bool = False
+) -> None:
+    """Output frames in chronological order with exception info after error frames."""
+    chrono_frames = build_chronological_frames(chain)
+    if not chrono_frames:
+        # No frames, but still show exception banners for any exceptions in chain
+        for exc in chain:
+            exc_info = {
+                "type": exc.get("type"),
+                "message": exc.get("message"),
+                "summary": exc.get("summary"),
+                "from": exc.get("from"),
+            }
+            _exception_banner(doc, exc_info)
+        return
+
+    # Collapse consecutive call runs
+    limited_frames = _collapse_call_runs(chrono_frames, min_run_length=10)
+
+    # Collect symbols for floating indicators
+    frame_symbols = []
+    for frinfo in limited_frames:
+        if frinfo is not ... and frinfo.get("relevance") not in ("call",):
+            frame_symbols.append((frinfo["id"], symbols.get(frinfo["relevance"], "")))
+
+    with doc.div(class_="traceback-wrapper"):
+        # Floating overlay symbols
+        for fid, sym in frame_symbols:
+            with doc.span(class_="floating-symbol", data_frame=fid):
+                doc.span("◂", class_="arrow arrow-left")
+                doc.span(sym, class_="sym")
+                doc.span("▸", class_="arrow arrow-right")
+
+        with doc.div(class_="traceback-frames"):
+            for frinfo in limited_frames:
+                if frinfo is ...:
+                    with doc.div(class_="traceback-details traceback-ellipsis"):
+                        doc.p("...")
+                    continue
+
+                relevance = frinfo.get("relevance", "call")
+                exc_info = frinfo.get("exception")
+
+                attrs = {
+                    "class_": f"traceback-details traceback-{relevance}",
+                    "data_function": frinfo.get("function"),
+                    "id": frinfo["id"],
+                }
+                with doc.div(**attrs):
+                    _frame_label(doc, frinfo, local_urls=local_urls)
+                    if relevance == "call":
+                        with doc.span(class_="compact-call-line"):
+                            _compact_call_line_chrono(doc, frinfo)
+                    with doc.div(class_="frame-content"):
+                        _traceback_detail_chrono(doc, frinfo)
+                        variable_inspector(doc, frinfo.get("variables", []))
+
+                # Print exception info AFTER the error frame
+                if exc_info and relevance in ("error", "stop"):
+                    _exception_banner(doc, exc_info)
+
+
+def _exception_banner(doc: Any, exc_info: dict[str, Any]) -> None:
+    """Output exception type and message as a banner after the error frame."""
+    exc_type = exc_info.get("type", "Exception")
+    summary = exc_info.get("summary", "")
+    message = exc_info.get("message", "")
+    from_type = exc_info.get("from", "none")
+
+    chain_suffix = chainmsg.get(from_type, "")
+
+    with doc.div(class_="exception-banner"):
+        doc.h3(E.span(f"{exc_type}{chain_suffix}:", class_="exctype")(f" {summary}"))
+        if summary != message:
+            if message.startswith(summary):
+                message = message[len(summary) :]
+            doc.pre(message, class_="excmessage")
+
+
+def _compact_call_line_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
+    """Render compact one-liner for call frames in chronological mode."""
+    fragments = frinfo.get("fragments", [])
+    symbol = symbols.get(frinfo.get("relevance", "call"), symbols["call"])
+
+    if fragments:
+        with doc.code(class_="compact-code"):
+            inmark = False
+            for line_info in fragments:
+                for fragment in line_info.get("fragments", []):
+                    mark = fragment.get("mark")
+                    if mark in ["solo", "beg"]:
+                        inmark = True
+                    if inmark:
+                        em = fragment.get("em")
+                        if em in ["solo", "beg"]:
+                            doc(HTML("<em>"))
+                        doc(fragment["code"])
+                        if em in ["solo", "fin"]:
+                            doc(HTML("</em>"))
+                    if mark in ["fin", "solo"]:
+                        inmark = False
+    doc.span(symbol, class_="compact-symbol")
+
+
+def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
+    """Render frame detail in chronological mode."""
+    fragments = frinfo.get("fragments", [])
+    exc_info = frinfo.get("exception")
+
+    if not fragments:
+        doc.p("Source code not available")
+        if exc_info:
+            doc(" but ").strong(exc_info.get("type", "Exception"))(
+                " was raised from here"
+            )
+        return
+
+    with doc.pre, doc.code:
+        start = frinfo.get("linenostart", 1)
+        for line_info in fragments:
+            line_num = line_info["line"]
+            abs_line = start + line_num - 1
+            line_fragments = line_info["fragments"]
+
+            # Prepare tooltip attributes for tooltip span on final line
+            tooltip_attrs = {}
+            frame_range = frinfo.get("range")
+            if frame_range and abs_line == frame_range.lfinal:
+                relevance = frinfo.get("relevance", "call")
+                symbol = symbols.get(relevance, relevance)
+                exc_info = frinfo.get("exception")
+                if exc_info:
+                    text = exc_info.get("type", relevance)
+                else:
+                    try:
+                        text = tooltips.get(relevance, relevance).format(**frinfo)
+                    except Exception:
+                        text = repr(relevance)
+                text = text.replace("\n", " ")
+                tooltip_attrs = {
+                    "class": "tracerite-tooltip",
+                    "data-symbol": symbol,
+                    "data-tooltip": text,
+                }
+
+            with doc.span(class_="codeline", data_lineno=abs_line):
+                non_trailing_fragments = []
+                trailing_fragment = None
+                for fragment in line_fragments:
+                    if "trailing" in fragment:
+                        trailing_fragment = fragment
+                        break
+                    non_trailing_fragments.append(fragment)
+
+                if non_trailing_fragments:
+                    first_fragment = non_trailing_fragments[0]
+                    code = first_fragment["code"]
+                    leading_whitespace = code[: len(code) - len(code.lstrip())]
+                    if leading_whitespace:
+                        doc(leading_whitespace)
+                        first_fragment_modified = {
+                            **first_fragment,
+                            "code": code.lstrip(),
+                        }
+                        non_trailing_fragments[0] = first_fragment_modified
+
+                if tooltip_attrs and non_trailing_fragments:
+                    with doc.span(
+                        class_="tracerite-tooltip",
+                        data_tooltip=tooltip_attrs["data-tooltip"],
+                    ):
+                        for fragment in non_trailing_fragments:
+                            _render_fragment(doc, fragment)
+                    doc.span(
+                        class_="tracerite-symbol",
+                        data_symbol=tooltip_attrs["data-symbol"],
+                    )
+                    doc.span(
+                        class_="tracerite-tooltip-text",
+                        data_tooltip=tooltip_attrs["data-tooltip"],
+                    )
+                else:
+                    for fragment in non_trailing_fragments:
+                        _render_fragment(doc, fragment)
+
+                fragment = trailing_fragment
+            if fragment:
+                _render_fragment(doc, fragment)
 
 
 def _exception(
@@ -321,7 +527,7 @@ def _render_fragment(doc: Any, fragment: dict[str, Any]) -> None:
 def variable_inspector(doc: Any, variables: list[Any]) -> None:
     if not variables:
         return
-    with doc.table(class_="inspector key-value"):
+    with doc.dl(class_="inspector"):
         for var_info in variables:
             # Handle both old tuple format and new VarInfo namedtuple
             if hasattr(var_info, "name"):
@@ -336,12 +542,12 @@ def variable_inspector(doc: Any, variables: list[Any]) -> None:
                 n, t, v = var_info
                 fmt = "inline"
 
-            doc.tr.td.span(n, class_="var")
+            doc.dt.span(n, class_="var")
             if t:
                 doc(": ").span(f"{t}\u00a0=\u00a0", class_="type")
             else:
                 doc("\u00a0").span("=\u00a0", class_="type")  # No type printed
-            doc.td(class_=f"val val-{fmt}")
+            doc.dd(class_=f"val val-{fmt}")
             if isinstance(v, str):
                 if fmt == "block":
                     # For block format, use <pre> tag for proper formatting

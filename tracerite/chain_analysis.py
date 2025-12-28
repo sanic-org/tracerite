@@ -1,0 +1,465 @@
+"""AST-based analysis for exception chain try-except block matching.
+
+This module provides utilities to build a chronological chain of events
+during a multi-exception chain by analyzing the AST to identify which
+try block contains the code that raised the inner exception, relative
+to the except block where the outer exception was raised.
+
+Key insight about Python exception frames:
+- Inner exception frames start from the try block (not app entry point)
+  So the first frame is always in the try body where the exception occurred.
+- Outer exception frames start from app entry point and traverse through
+  the call stack. We search these to find a frame in an except handler
+  that corresponds to the inner's try block.
+"""
+
+from __future__ import annotations
+
+import ast
+
+__all__ = [
+    "TryExceptBlock",
+    "ChainLink",
+    "parse_source_for_try_except",
+    "find_try_block_for_except_line",
+    "find_matching_try_for_inner_exception",
+    "analyze_exception_chain_links",
+    "enrich_chain_with_links",
+    "build_chronological_frames",
+]
+import linecache
+from dataclasses import dataclass
+
+from .logging import logger
+
+
+@dataclass
+class TryExceptBlock:
+    """Represents a try-except block with its line ranges."""
+
+    try_start: int  # First line of try keyword
+    try_end: int  # Last line of try body (before except/else/finally)
+    except_start: int | None  # First line of except handlers
+    except_end: int | None  # Last line of except handlers
+    finally_start: int | None = None
+    finally_end: int | None = None
+
+    def contains_in_try(self, lineno: int) -> bool:
+        """Check if a line number is within the try body."""
+        return self.try_start <= lineno <= self.try_end
+
+    def contains_in_except(self, lineno: int) -> bool:
+        """Check if a line number is within an except handler."""
+        if self.except_start is None or self.except_end is None:
+            return False
+        return self.except_start <= lineno <= self.except_end
+
+
+@dataclass
+class ChainLink:
+    """Represents a link between two exceptions in a chain.
+
+    Attributes:
+        outer_frame_idx: Index of the frame in the outer exception that's in the except block
+        try_block: The TryExceptBlock that links the inner and outer exceptions
+        matched: Whether we successfully matched the try-except relationship
+    """
+
+    outer_frame_idx: int
+    try_block: TryExceptBlock | None
+    matched: bool
+
+
+class TryExceptVisitor(ast.NodeVisitor):
+    """AST visitor that collects all try-except blocks with their line ranges."""
+
+    def __init__(self):
+        self.try_except_blocks: list[TryExceptBlock] = []
+
+    def visit_Try(self, node: ast.Try):
+        """Visit a Try node and record its structure."""
+        # Find the end of the try body
+        try_body_end = self._get_last_line(node.body)
+
+        # Process except handlers
+        except_start = None
+        except_end = None
+        if node.handlers:
+            except_start = node.handlers[0].lineno
+            except_end = self._get_last_line(list(node.handlers))
+
+        # Process finally block
+        finally_start = None
+        finally_end = None
+        if node.finalbody:
+            finally_start = node.finalbody[0].lineno
+            finally_end = self._get_last_line(node.finalbody)
+
+        if except_start is not None:
+            block = TryExceptBlock(
+                try_start=node.lineno,
+                try_end=try_body_end,
+                except_start=except_start,
+                except_end=except_end,
+                finally_start=finally_start,
+                finally_end=finally_end,
+            )
+            self.try_except_blocks.append(block)
+
+        # Continue visiting nested structures
+        self.generic_visit(node)
+
+    def _get_last_line(self, nodes) -> int:
+        """Get the last line number from a list of AST nodes."""
+        last_line = 0
+        for node in nodes:
+            if hasattr(node, "end_lineno") and node.end_lineno:
+                last_line = max(last_line, node.end_lineno)
+            elif hasattr(node, "lineno"):
+                last_line = max(last_line, node.lineno)
+        return last_line
+
+
+def parse_source_for_try_except(
+    filename: str, function_name: str | None = None
+) -> list[TryExceptBlock]:
+    """Parse source file and extract try-except blocks.
+
+    Args:
+        filename: Path to the source file
+        function_name: Optional function name to limit scope
+
+    Returns:
+        List of TryExceptBlock objects found in the source
+    """
+    try:
+        lines = linecache.getlines(filename)
+        if not lines:
+            return []
+
+        source = "".join(lines)
+        tree = ast.parse(source, filename=filename)
+
+        visitor = TryExceptVisitor()
+        visitor.visit(tree)
+
+        return visitor.try_except_blocks
+    except (SyntaxError, OSError, ValueError) as e:
+        logger.debug(f"Failed to parse {filename} for try-except analysis: {e}")
+        return []
+
+
+def find_try_block_for_except_line(
+    blocks: list[TryExceptBlock], except_lineno: int
+) -> TryExceptBlock | None:
+    """Find the try-except block that contains the given line in its except handler.
+
+    Args:
+        blocks: List of TryExceptBlock objects
+        except_lineno: Line number that should be within an except handler
+
+    Returns:
+        The TryExceptBlock if found, None otherwise
+    """
+    # Sort by specificity - prefer innermost blocks (those with higher try_start)
+    matching_blocks = [b for b in blocks if b.contains_in_except(except_lineno)]
+
+    if not matching_blocks:
+        return None
+
+    # Return the most specific (innermost) block
+    return max(matching_blocks, key=lambda b: b.try_start)
+
+
+def find_matching_try_for_inner_exception(
+    blocks: list[TryExceptBlock], inner_first_lineno: int, outer_except_lineno: int
+) -> TryExceptBlock | None:
+    """Find the try block that contains the inner exception's first frame
+    and whose except block contains the outer exception's frame.
+
+    This is the key function for building the chronological chain:
+    - inner_first_lineno: The line in the inner exception's first frame (in the try body)
+    - outer_except_lineno: A line from the outer exception that's in an except block
+
+    Args:
+        blocks: List of TryExceptBlock objects
+        inner_first_lineno: First line of the inner exception's traceback
+        outer_except_lineno: Line from outer exception that should be in except block
+
+    Returns:
+        The TryExceptBlock that links both exceptions, or None if no match
+    """
+    for block in blocks:
+        # The outer exception line must be in the except handler
+        if not block.contains_in_except(outer_except_lineno):
+            continue
+        # The inner exception's first line must be in the try body
+        if block.contains_in_try(inner_first_lineno):
+            return block
+
+    return None
+
+
+def analyze_exception_chain_links(chain: list[dict]) -> list[ChainLink | None]:
+    """Analyze an exception chain to find try-except relationships.
+
+    For each pair of consecutive exceptions in the chain (inner, outer),
+    find the try-except block that links them.
+
+    Args:
+        chain: List of exception info dicts from extract_chain (oldest first)
+
+    Returns:
+        List of ChainLink objects (one per exception, first is always None
+        since the first exception has no prior exception to link to)
+    """
+    if len(chain) <= 1:
+        return [None] * len(chain)
+
+    links: list[ChainLink | None] = [None]  # First exception has no link
+
+    for i in range(1, len(chain)):
+        inner_exc = chain[i - 1]
+        outer_exc = chain[i]
+
+        link = _find_chain_link(inner_exc, outer_exc)
+        links.append(link)
+
+    return links
+
+
+def _get_frame_lineno(frame: dict) -> int | None:
+    """Extract the line number from a frame dict.
+
+    Tries in order:
+    1. range[0] (lfirst) - most precise, from Python 3.11+ co_positions
+    2. lineno - actual traceback line number (always available)
+    3. linenostart - first line of displayed source (fallback)
+    """
+    frame_range = frame.get("range")
+    if frame_range:
+        return frame_range[0]  # lfirst from Range namedtuple
+    # Fallback to lineno (actual error line from traceback)
+    if frame.get("lineno"):
+        return frame.get("lineno")
+    # Final fallback to linenostart (first line of displayed source)
+    return frame.get("linenostart")
+
+
+def _find_chain_link(inner_exc: dict, outer_exc: dict) -> ChainLink | None:
+    """Find the try-except link between two consecutive exceptions.
+
+    The inner exception's frames start from the try block (not app entry point),
+    so its first frame is always the one in the try block we're looking for.
+
+    The outer exception's frames start from app entry point and traverse through
+    the call stack. We need to search these frames to find one that's within
+    an except handler that corresponds to the inner's try block.
+
+    Args:
+        inner_exc: The earlier/inner exception info dict
+        outer_exc: The later/outer exception info dict
+
+    Returns:
+        ChainLink if a relationship is found, None otherwise
+    """
+    inner_frames = inner_exc.get("frames", [])
+    outer_frames = outer_exc.get("frames", [])
+
+    if not inner_frames or not outer_frames:
+        return None
+
+    # Inner exception: first frame is always in the try block
+    # (Python captures frames starting from the try block, not app entry)
+    inner_first_frame = inner_frames[0]
+    inner_filename = inner_first_frame.get("filename")
+    inner_first_lineno = _get_frame_lineno(inner_first_frame)
+
+    if not inner_filename or inner_first_lineno is None:
+        return None
+
+    # Parse the source file for try-except blocks
+    try_except_blocks = parse_source_for_try_except(inner_filename)
+    if not try_except_blocks:
+        return None
+
+    # Outer exception: search through ALL frames to find one in an except block
+    # The frame list starts from app entry point and may visit the same function
+    # multiple times, or have additional frames after the except block
+    for frame_idx, frame in enumerate(outer_frames):
+        frame_filename = frame.get("filename")
+
+        # Must be in the same file as inner's first frame
+        if frame_filename != inner_filename:
+            continue
+
+        frame_lineno = _get_frame_lineno(frame)
+        if frame_lineno is None:
+            continue
+
+        # Try to find a try-except block where:
+        # - inner_first_lineno is in the try body
+        # - frame_lineno is in the except handler
+        matching_block = find_matching_try_for_inner_exception(
+            try_except_blocks, inner_first_lineno, frame_lineno
+        )
+
+        if matching_block:
+            return ChainLink(
+                outer_frame_idx=frame_idx,
+                try_block=matching_block,
+                matched=True,
+            )
+
+    return None
+
+
+def enrich_chain_with_links(chain: list[dict]) -> list[dict]:
+    """Enrich exception chain with try-except link information.
+
+    Adds a 'chain_link' key to each exception dict with information
+    about how it relates to the previous exception in the chain.
+
+    Args:
+        chain: List of exception info dicts from extract_chain (oldest first)
+
+    Returns:
+        The same chain list, with 'chain_link' added to each dict
+    """
+    links = analyze_exception_chain_links(chain)
+
+    for _i, (exc, link) in enumerate(zip(chain, links)):
+        if link and link.matched:
+            exc["chain_link"] = {
+                "outer_frame_idx": link.outer_frame_idx,
+                "try_start": link.try_block.try_start,
+                "try_end": link.try_block.try_end,
+                "except_start": link.try_block.except_start,
+                "except_end": link.try_block.except_end,
+            }
+        else:
+            exc["chain_link"] = None
+
+    return chain
+
+
+def build_chronological_frames(chain: list[dict]) -> list[dict]:
+    """Build a chronological list of frames showing the actual sequence of events.
+
+    This creates a flat list of frames in the order they were executed, with
+    exception information embedded in the frames. The result shows:
+    1. Frames leading to the first exception
+    2. The exception (as metadata on the error frame)
+    3. The except handler frame (promoted to relevance="except")
+    4. Frames leading to the next exception
+    5. ...and so on
+
+    Args:
+        chain: List of exception info dicts from extract_chain (oldest first),
+               should already be enriched with chain_link info
+
+    Returns:
+        List of frame dicts in chronological order. Each frame may have:
+        - "exception": dict with exception info (type, message, from) if this
+          frame is where an exception was raised
+        - "relevance": may be promoted to "except" for except handler frames
+    """
+    if not chain:
+        return []
+
+    # First, ensure chain has link info
+    links = analyze_exception_chain_links(chain)
+
+    chronological: list[dict] = []
+
+    for exc_idx, exc in enumerate(chain):
+        link = links[exc_idx]
+        frames = exc.get("frames", [])
+
+        if not frames:
+            continue
+
+        # Determine which frames to include from this exception
+        # For the first exception: all frames
+        # For subsequent exceptions: frames from the except handler onward
+        # (frames before that are duplicates from the previous exception's path)
+
+        if exc_idx == 0:
+            # First exception: include all frames
+            start_frame_idx = 0
+        elif link and link.matched:
+            # Subsequent exception with matched link:
+            # Start from the frame in the except block
+            start_frame_idx = link.outer_frame_idx
+        else:
+            # No link found, include all frames (may have duplicates)
+            start_frame_idx = 0
+
+        for frame_idx, frame in enumerate(frames):
+            if frame_idx < start_frame_idx:
+                continue
+
+            # Create a copy of the frame to avoid modifying the original
+            chrono_frame = _copy_frame(frame)
+
+            # Determine if this frame needs special handling
+            is_first_included = frame_idx == start_frame_idx
+            is_last = frame_idx == len(frames) - 1
+            is_except_entry = (
+                is_first_included and exc_idx > 0 and link and link.matched
+            )
+
+            # For except entry frames, adjust code context to show only the except block
+            if is_except_entry:
+                # Promote relevance to "except" if it was just a "call" frame
+                if chrono_frame.get("relevance") == "call":
+                    chrono_frame["relevance"] = "except"
+                # Always adjust code context to start from the except line
+                assert link is not None
+                assert link.try_block is not None
+                assert link.try_block.except_start is not None
+                chrono_frame = _adjust_frame_to_except_line(
+                    chrono_frame,
+                    link.try_block.except_start,
+                    link.try_block.except_end,
+                )
+
+            # Add exception info to the error frame (last frame)
+            if is_last:
+                chrono_frame["exception"] = {
+                    "type": exc.get("type"),
+                    "message": exc.get("message"),
+                    "summary": exc.get("summary"),
+                    "from": exc.get("from"),
+                    "exc_idx": exc_idx,
+                }
+
+            chronological.append(chrono_frame)
+
+    return chronological
+
+
+def _copy_frame(frame: dict) -> dict:
+    """Create a shallow copy of a frame dict."""
+    return {**frame}
+
+
+def _adjust_frame_to_except_line(
+    frame: dict, except_start: int, except_end: int | None = None
+) -> dict:
+    """Adjust a frame's code context to show only the except block.
+
+    This modifies the frame to show the except handler context rather than
+    whatever code was being executed when we look at the call stack.
+
+    Args:
+        frame: The frame dict to adjust
+        except_start: The line number where the except block starts
+        except_end: The line number where the except block ends (optional)
+
+    Returns:
+        The modified frame dict
+    """
+    from .trace import reprocess_frame_from_line
+
+    return reprocess_frame_from_line(frame, except_start, except_end)
