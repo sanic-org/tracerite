@@ -214,28 +214,6 @@ def tty_traceback(
         except (OSError, ValueError):
             term_width = 80
 
-    # Pre-scan all frames to find duplicates and determine which should show inspector
-    # Key: (filename, function) -> list of (exception_idx, frame_idx, relevance)
-    frame_occurrences = {}
-    for ei, e in enumerate(chain):
-        for fi, frinfo in enumerate(e["frames"]):
-            key = (frinfo.get("filename"), frinfo.get("function"))
-            if key not in frame_occurrences:
-                frame_occurrences[key] = []
-            frame_occurrences[key].append((ei, fi, frinfo.get("relevance", "call")))
-
-    # Determine which frame occurrences should show inspector:
-    # Only the LAST non-call occurrence of each unique frame
-    inspector_allowed = set()  # Set of (exception_idx, frame_idx)
-    for occurrences in frame_occurrences.values():
-        # Find the last non-call occurrence
-        last_non_call = None
-        for ei, fi, relevance in occurrences:
-            if relevance != "call":
-                last_non_call = (ei, fi)
-        if last_non_call:
-            inspector_allowed.add(last_non_call)
-
     for i, e in enumerate(chain):
         # Get chaining suffix for exception header
         chain_suffix = ""
@@ -243,9 +221,7 @@ def tty_traceback(
             output += EOL  # Empty line between exceptions
             chain_suffix = chainmsg.get(e.get("from", "none"), "")
 
-        output += _print_exception(
-            e, term_width, i, inspector_allowed, chain_suffix, no_inspector
-        )
+        output += _print_exception(e, term_width, chain_suffix, no_inspector)
 
     # Reset to original terminal colors
     output += EOL + RESET + CLR
@@ -259,17 +235,14 @@ def tty_traceback(
 
 def _find_inspector_frame_idx(
     frame_info_list: list[dict[str, Any]],
-    exception_idx: int,
-    inspector_allowed: set[tuple[int, int]] | None,
 ) -> int | None:
-    """Find the first non-call frame that is allowed to show inspector.
+    """Find the first non-call frame that has variables to show.
 
     Returns the frame index, or None if no suitable frame is found.
+    Variables are deduplicated in trace.py, so we just check if any exist.
     """
     for i, info in enumerate(frame_info_list):
-        if info["relevance"] != "call" and (
-            inspector_allowed is None or (exception_idx, i) in inspector_allowed
-        ):
+        if info["relevance"] != "call" and info["frinfo"].get("variables"):
             return i
     return None
 
@@ -344,16 +317,12 @@ def _find_collapsible_call_runs(
 def _print_exception(
     e: dict[str, Any],
     term_width: int,
-    exception_idx: int = 0,
-    inspector_allowed: set[tuple[int, int]] | None = None,
     chain_suffix: str = "",
     no_inspector: bool = False,
 ) -> str:
     """Print a single exception with its frames."""
     output = _build_exception_header(e, term_width, chain_suffix)
-    output += _build_frames_output(
-        e, term_width, exception_idx, inspector_allowed, no_inspector
-    )
+    output += _build_frames_output(e, term_width, no_inspector)
     return output
 
 
@@ -424,8 +393,6 @@ def _build_exception_header(
 def _build_frames_output(
     e: dict[str, Any],
     term_width: int,
-    exception_idx: int,
-    inspector_allowed: set[tuple[int, int]] | None,
     no_inspector: bool,
 ) -> str:
     """Build the frames output for an exception."""
@@ -453,10 +420,8 @@ def _build_frames_output(
             skip_indices.add(i)
         ellipsis_after[start_idx] = skipped_count
 
-    # Find first non-call frame that is allowed to show inspector
-    inspector_frame_idx = _find_inspector_frame_idx(
-        frame_info_list, exception_idx, inspector_allowed
-    )
+    # Find first non-call frame with variables to show inspector
+    inspector_frame_idx = _find_inspector_frame_idx(frame_info_list)
 
     # Calculate max label width for call frame alignment
     # Only consider call frames that won't be skipped

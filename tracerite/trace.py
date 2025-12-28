@@ -49,7 +49,36 @@ def extract_chain(exc=None, **kwargs) -> list:
         exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
     # Reverse to get oldest first (chain is built newest-first)
     chain = list(reversed(chain))
-    return [extract_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
+    result = [extract_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
+    # Deduplicate variable inspectors: only keep variables for the last occurrence
+    # of each (filename, function) pair across the entire chain
+    _deduplicate_variables(result)
+    return result
+
+
+def _deduplicate_variables(chain: list) -> None:
+    """Remove duplicate variable inspectors, keeping only the last occurrence.
+
+    For frames that appear multiple times (same filename and function),
+    only the last non-call occurrence keeps its variables.
+    """
+    # First pass: find the last non-call occurrence of each (filename, function)
+    last_occurrence: dict[tuple, tuple[int, int]] = {}  # key -> (exception_idx, frame_idx)
+    for ei, exc in enumerate(chain):
+        for fi, frame in enumerate(exc.get("frames", [])):
+            if frame.get("relevance") == "call":
+                continue
+            key = (frame.get("filename"), frame.get("function"))
+            last_occurrence[key] = (ei, fi)
+
+    # Second pass: clear variables from all but the last occurrence
+    for ei, exc in enumerate(chain):
+        for fi, frame in enumerate(exc.get("frames", [])):
+            if frame.get("relevance") == "call":
+                continue
+            key = (frame.get("filename"), frame.get("function"))
+            if last_occurrence.get(key) != (ei, fi):
+                frame["variables"] = []
 
 
 def _create_summary(message):
