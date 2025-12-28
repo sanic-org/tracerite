@@ -171,7 +171,6 @@ def tty_traceback(
     file: TextIO | None = None,
     msg: str | None = None,
     term_width: int | None = None,
-    chronological: bool = True,
     **extract_args: Any,
 ) -> None:
     """Format and print a traceback for terminal output (TTY).
@@ -181,8 +180,6 @@ def tty_traceback(
     oldest exception first (order they occurred).
 
     Args:
-        chronological: If True (default), print frames in chronological order
-            with exception info after error frames. If False, use legacy format.
     """
     import re
 
@@ -217,17 +214,7 @@ def tty_traceback(
         except (OSError, ValueError):
             term_width = 80
 
-    if chronological:
-        output += _print_chronological(chain, term_width, no_inspector)
-    else:
-        for i, e in enumerate(chain):
-            # Get chaining suffix for exception header
-            chain_suffix = ""
-            if i > 0:
-                output += EOL  # Empty line between exceptions
-                chain_suffix = chainmsg.get(e.get("from", "none"), "")
-
-            output += _print_exception(e, term_width, chain_suffix, no_inspector)
+    output += _print_chronological(chain, term_width, no_inspector)
 
     # Strip trailing EOL (which ends with LINE_PREFIX for an empty line we don't want)
     eol_suffix = f"\n{LINE_PREFIX}"
@@ -339,9 +326,7 @@ def _print_exception(
     no_inspector: bool = False,
 ) -> str:
     """Print a single exception with its frames (legacy format)."""
-    output = _build_exception_header(e, term_width, chain_suffix)
-    output += _build_frames_output(e, term_width, no_inspector)
-    return output
+    raise NotImplementedError("Old format removed")
 
 
 def _print_chronological(
@@ -513,6 +498,63 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
                 output += f"{cont_prefix.rstrip()}{EOL}"
 
     return output
+
+
+def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
+    """Get the label for a frame (path:lineno function)."""
+    frame_range = frinfo.get("range")
+    lineno = frame_range.lfirst if frame_range else "?"
+
+    # Use relative path if file is within CWD, otherwise use prettified location
+    filename = frinfo.get("filename")
+    location = frinfo["location"]
+    if filename:
+        try:
+            fn = Path(filename)
+            cwd = Path.cwd()
+            if fn.is_absolute() and cwd in fn.parents:
+                location = fn.relative_to(cwd).as_posix()
+        except (ValueError, OSError):  # pragma: no cover
+            pass
+
+    # Build label with colors: light blue function, green filename, dark grey :lineno
+    label = ""
+    label_plain = ""
+    if frinfo["function"]:
+        function_display = f"{frinfo['function']}{frinfo.get('function_suffix', '')}"
+        label_plain += f"{function_display} "
+        label += f"{FUNC}{function_display} {RESET}"
+    label_plain += f"{location}:{lineno}"
+    label += f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}"
+    if frinfo["relevance"] != "call":
+        label += ":"
+    return label, label_plain
+
+
+def _get_frame_info(e: dict[str, Any], frinfo: dict[str, Any]) -> dict[str, Any]:
+    """Gather all info needed to print a frame."""
+    label, label_plain = _get_frame_label(frinfo)
+    fragments = frinfo.get("fragments", [])
+    frame_range = frinfo.get("range")
+    relevance = frinfo.get("relevance", "call")
+    is_deepest = frinfo is e["frames"][-1]
+
+    # Get marked lines (lines with any mark attribute)
+    marked_lines = [
+        li for li in fragments if any(f.get("mark") for f in li["fragments"])
+    ]
+
+    return {
+        "label": label,
+        "label_plain": label_plain,
+        "fragments": fragments,
+        "frame_range": frame_range,
+        "relevance": relevance,
+        "is_deepest": is_deepest,
+        "marked_lines": marked_lines,
+        "frinfo": frinfo,
+        "e": e,
+    }
 
 
 def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
@@ -757,70 +799,6 @@ def _merge_chrono_output(
     return output
 
 
-def _build_exception_header(
-    e: dict[str, Any], term_width: int, chain_suffix: str
-) -> str:
-    """Build the exception header output."""
-    output = ""
-    # Exception header (not indented)
-    summary, message = e["summary"], e["message"]
-    exc_type = e["type"]
-    type_prefix = f"{exc_type}{chain_suffix}: "
-    type_prefix_len = len(type_prefix)
-    cont_prefix = f"{EXC}{BOX_V}{RESET} "
-    cont_prefix_len = 2  # "│ "
-
-    # Check if the full title fits on one line
-    full_title_len = type_prefix_len + len(summary)
-    if full_title_len <= term_width:
-        # Fits on one line
-        output += f"{EXC}{type_prefix}{RESET}{BOLD}{summary}{RESET}{EOL}"
-    elif len(summary) <= term_width - cont_prefix_len:
-        # Summary fits on its own line after wrapping
-        output += f"{EXC}{type_prefix}{RESET}{EOL}"
-        output += f"{cont_prefix}{BOLD}{summary}{RESET}{EOL}"
-    else:
-        # Word wrap with uniform width by padding first line to account for type_prefix
-        # The padding simulates the type_prefix width, then we strip it from output
-        padding = "\x00" * (type_prefix_len - cont_prefix_len)
-        wrapped = textwrap.wrap(
-            padding + summary,
-            width=term_width - cont_prefix_len,
-            break_long_words=False,
-            break_on_hyphens=False,
-        )
-        # Remove padding from first line
-        wrapped[0] = wrapped[0].lstrip("\x00")
-
-        # Print lines
-        for i, line in enumerate(wrapped):
-            if i == 0:
-                output += f"{EXC}{type_prefix}{RESET}{BOLD}{line}{RESET}{EOL}"
-            else:
-                output += f"{cont_prefix}{BOLD}{line}{RESET}{EOL}"
-
-    if summary != message:
-        if message.startswith(summary):
-            message = message[len(summary) :].strip("\n")
-        # Format additional message lines with BOX_V prefix
-        wrap_width = term_width - cont_prefix_len
-        for line in message.split("\n"):
-            if line:
-                wrapped = textwrap.wrap(
-                    line,
-                    width=wrap_width,
-                    break_long_words=False,
-                    break_on_hyphens=False,
-                ) or [line]
-                for wrapped_line in wrapped:
-                    output += f"{cont_prefix}{wrapped_line}{EOL}"
-            else:
-                # Preserve empty lines
-                output += f"{cont_prefix.rstrip()}{EOL}"
-
-    return output
-
-
 def _build_frames_output(
     e: dict[str, Any],
     term_width: int,
@@ -1014,63 +992,6 @@ def _merge_inspector_output(
             box_char = BOX_BL if is_last else BOX_V
             output += f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}{EOL}"
     return output
-
-
-def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
-    """Get the label for a frame (path:lineno function)."""
-    frame_range = frinfo.get("range")
-    lineno = frame_range.lfirst if frame_range else "?"
-
-    # Use relative path if file is within CWD, otherwise use prettified location
-    filename = frinfo.get("filename")
-    location = frinfo["location"]
-    if filename:
-        try:
-            fn = Path(filename)
-            cwd = Path.cwd()
-            if fn.is_absolute() and cwd in fn.parents:
-                location = fn.relative_to(cwd).as_posix()
-        except (ValueError, OSError):  # pragma: no cover
-            pass
-
-    # Build label with colors: light blue function, green filename, dark grey :lineno
-    label = ""
-    label_plain = ""
-    if frinfo["function"]:
-        function_display = f"{frinfo['function']}{frinfo.get('function_suffix', '')}"
-        label_plain += f"{function_display} "
-        label += f"{FUNC}{function_display} {RESET}"
-    label_plain += f"{location}:{lineno}"
-    label += f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}"
-    if frinfo["relevance"] != "call":
-        label += ":"
-    return label, label_plain
-
-
-def _get_frame_info(e: dict[str, Any], frinfo: dict[str, Any]) -> dict[str, Any]:
-    """Gather all info needed to print a frame."""
-    label, label_plain = _get_frame_label(frinfo)
-    fragments = frinfo.get("fragments", [])
-    frame_range = frinfo.get("range")
-    relevance = frinfo.get("relevance", "call")
-    is_deepest = frinfo is e["frames"][-1]
-
-    # Get marked lines (lines with any mark attribute)
-    marked_lines = [
-        li for li in fragments if any(f.get("mark") for f in li["fragments"])
-    ]
-
-    return {
-        "label": label,
-        "label_plain": label_plain,
-        "fragments": fragments,
-        "frame_range": frame_range,
-        "relevance": relevance,
-        "is_deepest": is_deepest,
-        "marked_lines": marked_lines,
-        "frinfo": frinfo,
-        "e": e,
-    }
 
 
 def _build_frame_lines(

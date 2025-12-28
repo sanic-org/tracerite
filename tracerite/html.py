@@ -72,7 +72,6 @@ def html_traceback(
     local_urls: bool = False,
     replace_previous: bool = False,
     autodark: bool = True,
-    chronological: bool = True,
     **extract_args: Any,
 ) -> Any:
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
@@ -90,15 +89,7 @@ def html_traceback(
         if msg:
             doc.h2(msg)
 
-        if chronological:
-            _chronological_output(doc, chain, local_urls=local_urls)
-        else:
-            for i, e in enumerate(chain):
-                # Get chaining suffix for exception header
-                chain_suffix = ""
-                if i > 0:
-                    chain_suffix = chainmsg.get(e.get("from", "none"), "")
-                _exception(doc, e, local_urls=local_urls, chain_suffix=chain_suffix)
+        _chronological_output(doc, chain, local_urls=local_urls)
 
         if include_js_css:
             doc._script(javascript)
@@ -153,10 +144,9 @@ def _chronological_output(
                 with doc.span(class_="compact-call-line"):
                     _compact_call_line_chrono(doc, frinfo)
                 # Animated wrapper for expandable content
-                with doc.div(class_="expand-wrapper"):
-                    with doc.div(class_="expand-content"):
-                        _traceback_detail_chrono(doc, frinfo)
-                        variable_inspector(doc, frinfo.get("variables", []))
+                with doc.div(class_="expand-wrapper"), doc.div(class_="expand-content"):
+                    _traceback_detail_chrono(doc, frinfo)
+                    variable_inspector(doc, frinfo.get("variables", []))
             else:
                 _traceback_detail_chrono(doc, frinfo)
                 variable_inspector(doc, frinfo.get("variables", []))
@@ -287,57 +277,6 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
                 _render_fragment(doc, fragment)
 
 
-def _exception(
-    doc: Any, info: dict[str, Any], *, local_urls: bool = False, chain_suffix: str = ""
-) -> None:
-    """Format single exception message and traceback"""
-    summary, message = info["summary"], info["message"]
-    doc.h3(E.span(f"{info['type']}{chain_suffix}:", class_="exctype")(f" {summary}"))
-    if summary != message:
-        if message.startswith(summary):
-            message = message[len(summary) :]
-        doc.pre(message, class_="excmessage")
-    # Traceback available?
-    frames = info["frames"]
-    if not frames:
-        return
-    # Format call chain, suppress middle of consecutive call runs if too long
-    limitedframes = _collapse_call_runs(frames, min_run_length=10)
-    # Render frames
-    for frinfo in limitedframes:
-        if frinfo is ...:
-            doc.p("...", class_="traceback-ellipsis")
-            continue
-        relevance = frinfo.get("relevance", "call")
-        attrs = {
-            "class_": f"traceback-details traceback-{relevance}",
-            "data_function": frinfo["function"],
-            "id": frinfo["id"],
-        }
-        with doc.div(**attrs):
-            if relevance == "call":
-                # Hidden checkbox for CSS-only toggle
-                toggle_id = f"toggle-{frinfo['id']}"
-                doc.input_(type="checkbox", id=toggle_id, class_="call-toggle-checkbox")
-            _frame_label(
-                doc,
-                frinfo,
-                local_urls=local_urls,
-                toggle_id=toggle_id if relevance == "call" else None,
-            )
-            if relevance == "call":
-                with doc.span(class_="compact-call-line"):
-                    _compact_call_line_html(doc, info, frinfo)
-                # Animated wrapper for expandable content
-                with doc.div(class_="expand-wrapper"):
-                    with doc.div(class_="expand-content"):
-                        traceback_detail(doc, info, frinfo)
-                        variable_inspector(doc, frinfo["variables"])
-            else:
-                traceback_detail(doc, info, frinfo)
-                variable_inspector(doc, frinfo["variables"])
-
-
 def _frame_label(
     doc: Any,
     frinfo: dict[str, Any],
@@ -370,114 +309,6 @@ def _frame_label(
     if local_urls and urls:
         for name, href in urls.items():
             doc.a(name, href=href, class_="frame-link")
-
-
-def _compact_call_line_html(
-    doc: Any, info: dict[str, Any], frinfo: dict[str, Any]
-) -> None:
-    """Render compact one-liner for call frames: function location marked_code symbol."""
-    fragments = frinfo.get("fragments", [])
-    symbol = symbols["call"]
-    # Extract only marked code from the FIRST marked line only (like TTY)
-    if fragments:
-        with doc.code(class_="compact-code"):
-            inmark = False
-            for line_info in fragments:
-                for fragment in line_info.get("fragments", []):
-                    mark = fragment.get("mark")
-                    if mark in ["solo", "beg"]:
-                        inmark = True
-                    if inmark:
-                        em = fragment.get("em")
-                        if em in ["solo", "beg"]:
-                            doc(HTML("<em>"))
-                        doc(fragment["code"])
-                        if em in ["solo", "fin"]:
-                            doc(HTML("</em>"))
-                    if mark in ["fin", "solo"]:
-                        inmark = False
-    # Symbol
-    doc.span(symbol, class_="compact-symbol")
-
-
-def traceback_detail(doc: Any, info: dict[str, Any], frinfo: dict[str, Any]) -> None:
-    # Code printout
-    fragments = frinfo.get("fragments", [])
-    if not fragments:
-        doc.p("Source code not available")
-        if frinfo is info["frames"][-1]:
-            doc(" but ").strong(info["type"])(" was raised from here")
-    else:
-        with doc.pre, doc.code:
-            start = frinfo["linenostart"]
-            for line_info in fragments:
-                line_num = line_info["line"]
-                abs_line = start + line_num - 1
-                fragments = line_info["fragments"]
-
-                # Prepare tooltip attributes for tooltip span on final line
-                tooltip_attrs = {}
-                if frinfo["range"] and abs_line == frinfo["range"].lfinal:
-                    relevance = frinfo["relevance"]
-                    symbol = symbols.get(relevance, frinfo["relevance"])
-                    text = symdesc.get(relevance, "")
-                    tooltip_attrs = {
-                        "class": "tracerite-tooltip",
-                        "data-symbol": symbol,
-                        "data-tooltip": text,
-                    }
-
-                # Render content fragments inside the codeline span
-                with doc.span(class_="codeline", data_lineno=abs_line):
-                    # Find the first non-trailing fragment to start the tooltip span
-                    non_trailing_fragments = []
-                    trailing_fragment = None
-                    for fragment in fragments:
-                        if "trailing" in fragment:
-                            trailing_fragment = fragment
-                            break
-                        non_trailing_fragments.append(fragment)
-
-                    # Render leading whitespace/indentation first (outside tooltip span)
-                    if non_trailing_fragments:
-                        first_fragment = non_trailing_fragments[0]
-                        code = first_fragment["code"]
-                        leading_whitespace = code[: len(code) - len(code.lstrip())]
-                        if leading_whitespace:
-                            doc(leading_whitespace)
-                            # Create modified first fragment without leading whitespace
-                            first_fragment_modified = {
-                                **first_fragment,
-                                "code": code.lstrip(),
-                            }
-                            non_trailing_fragments[0] = first_fragment_modified
-
-                    # Render the tooltip span around the actual code content
-                    if tooltip_attrs and non_trailing_fragments:
-                        with doc.span(
-                            class_="tracerite-tooltip",
-                            data_tooltip=tooltip_attrs["data-tooltip"],
-                        ):
-                            for fragment in non_trailing_fragments:
-                                _render_fragment(doc, fragment)
-                        # Add separate symbol and tooltip text elements
-                        doc.span(
-                            class_="tracerite-symbol",
-                            data_symbol=tooltip_attrs["data-symbol"],
-                        )
-                        doc.span(
-                            class_="tracerite-tooltip-text",
-                            data_tooltip=tooltip_attrs["data-tooltip"],
-                        )
-                    else:
-                        for fragment in non_trailing_fragments:
-                            _render_fragment(doc, fragment)
-
-                    # Set fragment for trailing handling
-                    fragment = trailing_fragment
-                # Render trailing fragment outside the span
-                if fragment:
-                    _render_fragment(doc, fragment)
 
 
 def _render_fragment(doc: Any, fragment: dict[str, Any]) -> None:
