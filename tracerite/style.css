@@ -1,12 +1,4 @@
-/* Vertically center .inspector in compact mode */
-.tracerite:has(.mode-toggle:checked) .traceback-details:not(.traceback-ellipsis) {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-.tracerite:has(.mode-toggle:checked) .traceback-details:not(.traceback-ellipsis) .inspector {
-  align-self: center;
-}
+/* Compact mode uses CSS Grid - see COMPACT MODE section below */
 @import url('https://cdn.jsdelivr.net/npm/@fontsource/monaspace-krypton/index.css');
 
 /** TraceRite **/
@@ -204,33 +196,12 @@
 .tracerite .traceback-details:last-child { width: 100%; }
 .tracerite .traceback-ellipsis { min-width: 4ch; text-align: center; }
 
-/* Sticky frame label - aligned with code */
-.tracerite .frame-label {
-  position: sticky;
-  left: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3em;
-  padding: 0.1em 1em;
-  font-size: 1em;
-  line-height: 1.3;
-  margin-left: 4ch;
-  margin-bottom: 0.3em;
-  white-space: nowrap;
-  z-index: 5;
-  border-bottom: 1px solid var(--tracerite-tab);
-}
-.tracerite.tracerite:has(.mode-toggle:checked) .traceback-call .frame-label {
-  border-bottom: none;
-}
-.tracerite.tracerite:has(.mode-toggle:checked) .frame-label {
-  margin: 0;
-}
-.tracerite .frame-label .frame-function { font-weight: 600; color: var(--tracerite-function); }
-.tracerite .frame-label .frame-location { color: var(--tracerite-location); }
-.tracerite .frame-label .frame-lineno { color: var(--tracerite-lineno); display: none; }
-.tracerite.tracerite:has(.mode-toggle:checked) .frame-label .frame-lineno { display: inline; }
-.tracerite .frame-label .frame-link {
+/* Base styles for frame-function and frame-location */
+.tracerite .frame-function { font-weight: 600; color: var(--tracerite-function); }
+.tracerite .frame-location { color: var(--tracerite-location); }
+.tracerite .frame-lineno { color: var(--tracerite-lineno); display: none; }
+.tracerite:has(.mode-toggle:checked) .frame-lineno { display: inline; }
+.tracerite .frame-link {
   margin-left: 0.3em;
   padding: 0.1em 0.4em;
   background: var(--tracerite-link-bg);
@@ -239,22 +210,30 @@
   text-decoration: none;
   font-size: 0.85em;
 }
-.tracerite .frame-label .frame-link:hover { background: var(--tracerite-link-hover); }
+.tracerite .frame-link:hover { background: var(--tracerite-link-hover); }
 
 .tracerite table.inspector {
   margin-left: 3.5em;
-  min-width: 10em;
-  max-width: 40em;
+  min-width: 5em;
+  max-width: 20em;
   width: auto;
   word-break: break-word;
 }
-.tracerite:has(.mode-toggle:checked) .traceback-call table.inspector { margin-left: 0; }
-.tracerite.tracerite:has(.mode-toggle:checked) table.inspector { margin-left: 0; height: 100%; }
+/* Inspector in compact mode: scale to content */
+.tracerite:has(.mode-toggle:checked) table.inspector {
+  margin-left: 0;
+  height: auto;
+  width: auto;
+}
+.tracerite:has(.mode-toggle:checked) table.inspector td.var {
+  width: auto;
+  max-width: none;
+}
 .tracerite .inspector tbody tr,
 .tracerite .inspector td {
   padding: 0;
   background: none;
-  text-align: left;
+  text-align: right;
   vertical-align: top;
 }
 .tracerite .inspector .var,
@@ -303,11 +282,10 @@
   overflow: hidden;
   font-size: 0.8em;
   border-collapse: collapse;
-  text-align: left;
+  text-align: right;
 }
-/* Optionally, make the first column tighter */
+/* Variable column styling */
 .tracerite table.inspector td.var {
-  max-width: 8em;
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
@@ -405,30 +383,87 @@
 }
 
 /* Show compact call line and hide frame-content in compact mode using :has() */
-.tracerite:has(.mode-toggle:checked) .traceback-call .frame-label > .compact-call-line {
+.tracerite:has(.mode-toggle:checked) .traceback-call > .compact-call-line {
   display: inline;
 }
 .tracerite:has(.mode-toggle:checked) .traceback-call .frame-content {
   display: none;
 }
-.tracerite:has(.mode-toggle:checked) .frame-content {
-  display: flex;
+
+/* Compact mode: CSS Grid layout at top level for cross-chain alignment */
+.tracerite:has(.mode-toggle:checked) {
+  display: grid;
+  grid-template-columns: auto auto auto auto;
+  align-items: baseline;
+  gap: 0 0.5em;
+  justify-content: start;
 }
 
-/* Compact mode: stack frames vertically */
-.tracerite:has(.mode-toggle:checked) .traceback-frames {
-  flex-direction: column;
-  align-items: stretch;
-  overflow-x: visible;
-  overflow-y: visible;
-  padding-bottom: 0;
-  cursor: default;
+/* Exception headers and messages span all columns */
+.tracerite:has(.mode-toggle:checked) > h3,
+.tracerite:has(.mode-toggle:checked) > pre.excmessage {
+  grid-column: 1 / -1;
 }
-.tracerite:has(.mode-toggle:checked) .traceback-details:not(.traceback-ellipsis) {
-  width: 100%;
-  max-width: 100%;
-  margin: 0;
-  padding: 0;
+
+/* Make intermediate containers transparent to grid */
+.tracerite:has(.mode-toggle:checked) .traceback-wrapper,
+.tracerite:has(.mode-toggle:checked) .traceback-frames,
+.tracerite:has(.mode-toggle:checked) .traceback-details {
+  display: contents;
+}
+
+/* Mode toggle container needs to escape grid flow */
+.tracerite:has(.mode-toggle:checked) .mode-toggle-container {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
+/* Grid column assignments for call frame elements (direct children of .traceback-call) */
+.tracerite:has(.mode-toggle:checked) .traceback-call > .frame-function {
+  grid-column: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 20em;
+}
+.tracerite:has(.mode-toggle:checked) .traceback-call > .frame-location {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 20em;
+}
+.tracerite:has(.mode-toggle:checked) .traceback-call > .compact-call-line {
+  grid-column: 3 / -1;
+}
+
+/* Non-call frames: frame-function and frame-location span columns 1-2, frame-content spans all */
+.tracerite:has(.mode-toggle:checked) .traceback-details:not(.traceback-call) > .frame-function {
+  grid-column: 1;
+}
+.tracerite:has(.mode-toggle:checked) .traceback-details:not(.traceback-call) > .frame-location {
+  grid-column: 2 / -1;
+}
+
+/* frame-content: code spans columns 1-3, inspector in column 4 */
+.tracerite:has(.mode-toggle:checked) .frame-content {
+  display: contents;
+}
+
+/* Code block spans first 3 columns */
+.tracerite:has(.mode-toggle:checked) .frame-content pre {
+  grid-column: 1 / 4;
+  width: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  text-overflow: clip;
+}
+
+/* Inspector in column 4, vertically centered, no stretch */
+.tracerite:has(.mode-toggle:checked) .frame-content table.inspector {
+  grid-column: 4;
+  align-self: start;
+  margin-top: auto;
+  margin-bottom: auto;
+  height: fit-content;
 }
 
 /* Hide floating symbols in compact mode */
@@ -436,25 +471,16 @@
   display: none;
 }
 
-/* Ellipsis frame in compact mode */
+/* Ellipsis frame in compact mode - spans all columns */
 .tracerite:has(.mode-toggle:checked) .traceback-ellipsis {
+  grid-column: 1 / -1;
   min-width: auto;
   text-align: left;
   padding: 0 0.5em;
   color: var(--tracerite-lineno);
 }
 
-/* Compact call line styling (unchanged) */
-.tracerite:has(.mode-toggle:checked) .frame-function {
-  width: 12em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tracerite:has(.mode-toggle:checked) .frame-location {
-  width: 12em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* Compact call line styling */
 .tracerite .compact-call-line .compact-symbol {
   color: var(--tracerite-symbol);
   font-size: 1.1em;

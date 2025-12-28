@@ -158,11 +158,11 @@ def _exception(
                     "id": frinfo["id"],
                 }
                 with doc.div(**attrs):
-                    with doc.div(class_="frame-label"):
-                        _frame_label(doc, frinfo, local_urls=local_urls)
-                        if relevance == "call":
-                            with doc.span(class_="compact-call-line"):
-                                _compact_call_line_html(doc, info, frinfo)
+                    # All frame types: output frame-function, frame-location directly for grid
+                    _frame_label(doc, frinfo, local_urls=local_urls)
+                    if relevance == "call":
+                        with doc.span(class_="compact-call-line"):
+                            _compact_call_line_html(doc, info, frinfo)
                     with doc.div(class_="frame-content"):
                         traceback_detail(doc, info, frinfo)
                         variable_inspector(doc, frinfo["variables"])
