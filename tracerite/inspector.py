@@ -361,7 +361,10 @@ def prettyvalue(val: Any) -> tuple[Any, str]:
     # Determine format hint based on content
     format_hint = "inline"
 
-    if isinstance(val, str):
+    # Format exceptions using str() for cleaner display
+    if isinstance(val, BaseException):
+        ret = str(val)
+    elif isinstance(val, str):
         ret = str(val)
         # Multi-line strings should be displayed as blocks
         if "\n" in ret.rstrip():

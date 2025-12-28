@@ -212,40 +212,42 @@
 }
 .tracerite .frame-link:hover { background: var(--tracerite-link-hover); }
 
-.tracerite table.inspector {
+/* Variable inspector: grid layout with fixed first column, flexible second */
+.tracerite dl.inspector {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  margin: 0;
   margin-left: 3.5em;
   min-width: 5em;
   max-width: 20em;
   width: auto;
   word-break: break-word;
 }
-/* Inspector in compact mode: scale to content */
-.tracerite:has(.mode-toggle:checked) table.inspector {
+/* Inspector in compact mode: fixed first column, scaled second column */
+.tracerite:has(.mode-toggle:checked) dl.inspector {
   margin-left: 0;
-  height: auto;
-  width: auto;
-}
-.tracerite:has(.mode-toggle:checked) table.inspector td.var {
-  width: auto;
   max-width: none;
+  width: 100%;
+  grid-template-columns: 8em 1fr;
 }
-.tracerite .inspector tbody tr,
-.tracerite .inspector td {
+.tracerite dl.inspector dt,
+.tracerite dl.inspector dd {
+  margin: 0;
   padding: 0;
-  background: none;
   text-align: right;
   vertical-align: top;
 }
-.tracerite .inspector .var,
-.tracerite table.inspector .var { font-weight: bold; color: var(--tracerite-var); }
-.tracerite .inspector .type,
-.tracerite table.inspector .type { white-space: nowrap; color: var(--tracerite-type); }
-.tracerite .inspector .val,
-.tracerite table.inspector .val { white-space: pre-wrap; color: var(--tracerite-val); }
+.tracerite dl.inspector dt {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.tracerite .inspector .var { font-weight: bold; color: var(--tracerite-var); }
+.tracerite .inspector .type { white-space: nowrap; color: var(--tracerite-type); }
+.tracerite .inspector .val { white-space: pre; text-overflow: ellipsis; overflow: hidden; color: var(--tracerite-val); }
 
 /* Block format for multi-line strings - left aligned */
-.tracerite .inspector .val-block,
-.tracerite table.inspector .val-block {
+.tracerite .inspector .val-block {
   text-align: left;
   white-space: pre-wrap;
   overflow: visible;
@@ -253,9 +255,7 @@
   word-break: break-word;
 }
 
-.tracerite .inspector .val-block pre,
-.tracerite table.inspector .val-block pre,
-.tracerite .inspector td.val-block pre {
+.tracerite .inspector .val-block pre {
   margin: 0;
   padding: 0;
   padding-top: 0.4em;
@@ -270,25 +270,18 @@
 }
 
 /* Inline format - left aligned (default) */
-.tracerite .inspector .val-inline,
-.tracerite table.inspector .val-inline {
+.tracerite .inspector .val-inline {
   text-align: left;
 }
 
-.tracerite .inspector table td,
-.tracerite table.inspector td {
+/* Nested table styling (for matrices) */
+.tracerite .inspector table td {
   color: var(--tracerite-val);
   word-break: keep-all;
   overflow: hidden;
   font-size: 0.8em;
   border-collapse: collapse;
   text-align: right;
-}
-/* Variable column styling */
-.tracerite table.inspector td.var {
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
 }
 
 /* matrix value on a variable */
@@ -393,7 +386,7 @@
 /* Compact mode: CSS Grid layout at top level for cross-chain alignment */
 .tracerite:has(.mode-toggle:checked) {
   display: grid;
-  grid-template-columns: auto auto auto auto;
+  grid-template-columns: auto auto auto 1fr;
   align-items: baseline;
   gap: 0 0.5em;
   justify-content: start;
@@ -458,7 +451,7 @@
 }
 
 /* Inspector in column 4, vertically centered, no stretch */
-.tracerite:has(.mode-toggle:checked) .frame-content table.inspector {
+.tracerite:has(.mode-toggle:checked) .frame-content dl.inspector {
   grid-column: 4;
   align-self: start;
   margin-top: auto;
@@ -478,6 +471,11 @@
   text-align: left;
   padding: 0 0.5em;
   color: var(--tracerite-lineno);
+}
+
+/* Exception banner in compact mode - spans all columns */
+.tracerite:has(.mode-toggle:checked) .exception-banner {
+  grid-column: 1 / -1;
 }
 
 /* Compact call line styling */
