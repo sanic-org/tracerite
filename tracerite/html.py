@@ -101,22 +101,7 @@ def html_traceback(
                 _exception(doc, e, local_urls=local_urls, chain_suffix=chain_suffix)
 
         if include_js_css:
-            # Build scrollto calls for chronological mode
-            if chronological:
-                chrono_frames = build_chronological_frames(chain)
-                scrollto_calls = []
-                for frinfo in reversed(chrono_frames):
-                    if frinfo.get("relevance") not in ("call", "except"):
-                        scrollto_calls.append(f"tracerite_scrollto('{frinfo['id']}')")
-                        break
-            else:
-                scrollto_calls = []
-                for e in reversed(chain):
-                    for info in e["frames"]:
-                        if info["relevance"] != "call":
-                            scrollto_calls.append(f"tracerite_scrollto('{info['id']}')")
-                            break
-            doc._script(javascript + "\n" + "\n".join(scrollto_calls))
+            doc._script(javascript)
     return doc
 
 
