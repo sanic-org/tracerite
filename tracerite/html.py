@@ -154,11 +154,25 @@ def _chronological_output(
             "id": frinfo["id"],
         }
         with doc.div(**attrs):
-            _frame_label(doc, frinfo, local_urls=local_urls)
+            if relevance == "call":
+                # Hidden checkbox for CSS-only toggle
+                toggle_id = f"toggle-{frinfo['id']}"
+                doc.input_(type="checkbox", id=toggle_id, class_="call-toggle-checkbox")
+            _frame_label(
+                doc,
+                frinfo,
+                local_urls=local_urls,
+                toggle_id=toggle_id if relevance == "call" else None,
+            )
             if relevance == "call":
                 with doc.span(class_="compact-call-line"):
                     _compact_call_line_chrono(doc, frinfo)
-            with doc.div(class_="frame-content"):
+                # Animated wrapper for expandable content
+                with doc.div(class_="expand-wrapper"):
+                    with doc.div(class_="expand-content"):
+                        _traceback_detail_chrono(doc, frinfo)
+                        variable_inspector(doc, frinfo.get("variables", []))
+            else:
                 _traceback_detail_chrono(doc, frinfo)
                 variable_inspector(doc, frinfo.get("variables", []))
 
@@ -316,26 +330,56 @@ def _exception(
             "id": frinfo["id"],
         }
         with doc.div(**attrs):
-            # All frame types: output frame-function, frame-location directly for grid
-            _frame_label(doc, frinfo, local_urls=local_urls)
+            if relevance == "call":
+                # Hidden checkbox for CSS-only toggle
+                toggle_id = f"toggle-{frinfo['id']}"
+                doc.input_(type="checkbox", id=toggle_id, class_="call-toggle-checkbox")
+            _frame_label(
+                doc,
+                frinfo,
+                local_urls=local_urls,
+                toggle_id=toggle_id if relevance == "call" else None,
+            )
             if relevance == "call":
                 with doc.span(class_="compact-call-line"):
                     _compact_call_line_html(doc, info, frinfo)
-            with doc.div(class_="frame-content"):
+                # Animated wrapper for expandable content
+                with doc.div(class_="expand-wrapper"):
+                    with doc.div(class_="expand-content"):
+                        traceback_detail(doc, info, frinfo)
+                        variable_inspector(doc, frinfo["variables"])
+            else:
                 traceback_detail(doc, info, frinfo)
                 variable_inspector(doc, frinfo["variables"])
 
 
-def _frame_label(doc: Any, frinfo: dict[str, Any], local_urls: bool = False) -> None:
+def _frame_label(
+    doc: Any,
+    frinfo: dict[str, Any],
+    local_urls: bool = False,
+    toggle_id: str | None = None,
+) -> None:
     if frinfo["function"]:
         function_display = f"{frinfo['function']}{frinfo.get('function_suffix', '')}"
-        doc.span(function_display, class_="frame-function")
+        if toggle_id:
+            # Wrap in label for checkbox toggle
+            doc.label(function_display, for_=toggle_id, class_="frame-function")
+        else:
+            doc.span(function_display, class_="frame-function")
         doc(" ")
     lineno = None
-    if frinfo["relevance"] == "call" and frinfo["linenostart"]:
-        lineno = E.span(f":{frinfo['linenostart']}", class_="frame-lineno")
-    # Add colon for non-call frames (where code follows)
-    colon = E.span(":", class_="frame-colon") if frinfo["relevance"] != "call" else None
+    if frinfo["relevance"] == "call":
+        # Use the final marked line number (where the call happens)
+        frame_range = frinfo.get("range")
+        if frame_range and frame_range.lfinal:
+            lineno = E.span(f":{frame_range.lfinal}", class_="frame-lineno")
+        elif frinfo.get("linenostart"):
+            lineno = E.span(f":{frinfo['linenostart']}", class_="frame-lineno")
+    # For call frames, add semicolon that shows when expanded; for others add colon
+    if frinfo["relevance"] == "call":
+        colon = E.span(";", class_="frame-semicolon")
+    else:
+        colon = E.span(":", class_="frame-colon")
     doc.span(frinfo["location"], lineno, colon, class_="frame-location")
     urls = frinfo.get("urls", {})
     if local_urls and urls:

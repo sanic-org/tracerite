@@ -281,10 +281,65 @@
 }
 
 /* Show compact call line and hide frame-content for call frames */
-.tracerite .traceback-call > .compact-call-line {
+.tracerite .traceback-call .compact-call-line {
   display: inline;
 }
-.tracerite .traceback-call .frame-content {
+
+/* Hidden checkbox for toggle */
+.tracerite .call-toggle-checkbox {
+  display: none;
+}
+
+/* Expand wrapper - uses grid-template-rows for height animation */
+.tracerite .expand-wrapper {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-rows: 0fr;
+  grid-template-columns: subgrid;
+  transition: grid-template-rows 0.25s ease-out;
+}
+.tracerite .expand-content {
+  overflow: hidden;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+}
+.tracerite .expand-content > pre {
+  grid-column: 1 / 4;
+  width: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  text-overflow: clip;
+}
+.tracerite .expand-content > dl.inspector {
+  grid-column: 4;
+  align-self: start;
+  margin-top: auto;
+  margin-bottom: auto;
+  height: fit-content;
+}
+
+/* When checkbox is checked, expand the wrapper */
+.tracerite .call-toggle-checkbox:checked ~ .compact-call-line {
+  display: none;
+}
+.tracerite .call-toggle-checkbox:checked ~ .expand-wrapper {
+  grid-template-rows: 1fr;
+}
+
+/* Semicolon hidden by default, shown when expanded */
+.tracerite .frame-semicolon {
+  display: none;
+  color: var(--tracerite-code);
+  font-weight: 700;
+}
+.tracerite .call-toggle-checkbox:checked ~ .frame-location .frame-semicolon {
+  display: inline;
+}
+
+/* Line number hidden when expanded (full code shows line numbers) */
+.tracerite .call-toggle-checkbox:checked ~ .frame-location .frame-lineno {
   display: none;
 }
 
@@ -301,20 +356,25 @@
 }
 
 /* Grid column assignments for call frame elements */
-.tracerite .traceback-call > .frame-function {
+.tracerite .traceback-call .frame-function {
   grid-column: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 20em;
 }
-.tracerite .traceback-call > .frame-location {
+.tracerite .traceback-call .frame-location {
   grid-column: 2;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 20em;
 }
-.tracerite .traceback-call > .compact-call-line {
+.tracerite .traceback-call .compact-call-line {
   grid-column: 3 / -1;
+}
+
+/* Clickable function name styling */
+.tracerite .traceback-call .frame-function {
+  cursor: pointer;
 }
 
 /* Non-call frames: frame-function and frame-location span columns 1-2, frame-content spans all */
@@ -325,13 +385,8 @@
   grid-column: 2 / -1;
 }
 
-/* frame-content: code spans columns 1-3, inspector in column 4 */
-.tracerite .frame-content {
-  display: contents;
-}
-
-/* Code block spans first 3 columns */
-.tracerite .frame-content pre {
+/* Code block spans first 3 columns (non-call frames, always visible) */
+.tracerite .traceback-details:not(.traceback-call) > pre {
   grid-column: 1 / 4;
   width: auto;
   white-space: pre-wrap;
@@ -339,8 +394,8 @@
   text-overflow: clip;
 }
 
-/* Inspector in column 4 */
-.tracerite .frame-content dl.inspector {
+/* Inspector in column 4 (non-call frames, always visible) */
+.tracerite .traceback-details:not(.traceback-call) > dl.inspector {
   grid-column: 4;
   align-self: start;
   margin-top: auto;
