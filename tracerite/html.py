@@ -328,10 +328,8 @@ def _exception(
 
 def _frame_label(doc: Any, frinfo: dict[str, Any], local_urls: bool = False) -> None:
     if frinfo["function"]:
-        doc.span(frinfo["function"], class_="frame-function")
-        # Display suffix (e.g. ⚡except) separately for visual purposes only
-        if frinfo.get("function_suffix"):
-            doc.span(frinfo["function_suffix"], class_="frame-function-suffix")
+        function_display = f"{frinfo['function']}{frinfo.get('function_suffix', '')}"
+        doc.span(function_display, class_="frame-function")
         doc(" ")
     lineno = None
     if frinfo["relevance"] == "call" and frinfo["linenostart"]:

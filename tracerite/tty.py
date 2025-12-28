@@ -1037,8 +1037,9 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     label = ""
     label_plain = ""
     if frinfo["function"]:
-        label_plain += f"{frinfo['function']} "
-        label += f"{FUNC}{frinfo['function']} {RESET}"
+        function_display = f"{frinfo['function']}{frinfo.get('function_suffix', '')}"
+        label_plain += f"{function_display} "
+        label += f"{FUNC}{function_display} {RESET}"
     label_plain += f"{location}:{lineno}"
     label += f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}"
     if frinfo["relevance"] != "call":
