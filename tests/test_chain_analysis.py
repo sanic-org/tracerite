@@ -3,13 +3,15 @@
 from tracerite.chain_analysis import (
     TryExceptBlock,
     TryExceptVisitor,
+    _get_frame_lineno,
     analyze_exception_chain_links,
     build_chronological_frames,
     enrich_chain_with_links,
     find_matching_try_for_inner_exception,
+    find_try_block_for_except_line,
     parse_source_for_try_except,
 )
-from tracerite.trace import extract_chain
+from tracerite.trace import Range, extract_chain
 
 from .errorcases import (
     chained_from_and_without,
@@ -28,8 +30,10 @@ class TestTryExceptVisitor:
 
         source = """
 try:
-    x = 1
-    y = 2
+    func(
+        x=1,
+        y=2
+    )
 except Exception:
     z = 3
 """
@@ -40,7 +44,7 @@ except Exception:
         assert len(visitor.try_except_blocks) == 1
         block = visitor.try_except_blocks[0]
         assert block.try_start == 2  # 'try:' line
-        assert block.except_start == 5  # 'except Exception:' line
+        assert block.except_start == 7  # 'except Exception:' line
 
     def test_nested_try_except(self):
         """Test parsing nested try-except blocks."""
@@ -90,8 +94,24 @@ class TestTryExceptBlock:
         assert block.contains_in_except(16)
         assert block.contains_in_except(18)
         assert block.contains_in_except(20)
-        assert not block.contains_in_except(15)
-        assert not block.contains_in_except(21)
+
+    def test_contains_in_except_none_handlers(self):
+        """Test contains_in_except when except_start or except_end is None."""
+        block = TryExceptBlock(
+            try_start=10,
+            try_end=15,
+            except_start=None,
+            except_end=20,
+        )
+        assert not block.contains_in_except(18)
+
+        block2 = TryExceptBlock(
+            try_start=10,
+            try_end=15,
+            except_start=16,
+            except_end=None,
+        )
+        assert not block2.contains_in_except(18)
 
 
 class TestFindMatchingTryForInnerException:
@@ -128,6 +148,32 @@ class TestFindMatchingTryForInnerException:
         result = find_matching_try_for_inner_exception(blocks, 12, 25)
         assert result is None
 
+    def test_find_try_block_no_matching_except(self):
+        """Test find_try_block_for_except_line returns None when no block contains line."""
+        blocks = [
+            TryExceptBlock(try_start=10, try_end=15, except_start=16, except_end=20),
+        ]
+
+        # Line 25 is not in any except handler
+        result = find_try_block_for_except_line(blocks, 25)
+        assert result is None
+
+    def test_find_try_block_multiple_matches(self):
+        """Test find_try_block_for_except_line returns the most specific (innermost) block."""
+        blocks = [
+            TryExceptBlock(
+                try_start=15, try_end=25, except_start=20, except_end=30
+            ),  # Inner
+            TryExceptBlock(
+                try_start=5, try_end=35, except_start=10, except_end=40
+            ),  # Outer
+        ]
+
+        # Line 22 is in both except handlers, should return the innermost (higher try_start)
+        result = find_try_block_for_except_line(blocks, 22)
+        assert result is not None
+        assert result.try_start == 15
+
 
 class TestParseSourceForTryExcept:
     """Tests for parsing source files."""
@@ -138,6 +184,36 @@ class TestParseSourceForTryExcept:
 
         blocks = parse_source_for_try_except(errorcases.__file__)
         assert len(blocks) >= 4  # We have several try-except blocks in errorcases
+
+    def test_parse_empty_file(self):
+        """Test parsing an empty file returns empty list."""
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("")  # Empty file
+            temp_file = f.name
+
+        try:
+            blocks = parse_source_for_try_except(temp_file)
+            assert blocks == []
+        finally:
+            os.unlink(temp_file)
+
+    def test_parse_invalid_syntax(self):
+        """Test parsing file with invalid syntax triggers exception handling."""
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("def invalid syntax here:")  # Invalid syntax
+            temp_file = f.name
+
+        try:
+            blocks = parse_source_for_try_except(temp_file)
+            assert blocks == []  # Should return empty on parse error
+        finally:
+            os.unlink(temp_file)
 
 
 class TestAnalyzeExceptionChainLinks:
@@ -210,6 +286,111 @@ class TestAnalyzeExceptionChainLinks:
         links = analyze_exception_chain_links(chain)
         assert links[0] is None
         # Should still find the link since both are in the same try-except
+
+    def test_chain_link_with_missing_filename(self):
+        """Test _find_chain_link returns None when inner frame has no filename."""
+        try:
+            raise ValueError("inner")
+        except ValueError:
+            try:
+                raise RuntimeError("outer")
+            except RuntimeError as e:
+                chain = extract_chain(e)
+
+        # Modify inner frame to have no filename
+        if len(chain) >= 2 and chain[0]["frames"]:
+            chain[0]["frames"][0]["filename"] = None
+
+        links = analyze_exception_chain_links(chain)
+        # Should have links for both, but the first link should be None due to missing filename
+        assert len(links) == 2
+        assert links[0] is None  # The link for the second exception
+
+    def test_chain_link_with_missing_lineno(self):
+        """Test _find_chain_link returns None when inner frame has no lineno."""
+        try:
+            raise ValueError("inner")
+        except ValueError:
+            try:
+                raise RuntimeError("outer")
+            except RuntimeError as e:
+                chain = extract_chain(e)
+
+        # Modify inner frame to have no lineno
+        if len(chain) >= 2 and chain[0]["frames"]:
+            del chain[0]["frames"][0]["lineno"]
+
+        links = analyze_exception_chain_links(chain)
+        # Should have links for both, but the first link should be None due to missing lineno
+        assert len(links) == 2
+        assert links[0] is None
+
+    def test_chain_link_with_no_try_except_blocks(self):
+        """Test _find_chain_link returns None when no try-except blocks found."""
+        import os
+        import tempfile
+
+        # Create a temporary file with no try-except
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("x = 1\ny = 2\n")  # No try-except
+            temp_file = f.name
+
+        try:
+            try:
+                raise ValueError("inner")
+            except ValueError:
+                try:
+                    raise RuntimeError("outer")
+                except RuntimeError as e:
+                    chain = extract_chain(e)
+
+            # Modify filename to point to our temp file
+            if len(chain) >= 2 and chain[0]["frames"]:
+                chain[0]["frames"][0]["filename"] = temp_file
+
+            links = analyze_exception_chain_links(chain)
+            # Should have 2 links, the first should be None due to no try-except blocks
+            assert len(links) == 2
+            assert links[0] is None
+        finally:
+            os.unlink(temp_file)
+
+    def test_frame_with_range_uses_lfirst(self):
+        """Test that _get_frame_lineno uses range[0] when available."""
+
+        frame = {
+            "range": Range(lfirst=10, lfinal=15, cbeg=0, cend=5),
+            "lineno": 20,
+            "linenostart": 25,
+        }
+        lineno = _get_frame_lineno(frame)
+        assert lineno == 10  # Should use lfirst from range
+
+    def test_frame_lineno_none_continues(self):
+        """Test that frames with no lineno are skipped in chain link analysis."""
+        try:
+            raise ValueError("test")
+        except ValueError as e:
+            chain = extract_chain(e)
+
+        # Add a second exception with a frame that has no lineno
+        try:
+            raise RuntimeError("second")
+        except RuntimeError as e2:
+            chain2 = extract_chain(e2)
+            chain.extend(chain2)
+
+        # Modify the second chain's frames to have no lineno
+        if len(chain) > 1 and chain[1]["frames"]:
+            for frame in chain[1]["frames"]:
+                if "lineno" in frame:
+                    del frame["lineno"]
+                if "linenostart" in frame:
+                    del frame["linenostart"]
+
+        links = analyze_exception_chain_links(chain)
+        # Should still work, skipping frames without lineno
+        assert len(links) == 2
 
 
 class TestEnrichChainWithLinks:

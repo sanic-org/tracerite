@@ -113,10 +113,7 @@ class TryExceptVisitor(ast.NodeVisitor):
         """Get the last line number from a list of AST nodes."""
         last_line = 0
         for node in nodes:
-            if hasattr(node, "end_lineno") and node.end_lineno:
-                last_line = max(last_line, node.end_lineno)
-            elif hasattr(node, "lineno"):
-                last_line = max(last_line, node.lineno)
+            last_line = max(last_line, getattr(node, "end_lineno", node.lineno))
         return last_line
 
 

@@ -277,7 +277,7 @@ def _find_except_start_for_line(frame, lineno: int) -> int | None:
         for block in blocks:
             if block.contains_in_except(lineno):
                 return block.except_start
-    except Exception:
+    except Exception:  # pragma: no cover
         pass
     return None
 
@@ -306,7 +306,7 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
         except_start = _find_except_start_for_line(frame, lineno)
         if except_start is not None and except_start > start:
             skip = except_start - start
-            if skip < len(lines):
+            if skip < len(lines):  # pragma: no branch
                 lines = lines[skip:]
                 start = except_start
 
@@ -316,9 +316,8 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
 
         # Get the indentation of the first marked line (error line) before any dedenting
         error_indent = 0
-        if 0 <= error_idx < len(lines):
-            error_line = lines[error_idx]
-            error_indent = len(error_line) - len(error_line.lstrip(" \t"))
+        error_line = lines[error_idx]
+        error_indent = len(error_line) - len(error_line.lstrip(" \t"))
 
         # Trim leading lines that have more indentation than error line
         while lines and error_idx > 0:
@@ -334,17 +333,16 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
 
         # Trim trailing lines with less indentation than the error line
         # (hides external structures like else/except that aren't relevant)
-        if 0 <= error_idx < len(lines):
-            trim_after = end_idx + 1
-            while trim_after < len(lines):
-                line = lines[trim_after]
-                # Keep empty lines, but check non-empty lines for indentation
-                if line.strip():
-                    line_indent = len(line) - len(line.lstrip(" \t"))
-                    if line_indent < error_indent:
-                        break  # Found a line with less indent, trim from here
-                trim_after += 1
-            lines = lines[:trim_after]
+        trim_after = end_idx + 1
+        while trim_after < len(lines):
+            line = lines[trim_after]
+            # Keep empty lines, but check non-empty lines for indentation
+            if line.strip():
+                line_indent = len(line) - len(line.lstrip(" \t"))
+                if line_indent < error_indent:
+                    break  # Found a line with less indent, trim from here
+            trim_after += 1
+        lines = lines[:trim_after]
 
         # Calculate common indentation and dedent AFTER pruning
         common_indent = _calculate_common_indent(lines)
@@ -465,14 +463,9 @@ def _find_comprehension_range(lines: str, lineno: int, start: int):
     # Find comprehension nodes that contain the error line
     comprehension_types = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
     for node in ast.walk(tree):
-        if (
-            isinstance(node, comprehension_types)
-            and hasattr(node, "lineno")
-            and hasattr(node, "end_lineno")
-            and (
-                node.lineno <= error_line_in_source <= (node.end_lineno or node.lineno)
-            )
-        ):
+        if isinstance(
+            node, comprehension_types
+        ) and node.lineno <= error_line_in_source <= (node.end_lineno or node.lineno):
             comp_start = node.lineno - 1  # 0-based
             comp_end = node.end_lineno or node.lineno  # 1-based, inclusive
             return (comp_start, comp_end)

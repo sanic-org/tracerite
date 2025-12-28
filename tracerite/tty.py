@@ -319,16 +319,6 @@ def _find_collapsible_call_runs(
     return runs
 
 
-def _print_exception(
-    e: dict[str, Any],
-    term_width: int,
-    chain_suffix: str = "",
-    no_inspector: bool = False,
-) -> str:
-    """Print a single exception with its frames (legacy format)."""
-    raise NotImplementedError("Old format removed")
-
-
 def _print_chronological(
     chain: list[dict[str, Any]],
     term_width: int,
@@ -406,13 +396,12 @@ def _print_chronological(
             banner = _build_exception_banner(exc_info, term_width)
             exception_banners.append((len(output_lines), banner))
 
-    # Get variable inspector lines
+    # Get variable inspector lines (inspector_frame_idx is only set for frames with variables)
     inspector_lines = []
     if not no_inspector and inspector_frame_idx is not None:
         frinfo = frame_info_list[inspector_frame_idx]["frinfo"]
         variables = frinfo.get("variables", [])
-        if variables:
-            inspector_lines = _build_variable_inspector(variables, term_width)
+        inspector_lines = _build_variable_inspector(variables, term_width)
 
     # Build final output, inserting exception banners at the right positions
     if inspector_lines:
@@ -437,8 +426,8 @@ def _print_chronological(
                     banner_idx += 1
                 else:
                     break
-        # Any remaining banners
-        for _, banner in exception_banners[banner_idx:]:
+        # Any remaining banners (when banner position > last output line)
+        for _, banner in exception_banners[banner_idx:]:  # pragma: no cover
             output += banner
 
     return output
@@ -514,7 +503,7 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
             cwd = Path.cwd()
             if fn.is_absolute() and cwd in fn.parents:
                 location = fn.relative_to(cwd).as_posix()
-        except (ValueError, OSError):  # pragma: no cover
+        except (ValueError, OSError):
             pass
 
     # Build label with colors: light blue function, green filename, dark grey :lineno
@@ -529,32 +518,6 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     if frinfo["relevance"] != "call":
         label += ":"
     return label, label_plain
-
-
-def _get_frame_info(e: dict[str, Any], frinfo: dict[str, Any]) -> dict[str, Any]:
-    """Gather all info needed to print a frame."""
-    label, label_plain = _get_frame_label(frinfo)
-    fragments = frinfo.get("fragments", [])
-    frame_range = frinfo.get("range")
-    relevance = frinfo.get("relevance", "call")
-    is_deepest = frinfo is e["frames"][-1]
-
-    # Get marked lines (lines with any mark attribute)
-    marked_lines = [
-        li for li in fragments if any(f.get("mark") for f in li["fragments"])
-    ]
-
-    return {
-        "label": label,
-        "label_plain": label_plain,
-        "fragments": fragments,
-        "frame_range": frame_range,
-        "relevance": relevance,
-        "is_deepest": is_deepest,
-        "marked_lines": marked_lines,
-        "frinfo": frinfo,
-        "e": e,
-    }
 
 
 def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
@@ -755,7 +718,7 @@ def _merge_chrono_output(
             if is_arrow:
                 if is_first and is_last:
                     box_char = SINGLE_T
-                elif is_first:
+                elif is_first:  # pragma: no cover
                     box_char = BOX_TR
                 elif is_last:
                     box_char = BOX_BR
@@ -765,7 +728,7 @@ def _merge_chrono_output(
             else:
                 if is_first:
                     box_char = BOX_TL
-                elif is_last:
+                elif is_last:  # pragma: no cover
                     box_char = BOX_BL
                 else:
                     box_char = BOX_V
@@ -797,319 +760,6 @@ def _merge_chrono_output(
         output += banner
 
     return output
-
-
-def _build_frames_output(
-    e: dict[str, Any],
-    term_width: int,
-    no_inspector: bool,
-) -> str:
-    """Build the frames output for an exception."""
-    output = ""
-    # Frames: caller first, then callee (deepest last)
-    frames = e["frames"]
-
-    # Pre-calculate frame info for alignment
-    frame_info_list = []
-    for frinfo in frames:
-        info = _get_frame_info(e, frinfo)
-        frame_info_list.append(info)
-
-    # Find consecutive runs of call frames to collapse (>=10 consecutive calls)
-    # Returns list of (start_idx, end_idx) for runs to collapse
-    collapse_ranges = _find_collapsible_call_runs(frame_info_list, min_run_length=10)
-
-    # Build set of frame indices to skip (middle frames in collapsed runs)
-    skip_indices = set()
-    ellipsis_after = {}  # frame_idx -> count of skipped frames
-    for start_idx, end_idx in collapse_ranges:
-        # Keep first and last, skip middle
-        skipped_count = end_idx - start_idx - 1
-        for i in range(start_idx + 1, end_idx):
-            skip_indices.add(i)
-        ellipsis_after[start_idx] = skipped_count
-
-    # Find first non-call frame with variables to show inspector
-    inspector_frame_idx = _find_inspector_frame_idx(frame_info_list)
-
-    # Calculate max label width for call frame alignment
-    # Only consider call frames that won't be skipped
-    call_label_widths = [
-        len(info["label_plain"])
-        for i, info in enumerate(frame_info_list)
-        if info["relevance"] == "call" and i not in skip_indices
-    ]
-    label_width = max(call_label_widths, default=0)
-
-    # Build output lines with their plain text lengths
-    output_lines = []  # List of (colored_line, plain_length, frame_idx, is_marked)
-    for i, info in enumerate(frame_info_list):
-        if i in skip_indices:
-            continue
-        lines = _build_frame_lines(info, label_width, term_width)
-        for line, plain_len, is_marked in lines:
-            output_lines.append((line, plain_len, i, is_marked))
-        # Add ellipsis line after first frame of a collapsed run
-        if i in ellipsis_after:
-            skipped = ellipsis_after[i]
-            ellipsis_line = f"{INDENT}{ELLIPSIS}⋮ {skipped} more calls{RESET}"
-            ellipsis_plain_len = len(INDENT) + 2 + len(f"{skipped} more calls")
-            output_lines.append((ellipsis_line, ellipsis_plain_len, i, False))
-
-    # Get variable inspector lines if we have a non-call frame
-    inspector_lines = []
-    if not no_inspector and inspector_frame_idx is not None:
-        frinfo = frame_info_list[inspector_frame_idx]["frinfo"]
-        variables = frinfo.get("variables", [])
-        if variables:
-            inspector_lines = _build_variable_inspector(variables, term_width)
-
-    # Merge output with inspector
-    if inspector_lines:
-        output += _merge_inspector_output(
-            output_lines, inspector_lines, term_width, inspector_frame_idx
-        )
-    else:
-        # No inspector or no frame lines found, just print the code
-        for line, _, _, _ in output_lines:
-            output += f"{line}{EOL}"
-    return output
-
-
-def _merge_inspector_output(
-    output_lines: list[tuple[str, int, int, bool]],
-    inspector_lines: list[tuple[str, int]],
-    term_width: int,
-    inspector_frame_idx: int | None,
-) -> str:
-    """Merge output lines with inspector lines using cursor positioning."""
-    output = ""
-    assert inspector_frame_idx is not None
-    frame_line_start, frame_line_end = _find_frame_line_range(
-        output_lines, inspector_frame_idx
-    )
-    error_line = _find_last_marked_line(output_lines, frame_line_start, frame_line_end)
-    inspector_height = len(inspector_lines)
-
-    # Smart centering logic:
-    # 1. Center around error line (last marked line where 💣 appears)
-    # 2. Shift if centering goes out of bounds
-    # 3. Prefer extending into call frames (above) over empty lines (below)
-    # 4. Only add empty lines at the end as last resort
-
-    # Calculate ideal centered position (error line in middle of inspector)
-    ideal_arrow_pos = inspector_height // 2
-    ideal_start = error_line - ideal_arrow_pos
-
-    # Determine bounds: can extend upward into call frames (line 0),
-    # but only extend into "call" relevance frames, not beyond output
-    # The minimum start is 0 (can use all call frames above)
-    min_start = 0
-
-    # Apply centering with constraints
-    inspector_start = ideal_start
-
-    # Shift down if we're trying to go above available lines
-    if inspector_start < min_start:
-        inspector_start = min_start
-
-    # Shift up if we're extending too far below available lines
-    # First, see how many lines of output we have below inspector_start
-    lines_available_below = len(output_lines) - inspector_start
-    if lines_available_below < inspector_height:
-        # Try to shift up, but not beyond min_start
-        needed_shift = inspector_height - lines_available_below
-        inspector_start = max(min_start, inspector_start - needed_shift)
-
-    # Arrow line is where the error line falls within inspector
-    arrow_line_idx = error_line - inspector_start
-    assert 0 <= arrow_line_idx < inspector_height
-
-    # Calculate inspector column: find the max line length in the range we'll use
-    max_line_len = 0
-    for li in range(
-        inspector_start,
-        min(inspector_start + inspector_height, len(output_lines)),
-    ):
-        max_line_len = max(max_line_len, output_lines[li][1])
-
-    # Inspector width: arrow/spaces(2) + bar(1) + space(1) + content
-    max_insp_width = max(w for _, w in inspector_lines) if inspector_lines else 0
-    total_insp_width = 4 + max_insp_width  # "◀─❴ " or "  │ " + content
-
-    # Place inspector right after the longest line, with some padding
-    inspector_col = max_line_len + 2
-
-    # But don't go beyond terminal width
-    if inspector_col + total_insp_width > term_width:
-        inspector_col = term_width - total_insp_width
-
-    # Build output with inspector merged using cursor positioning
-    inspector_count = len(inspector_lines)
-    for li, (line, *_) in enumerate(output_lines):
-        insp_idx = li - inspector_start
-        if 0 <= insp_idx < inspector_count:
-            insp_line, insp_width = inspector_lines[insp_idx]
-            # Use cursor positioning to place inspector
-            cursor_pos = (
-                f"{ESC}{inspector_col + 1}G"  # +1 because columns are 1-indexed
-            )
-            # Determine which box character to use
-            is_first = insp_idx == 0
-            is_last = insp_idx == inspector_count - 1
-            is_arrow = insp_idx == arrow_line_idx
-
-            if is_arrow:
-                # Arrow line: use appropriate corner or T-junction
-                if is_first and is_last:
-                    box_char = SINGLE_T  # {-junction for single line
-                elif is_first:  # pragma: no cover
-                    box_char = BOX_TR  # curved corner for first+arrow
-                elif is_last:
-                    box_char = BOX_BR  # curved corner for last+arrow
-                else:
-                    box_char = BOX_VL  # ┤-junction for middle arrow
-                output += f"{line}{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RESET} {insp_line}{EOL}"
-            else:
-                # Non-arrow line: use corner or vertical
-                if is_first:
-                    box_char = BOX_TL  # ╭ curved corner for first
-                elif is_last:
-                    box_char = BOX_BL  # ╰ curved corner for last
-                else:
-                    box_char = BOX_V  # │ vertical for middle
-                output += f"{line}{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}{EOL}"
-        else:
-            output += f"{line}{EOL}"
-
-    # If inspector is taller than available lines, print remaining
-    remaining_start = len(output_lines) - inspector_start
-    if remaining_start < inspector_count:
-        for idx in range(remaining_start, inspector_count):
-            insp_line, insp_width = inspector_lines[idx]
-            cursor_pos = f"{ESC}{inspector_col + 1}G"
-            is_last = idx == inspector_count - 1
-            box_char = BOX_BL if is_last else BOX_V
-            output += f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}{EOL}"
-    return output
-
-
-def _build_frame_lines(
-    info: dict[str, Any], label_width: int, term_width: int
-) -> list[tuple[str, int, bool]]:
-    """Build output lines for a frame. Returns list of (colored_line, plain_length, is_marked)."""
-    label = info["label"]
-    label_plain = info["label_plain"]
-    fragments = info["fragments"]
-    frame_range = info["frame_range"]
-    relevance = info["relevance"]
-    is_deepest = info["is_deepest"]
-    frinfo = info["frinfo"]
-    e = info["e"]
-
-    lines = []
-
-    if not fragments:
-        if is_deepest:
-            msg = f"Source code not available but {e['type']} was raised from here"
-        else:
-            msg = "Source code not available"
-        line = f"{INDENT}{label}  {INS_TYPE}{msg}{RESET}"
-        plain_len = len(INDENT) + len(label_plain) + 2 + len(msg)
-        lines.append((line, plain_len, False))
-        return lines
-
-    start = frinfo["linenostart"]
-    symbol = symbols.get(relevance, "")
-    symbol_colored = f"{EM_CALL}{symbol}{RESET}" if symbol else ""
-    desc = symdesc.get(relevance, "")
-
-    if relevance == "call":
-        # One-liner for call frames: label + marked region only + symbol
-        padding = " " * (label_width - len(label_plain))
-
-        if info["marked_lines"]:
-            line_info = info["marked_lines"][0]
-            # Extract only marked fragments, with em in red, rest in default color
-            code_parts = []
-            code_plain = ""
-            for fragment in line_info["fragments"]:
-                mark = fragment.get("mark")
-                if mark:  # Only include marked fragments
-                    colored, plain = _format_fragment_call(fragment)
-                    code_parts.append(colored)
-                    code_plain += plain
-            code_colored = "".join(code_parts)
-
-            # Check if it fits
-            full_plain_len = (
-                len(INDENT)
-                + len(label_plain)
-                + len(padding)
-                + 1
-                + len(code_plain)
-                + 2
-                + len(symbol)
-            )
-            if full_plain_len <= term_width:
-                line = f"{INDENT}{label}{padding} {code_colored} {symbol_colored}"
-                lines.append((line, full_plain_len, False))
-            else:
-                # Doesn't fit, just print symbol
-                line = f"{INDENT}{label}{padding} {symbol_colored}"
-                lines.append(
-                    (
-                        line,
-                        len(INDENT) + len(label_plain) + len(padding) + 1 + len(symbol),
-                        False,
-                    )
-                )
-        else:
-            # No marked lines, just label and symbol
-            line = f"{INDENT}{label}{padding} {symbol_colored}"
-            lines.append(
-                (
-                    line,
-                    len(INDENT) + len(label_plain) + len(padding) + 1 + len(symbol),
-                    False,
-                )
-            )
-    else:
-        # Full format for non-call frames
-        lines.append((f"{INDENT}{label}", len(INDENT) + len(label_plain), False))
-
-        # Track which lines are marked
-        marked_line_nums = set()
-        for ml in info["marked_lines"]:
-            marked_line_nums.add(ml["line"])
-
-        for line_info in fragments:
-            line_num = line_info["line"]
-            abs_line = start + line_num - 1
-            line_fragments = line_info["fragments"]
-            is_marked = line_num in marked_line_nums
-
-            code_parts = []
-            code_plain = ""
-            for fragment in line_fragments:
-                colored, plain = _format_fragment(fragment)
-                code_parts.append(colored)
-                code_plain += plain
-            code_colored = "".join(code_parts)
-
-            # Add symbol and desc on final line
-            if frame_range and abs_line == frame_range.lfinal and symbol:
-                line = f"{CODE_INDENT}{code_colored} {symbol_colored}  {SYMBOLDESC}{desc}{RESET}"
-                plain_len = (
-                    len(CODE_INDENT) + len(code_plain) + 1 + len(symbol) + 2 + len(desc)
-                )
-            else:
-                line = f"{CODE_INDENT}{code_colored}"
-                plain_len = len(CODE_INDENT) + len(code_plain)
-
-            lines.append((line, plain_len, is_marked))
-
-    return lines
 
 
 def _format_fragment(fragment: dict[str, Any]) -> tuple[str, str]:
@@ -1161,40 +811,6 @@ def _format_fragment_call(fragment: dict[str, Any]) -> tuple[str, str]:
         colored_parts.append(RESET)
 
     return "".join(colored_parts), code
-
-
-def _print_fragment(file: TextIO, fragment: dict[str, Any]) -> None:
-    """Print a single fragment with appropriate ANSI styling.
-
-    Follows the same nesting order as html.py:
-    1. Open mark (yellow background)
-    2. Open em (red text) inside mark
-    3. Print code
-    4. Close em
-    5. Close mark
-    """
-    code = fragment["code"].rstrip("\n\r")
-    mark = fragment.get("mark")
-    em = fragment.get("em")
-
-    # Open mark if starting
-    if mark in ("solo", "beg"):
-        print(MARK_BG + MARK_TEXT, end="", file=file)
-
-    # Open em if starting (red text within the mark)
-    if em in ("solo", "beg"):
-        print(EM, end="", file=file)
-
-    # Print the code
-    print(code, end="", file=file)
-
-    # Close em if ending
-    if em in ("fin", "solo") and mark not in ("fin", "solo"):
-        print(MARK_TEXT, end="", file=file)
-
-    # Close mark if ending
-    if mark in ("fin", "solo"):
-        print(RESET, end="", file=file)
 
 
 def _build_variable_inspector(

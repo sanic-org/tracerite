@@ -448,3 +448,16 @@ class TestHtmlScrollTo:
             html_str = str(html)
 
             assert "scrollto" in html_str
+
+    def test_custom_message(self):
+        """Test html_traceback with a custom message."""
+        try:
+            raise ValueError("test")
+        except ValueError as e:
+            custom_msg = "Custom error message"
+            html = html_traceback(exc=e, msg=custom_msg)
+            html_str = str(html)
+
+            assert custom_msg in html_str
+            # Ensure it's in an h2 tag
+            assert f"<h2>{custom_msg}</h2>" in html_str

@@ -114,6 +114,39 @@ def function_with_many_locals():
     raise RuntimeError("many locals test")
 
 
+def function_with_many_locals_chained():
+    a = 1
+    b = 2
+    c = 3
+    d = 4
+    e = 5
+    f = 6
+    g = 7
+    h = 8
+    i = 9
+    j = 10
+    k = "long string value that takes up space"
+    l = [1, 2, 3, 4, 5]
+    m = {"key": "value", "another": "item"}
+    n = None
+    o = True
+    p = False
+    q = 3.14
+    r = complex(1, 2)
+    s = set([1, 2, 3])
+    t = frozenset([4, 5, 6])
+    u = tuple((7, 8, 9))
+    v = range(10)
+    w = slice(1, 10, 2)
+    x = Exception("test")
+    y = ValueError("another test")
+    z = TypeError("yet another")
+    try:
+        raise ValueError("inner")
+    except ValueError:
+        raise RuntimeError("many locals chained test") from None
+
+
 def function_with_single_local():
     """Function with exactly one local variable for single-line inspector."""
     x = 42
@@ -142,3 +175,8 @@ def multiline_before_error(a, b):
     v = 5
     # Error on last line - inspector should start here, arrow on first inspector line
     return a / b
+
+
+def comprehension_error():
+    """Error inside a list comprehension."""
+    return [x / 0 for x in [1, 2, 3]]

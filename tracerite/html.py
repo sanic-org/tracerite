@@ -295,10 +295,10 @@ def _frame_label(
     if frinfo["relevance"] == "call":
         # Use the final marked line number (where the call happens)
         frame_range = frinfo.get("range")
-        if frame_range and frame_range.lfinal:
-            lineno = E.span(f":{frame_range.lfinal}", class_="frame-lineno")
-        elif frinfo.get("linenostart"):
-            lineno = E.span(f":{frinfo['linenostart']}", class_="frame-lineno")
+        lineno = E.span(
+            f":{frame_range.lfinal if frame_range and frame_range.lfinal else frinfo['linenostart']}",
+            class_="frame-lineno",
+        )
     # For call frames, add semicolon that shows when expanded; for others add colon
     if frinfo["relevance"] == "call":
         colon = E.span(";", class_="frame-semicolon")
