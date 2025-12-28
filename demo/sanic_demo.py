@@ -176,8 +176,12 @@ def outer_operation():
     try:
         return middle_operation()
     except ValueError as e:
-        # Catch and re-raise with context
-        raise RuntimeError("Failed in outer operation") from e
+        outer_handle(e)
+
+
+def outer_handle(e: Exception):
+    # Trying to access e.message which doesn't exist
+    raise RuntimeError(f"Outer operation failed {e.message}")
 
 
 def middle_operation():
