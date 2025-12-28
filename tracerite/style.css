@@ -6,7 +6,6 @@
   --tracerite-var: #8af;
   --tracerite-type: #5c8;
   --tracerite-val: #8af;
-  --tracerite-tab: #aaaa;
   --tracerite-highlight: #fe06;
   --tracerite-highlight-text: inherit;
   --tracerite-symbol: #ff0;
@@ -16,7 +15,6 @@
   --tracerite-tooltip-text: inherit;
   --tracerite-code: inherit;
   --tracerite-lineno: #888;
-  --tracerite-floating-shadow: #000;
   --tracerite-link-bg: #fff5;
   --tracerite-link-hover: #fff8;
   --tracerite-function: #68f;
@@ -31,7 +29,6 @@
     --tracerite-var: #8af;
     --tracerite-type: #5c8;
     --tracerite-val: #8af;
-    --tracerite-tab: #666;
     --tracerite-highlight: #ff0;
     --tracerite-highlight-text: #000;
     --tracerite-symbol: #ff0;
@@ -41,7 +38,6 @@
     --tracerite-tooltip-text: #fff;
     --tracerite-code: #ccc;
     --tracerite-lineno: #888;
-    --tracerite-floating-shadow: #fff;
     --tracerite-link-bg: #0005;
     --tracerite-link-hover: #0008;
     --tracerite-function: #8af;
@@ -53,7 +49,9 @@
 .tracerite,
 .tracerite *,
 .tracerite .traceback-details table,
-.tracerite > h3 { margin: 0; padding: 0; outline: none; box-sizing: border-box; overflow: hidden; }
+.tracerite h3 { margin: 0; padding: 0; outline: none; box-sizing: border-box; overflow: hidden; }
+
+.tracerite h2 { font-size: 1.2em; }
 
 /* Code font declarations with high specificity - only for code tags */
 .tracerite pre,
@@ -73,8 +71,7 @@
 
 .tracerite .traceback-details { font-size: 0.8em; }
 .tracerite .traceback-details p { margin: 1em 0; }
-.tracerite .traceback-details pre { width: 100%; padding: .5em; font-size: 0.8em; }
-.tracerite:has(.mode-toggle:checked) .traceback-details pre { width: 50vw; }
+.tracerite .traceback-details pre { width: 50vw; padding: .5em; font-size: 0.8em; }
 .tracerite .traceback-details .codeline { text-indent: 4ch each-line; }
 .tracerite .traceback-details .codeline::before {
   content: attr(data-lineno);
@@ -105,11 +102,6 @@
   vertical-align: middle;
   color: var(--tracerite-symbol);
   font-family: var(--tracerite-ui-font);
-  text-shadow:
-    -.02em -.02em 0 var(--tracerite-tooltip),
-    .02em -.02em 0 var(--tracerite-tooltip),
-    -.02em .02em 0 var(--tracerite-tooltip),
-    .02em .02em 0 var(--tracerite-tooltip);
 }
 
 /* Display symbol using pseudo-element and data attribute */
@@ -130,77 +122,25 @@
 /* Display tooltip text using pseudo-element and data attribute */
 .tracerite .traceback-details .tracerite-tooltip-text::before { content: attr(data-tooltip); }
 
-/* Wrapper for traceback frames with indicators */
-/* Container for floating indicators */
-.tracerite .traceback-wrapper {
-  position: relative;
-  margin-top: 0.3em;
-}
-
-/* Floating overlay symbols - minimal, just emoji */
-.tracerite .floating-symbol {
-  position: absolute;
-  z-index: 20;
-  display: none;
-  cursor: pointer;
-  font-size: 1.4em;
-  line-height: 1;
-  pointer-events: auto;
-  text-shadow: 0 0 0.1em var(--tracerite-floating-shadow);
-  transition: left 0.2s ease-out, top 0.2s ease-out, opacity 0.15s ease-out;
-}
-.tracerite .floating-symbol.visible { display: block; opacity: 1; }
-.tracerite .floating-symbol.animating { transition: left 0.25s ease-in-out, top 0.25s ease-in-out, opacity 0.2s ease-out; }
-.tracerite .floating-symbol.fading { opacity: 0; }
-.tracerite .floating-symbol:hover { transform: scale(1.2); }
-.tracerite .floating-symbol:active { transform: scale(0.9); }
-
-/* Hide arrows entirely */
-.tracerite .floating-symbol .arrow { display: none; }
-
-/* Horizontally scrolling frame container */
-.tracerite .traceback-frames {
-  display: flex;
-  align-items: flex-start;
-  overflow-x: auto;
-  overscroll-behavior-x: none;
-  scrollbar-width: none;
-  padding-bottom: 0.3em;
-  cursor: grab;
-}
-
-/* Disable grab cursor when modifier keys are pressed */
-.tracerite.modifier-active .traceback-frames,
-.tracerite.modifier-active .frame-content { cursor: auto; }
-
 .tracerite .traceback-details {
   position: relative;
   min-width: 20ch;
   max-width: 100%;
   margin: 0 .2em;
   flex-shrink: 0;
-  scroll-snap-align: start;
   border-radius: .5em;
   padding: .2em;
   padding-left: 0;
 }
 
-/* Scrollable content area (code + inspector) */
-.tracerite .frame-content {
-  max-height: min(50vh, 20em);
-  overflow-y: auto;
-  scrollbar-width: none;
-  cursor: grab;
-}
-.tracerite .frame-content::-webkit-scrollbar { display: none; }
 .tracerite .traceback-details:last-child { width: 100%; }
 .tracerite .traceback-ellipsis { min-width: 4ch; text-align: center; }
 
 /* Base styles for frame-function and frame-location */
 .tracerite .frame-function { font-weight: 600; color: var(--tracerite-function); }
 .tracerite .frame-location { color: var(--tracerite-location); }
-.tracerite .frame-lineno { color: var(--tracerite-lineno); display: none; }
-.tracerite:has(.mode-toggle:checked) .frame-lineno { display: inline; }
+.tracerite .frame-colon { color: var(--tracerite-code); font-weight: 700; }
+.tracerite .frame-lineno { color: var(--tracerite-lineno); display: inline; }
 .tracerite .frame-link {
   margin-left: 0.3em;
   padding: 0.1em 0.4em;
@@ -215,21 +155,13 @@
 /* Variable inspector: grid layout with fixed first column, flexible second */
 .tracerite dl.inspector {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 8em 1fr;
   margin: 0;
-  margin-left: 3.5em;
   min-width: 5em;
-  max-width: 20em;
-  width: auto;
+  width: 100%;
   word-break: break-word;
 }
-/* Inspector in compact mode: fixed first column, scaled second column */
-.tracerite:has(.mode-toggle:checked) dl.inspector {
-  margin-left: 0;
-  max-width: none;
-  width: 100%;
-  grid-template-columns: 8em 1fr;
-}
+
 .tracerite dl.inspector dt,
 .tracerite dl.inspector dd {
   margin: 0;
@@ -339,52 +271,8 @@
    COMPACT MODE TOGGLE AND STYLING (with :has)
    ============================================ */
 
-/* Absolutely position the mode toggle in the top-right of .tracerite */
+/* CSS Grid layout for compact mode */
 .tracerite {
-  position: relative;
-}
-
-/* Compact mode toggle container: absolutely positioned, flex row, top-right */
-.tracerite .mode-toggle-container {
-  position: absolute;
-  top: 0.5em;
-  right: 1em;
-  z-index: 100;
-  display: inline-block;
-  white-space: nowrap;
-  background: none;
-}
-.tracerite .mode-toggle {
-  position: static;
-  margin: 0 0.2em 0 0;
-  vertical-align: middle;
-}
-.tracerite label[for="mode-toggle"] {
-  position: static;
-  font-size: 1em;
-  font-family: var(--tracerite-ui-font);
-  background: none;
-  padding: 0;
-  margin: 0;
-  cursor: pointer;
-  vertical-align: middle;
-}
-
-/* Hide compact call line by default */
-.tracerite .compact-call-line {
-  display: none;
-}
-
-/* Show compact call line and hide frame-content in compact mode using :has() */
-.tracerite:has(.mode-toggle:checked) .traceback-call > .compact-call-line {
-  display: inline;
-}
-.tracerite:has(.mode-toggle:checked) .traceback-call .frame-content {
-  display: none;
-}
-
-/* Compact mode: CSS Grid layout at top level for cross-chain alignment */
-.tracerite:has(.mode-toggle:checked) {
   display: grid;
   grid-template-columns: auto auto auto 1fr;
   align-items: baseline;
@@ -392,57 +280,58 @@
   justify-content: start;
 }
 
+/* Show compact call line and hide frame-content for call frames */
+.tracerite .traceback-call > .compact-call-line {
+  display: inline;
+}
+.tracerite .traceback-call .frame-content {
+  display: none;
+}
+
 /* Exception headers and messages span all columns */
-.tracerite:has(.mode-toggle:checked) > h3,
-.tracerite:has(.mode-toggle:checked) > pre.excmessage {
+.tracerite > h2,
+.tracerite > h3,
+.tracerite > pre.excmessage {
   grid-column: 1 / -1;
 }
 
 /* Make intermediate containers transparent to grid */
-.tracerite:has(.mode-toggle:checked) .traceback-wrapper,
-.tracerite:has(.mode-toggle:checked) .traceback-frames,
-.tracerite:has(.mode-toggle:checked) .traceback-details {
+.tracerite .traceback-details {
   display: contents;
 }
 
-/* Mode toggle container needs to escape grid flow */
-.tracerite:has(.mode-toggle:checked) .mode-toggle-container {
-  grid-column: 1 / -1;
-  justify-self: end;
-}
-
-/* Grid column assignments for call frame elements (direct children of .traceback-call) */
-.tracerite:has(.mode-toggle:checked) .traceback-call > .frame-function {
+/* Grid column assignments for call frame elements */
+.tracerite .traceback-call > .frame-function {
   grid-column: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 20em;
 }
-.tracerite:has(.mode-toggle:checked) .traceback-call > .frame-location {
+.tracerite .traceback-call > .frame-location {
   grid-column: 2;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 20em;
 }
-.tracerite:has(.mode-toggle:checked) .traceback-call > .compact-call-line {
+.tracerite .traceback-call > .compact-call-line {
   grid-column: 3 / -1;
 }
 
 /* Non-call frames: frame-function and frame-location span columns 1-2, frame-content spans all */
-.tracerite:has(.mode-toggle:checked) .traceback-details:not(.traceback-call) > .frame-function {
+.tracerite .traceback-details:not(.traceback-call) > .frame-function {
   grid-column: 1;
 }
-.tracerite:has(.mode-toggle:checked) .traceback-details:not(.traceback-call) > .frame-location {
+.tracerite .traceback-details:not(.traceback-call) > .frame-location {
   grid-column: 2 / -1;
 }
 
 /* frame-content: code spans columns 1-3, inspector in column 4 */
-.tracerite:has(.mode-toggle:checked) .frame-content {
+.tracerite .frame-content {
   display: contents;
 }
 
 /* Code block spans first 3 columns */
-.tracerite:has(.mode-toggle:checked) .frame-content pre {
+.tracerite .frame-content pre {
   grid-column: 1 / 4;
   width: auto;
   white-space: pre-wrap;
@@ -450,8 +339,8 @@
   text-overflow: clip;
 }
 
-/* Inspector in column 4, vertically centered, no stretch */
-.tracerite:has(.mode-toggle:checked) .frame-content dl.inspector {
+/* Inspector in column 4 */
+.tracerite .frame-content dl.inspector {
   grid-column: 4;
   align-self: start;
   margin-top: auto;
@@ -459,23 +348,13 @@
   height: fit-content;
 }
 
-/* Hide floating symbols in compact mode */
-.tracerite:has(.mode-toggle:checked) .floating-symbol {
-  display: none;
-}
-
-/* Ellipsis frame in compact mode - spans all columns */
-.tracerite:has(.mode-toggle:checked) .traceback-ellipsis {
+/* Ellipsis frame spans all columns */
+.tracerite .traceback-ellipsis {
   grid-column: 1 / -1;
   min-width: auto;
   text-align: left;
   padding: 0 0.5em;
   color: var(--tracerite-lineno);
-}
-
-/* Exception banner in compact mode - spans all columns */
-.tracerite:has(.mode-toggle:checked) .exception-banner {
-  grid-column: 1 / -1;
 }
 
 /* Compact call line styling */

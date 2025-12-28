@@ -6,7 +6,7 @@ from typing import Any, cast
 from html5tagger import HTML, E  # type: ignore[import]
 
 from .chain_analysis import build_chronological_frames
-from .trace import chainmsg, extract_chain
+from .trace import build_chain_header, chainmsg, extract_chain, symbols, symdesc
 
 style = files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
 javascript = (
@@ -14,15 +14,6 @@ javascript = (
 )
 
 detail_show = "{display: inherit}"
-
-symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑", "except": "⚠️"}
-tooltips = {
-    "call": "Call",
-    "warning": "Call from your code",
-    "except": "Call from except",
-    "error": "{type}",
-    "stop": "{type}",
-}
 
 
 def _collapse_call_runs(
@@ -76,6 +67,7 @@ def html_traceback(
     exc: BaseException | None = None,
     chain: list[dict[str, Any]] | None = None,
     *,
+    msg: str | None = ...,  # type: ignore[assignment]
     include_js_css: bool = True,
     local_urls: bool = False,
     replace_previous: bool = False,
@@ -89,17 +81,14 @@ def html_traceback(
     with E.div(
         class_=classes, data_replace_previous="1" if replace_previous else None
     ) as doc:
-        # Place Compact checkbox and label in a flex container at the top-right of .tracerite
-        with doc.div(class_="mode-toggle-container"):
-            doc.input(
-                type="checkbox",
-                class_="mode-toggle",
-                id="mode-toggle",
-                checked="checked",
-            )
-            doc.label("Compact", for_="mode-toggle")
         if include_js_css:
             doc._style(style)
+
+        # Add chain header (use default if msg is ..., skip if msg is None/empty)
+        if msg is ...:
+            msg = build_chain_header(chain) if chain else None
+        if msg:
+            doc.h2(msg)
 
         if chronological:
             _chronological_output(doc, chain, local_urls=local_urls)
@@ -151,47 +140,31 @@ def _chronological_output(
     # Collapse consecutive call runs
     limited_frames = _collapse_call_runs(chrono_frames, min_run_length=10)
 
-    # Collect symbols for floating indicators
-    frame_symbols = []
     for frinfo in limited_frames:
-        if frinfo is not ... and frinfo.get("relevance") not in ("call",):
-            frame_symbols.append((frinfo["id"], symbols.get(frinfo["relevance"], "")))
+        if frinfo is ...:
+            doc.p("...", class_="traceback-ellipsis")
+            continue
 
-    with doc.div(class_="traceback-wrapper"):
-        # Floating overlay symbols
-        for fid, sym in frame_symbols:
-            with doc.span(class_="floating-symbol", data_frame=fid):
-                doc.span("◂", class_="arrow arrow-left")
-                doc.span(sym, class_="sym")
-                doc.span("▸", class_="arrow arrow-right")
+        relevance = frinfo.get("relevance", "call")
+        exc_info = frinfo.get("exception")
 
-        with doc.div(class_="traceback-frames"):
-            for frinfo in limited_frames:
-                if frinfo is ...:
-                    with doc.div(class_="traceback-details traceback-ellipsis"):
-                        doc.p("...")
-                    continue
+        attrs = {
+            "class_": f"traceback-details traceback-{relevance}",
+            "data_function": frinfo.get("function"),
+            "id": frinfo["id"],
+        }
+        with doc.div(**attrs):
+            _frame_label(doc, frinfo, local_urls=local_urls)
+            if relevance == "call":
+                with doc.span(class_="compact-call-line"):
+                    _compact_call_line_chrono(doc, frinfo)
+            with doc.div(class_="frame-content"):
+                _traceback_detail_chrono(doc, frinfo)
+                variable_inspector(doc, frinfo.get("variables", []))
 
-                relevance = frinfo.get("relevance", "call")
-                exc_info = frinfo.get("exception")
-
-                attrs = {
-                    "class_": f"traceback-details traceback-{relevance}",
-                    "data_function": frinfo.get("function"),
-                    "id": frinfo["id"],
-                }
-                with doc.div(**attrs):
-                    _frame_label(doc, frinfo, local_urls=local_urls)
-                    if relevance == "call":
-                        with doc.span(class_="compact-call-line"):
-                            _compact_call_line_chrono(doc, frinfo)
-                    with doc.div(class_="frame-content"):
-                        _traceback_detail_chrono(doc, frinfo)
-                        variable_inspector(doc, frinfo.get("variables", []))
-
-                # Print exception info AFTER the error frame
-                if exc_info and relevance in ("error", "stop"):
-                    _exception_banner(doc, exc_info)
+        # Print exception info AFTER the error frame
+        if exc_info:
+            _exception_banner(doc, exc_info)
 
 
 def _exception_banner(doc: Any, exc_info: dict[str, Any]) -> None:
@@ -203,12 +176,11 @@ def _exception_banner(doc: Any, exc_info: dict[str, Any]) -> None:
 
     chain_suffix = chainmsg.get(from_type, "")
 
-    with doc.div(class_="exception-banner"):
-        doc.h3(E.span(f"{exc_type}{chain_suffix}:", class_="exctype")(f" {summary}"))
-        if summary != message:
-            if message.startswith(summary):
-                message = message[len(summary) :]
-            doc.pre(message, class_="excmessage")
+    doc.h3(E.span(f"{exc_type}{chain_suffix}:", class_="exctype")(f" {summary}"))
+    if summary != message:
+        if message.startswith(summary):
+            message = message[len(summary) :]
+        doc.pre(message, class_="excmessage")
 
 
 def _compact_call_line_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
@@ -263,13 +235,7 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
                 relevance = frinfo.get("relevance", "call")
                 symbol = symbols.get(relevance, relevance)
                 exc_info = frinfo.get("exception")
-                if exc_info:
-                    text = exc_info.get("type", relevance)
-                else:
-                    try:
-                        text = tooltips.get(relevance, relevance).format(**frinfo)
-                    except Exception:
-                        text = repr(relevance)
+                text = "" if exc_info else symdesc.get(relevance, relevance)
                 text = text.replace("\n", " ")
                 tooltip_attrs = {
                     "class": "tracerite-tooltip",
@@ -338,50 +304,41 @@ def _exception(
         return
     # Format call chain, suppress middle of consecutive call runs if too long
     limitedframes = _collapse_call_runs(frames, min_run_length=10)
-    # Collect symbols for floating indicators
-    frame_symbols = []
+    # Render frames
     for frinfo in limitedframes:
-        if frinfo is not ... and frinfo["relevance"] != "call":
-            frame_symbols.append((frinfo["id"], symbols.get(frinfo["relevance"], "")))
-    with doc.div(class_="traceback-wrapper"):
-        # Floating overlay symbols (one per frame, positioned dynamically)
-        for fid, sym in frame_symbols:
-            with doc.span(class_="floating-symbol", data_frame=fid):
-                doc.span("◂", class_="arrow arrow-left")
-                doc.span(sym, class_="sym")
-                doc.span("▸", class_="arrow arrow-right")
-        with doc.div(class_="traceback-frames"):
-            # Render frames
-            for frinfo in limitedframes:
-                if frinfo is ...:
-                    with doc.div(class_="traceback-details traceback-ellipsis"):
-                        doc.p("...")
-                    continue
-                relevance = frinfo.get("relevance", "call")
-                attrs = {
-                    "class_": f"traceback-details traceback-{relevance}",
-                    "data_function": frinfo["function"],
-                    "id": frinfo["id"],
-                }
-                with doc.div(**attrs):
-                    # All frame types: output frame-function, frame-location directly for grid
-                    _frame_label(doc, frinfo, local_urls=local_urls)
-                    if relevance == "call":
-                        with doc.span(class_="compact-call-line"):
-                            _compact_call_line_html(doc, info, frinfo)
-                    with doc.div(class_="frame-content"):
-                        traceback_detail(doc, info, frinfo)
-                        variable_inspector(doc, frinfo["variables"])
+        if frinfo is ...:
+            doc.p("...", class_="traceback-ellipsis")
+            continue
+        relevance = frinfo.get("relevance", "call")
+        attrs = {
+            "class_": f"traceback-details traceback-{relevance}",
+            "data_function": frinfo["function"],
+            "id": frinfo["id"],
+        }
+        with doc.div(**attrs):
+            # All frame types: output frame-function, frame-location directly for grid
+            _frame_label(doc, frinfo, local_urls=local_urls)
+            if relevance == "call":
+                with doc.span(class_="compact-call-line"):
+                    _compact_call_line_html(doc, info, frinfo)
+            with doc.div(class_="frame-content"):
+                traceback_detail(doc, info, frinfo)
+                variable_inspector(doc, frinfo["variables"])
 
 
 def _frame_label(doc: Any, frinfo: dict[str, Any], local_urls: bool = False) -> None:
     if frinfo["function"]:
         doc.span(frinfo["function"], class_="frame-function")
+        # Display suffix (e.g. ⚡except) separately for visual purposes only
+        if frinfo.get("function_suffix"):
+            doc.span(frinfo["function_suffix"], class_="frame-function-suffix")
         doc(" ")
     lineno = None
     if frinfo["relevance"] == "call" and frinfo["linenostart"]:
         lineno = E.span(f":{frinfo['linenostart']}", class_="frame-lineno")
-    doc.span(frinfo["location"], lineno, class_="frame-location")
+    # Add colon for non-call frames (where code follows)
+    colon = E.span(":", class_="frame-colon") if frinfo["relevance"] != "call" else None
+    doc.span(frinfo["location"], lineno, colon, class_="frame-location")
     urls = frinfo.get("urls", {})
     if local_urls and urls:
         for name, href in urls.items():
@@ -436,12 +393,7 @@ def traceback_detail(doc: Any, info: dict[str, Any], frinfo: dict[str, Any]) -> 
                 if frinfo["range"] and abs_line == frinfo["range"].lfinal:
                     relevance = frinfo["relevance"]
                     symbol = symbols.get(relevance, frinfo["relevance"])
-                    try:
-                        text = tooltips[relevance].format(**info, **frinfo)
-                        # Replace newlines with spaces for HTML attribute
-                        text = text.replace("\n", " ")
-                    except Exception:
-                        text = repr(relevance)
+                    text = symdesc.get(relevance, "")
                     tooltip_attrs = {
                         "class": "tracerite-tooltip",
                         "data-symbol": symbol,

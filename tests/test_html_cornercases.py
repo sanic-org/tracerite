@@ -197,7 +197,7 @@ class TestHtmlCornercases:
             # Modify a frame to have an invalid relevance that will cause format() to fail
             if exc_info["frames"]:
                 frame = exc_info["frames"][-1]
-                # Set a relevance that exists in tooltips but will fail formatting
+                # Set a relevance that exists in symdesc but will fail formatting
                 frame["relevance"] = "error"
                 # Remove required keys to trigger exception in format()
                 frame.pop("type", None)
@@ -544,8 +544,8 @@ class TestHtmlCornercases:
 
             if exc_info["frames"]:
                 frame = exc_info["frames"][-1]
-                # Set a relevance that is NOT in the tooltips dictionary
-                # This will cause a KeyError when trying to access tooltips[relevance]
+                # Set a relevance that is NOT in the symdesc dictionary
+                # This will cause a KeyError when trying to access symdesc[relevance]
                 frame["relevance"] = "nonexistent_relevance"
 
                 html = html_traceback(chain=[exc_info])

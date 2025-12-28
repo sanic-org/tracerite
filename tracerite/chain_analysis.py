@@ -409,20 +409,15 @@ def build_chronological_frames(chain: list[dict]) -> list[dict]:
                 is_first_included and exc_idx > 0 and link and link.matched
             )
 
-            # For except entry frames, adjust code context to show only the except block
+            # For except entry frames, mark them specially. The frame already has
+            # lines trimmed to start from the except line (done in extract_source_lines)
+            # with Python's correct position marking preserved.
             if is_except_entry:
                 # Promote relevance to "except" if it was just a "call" frame
                 if chrono_frame.get("relevance") == "call":
                     chrono_frame["relevance"] = "except"
-                # Always adjust code context to start from the except line
-                assert link is not None
-                assert link.try_block is not None
-                assert link.try_block.except_start is not None
-                chrono_frame = _adjust_frame_to_except_line(
-                    chrono_frame,
-                    link.try_block.except_start,
-                    link.try_block.except_end,
-                )
+                # Add display suffix for except frames (separate from function name)
+                chrono_frame["function_suffix"] = "⚡except"
 
             # Add exception info to the error frame (last frame)
             if is_last:
@@ -442,24 +437,3 @@ def build_chronological_frames(chain: list[dict]) -> list[dict]:
 def _copy_frame(frame: dict) -> dict:
     """Create a shallow copy of a frame dict."""
     return {**frame}
-
-
-def _adjust_frame_to_except_line(
-    frame: dict, except_start: int, except_end: int | None = None
-) -> dict:
-    """Adjust a frame's code context to show only the except block.
-
-    This modifies the frame to show the except handler context rather than
-    whatever code was being executed when we look at the call stack.
-
-    Args:
-        frame: The frame dict to adjust
-        except_start: The line number where the except block starts
-        except_end: The line number where the except block ends (optional)
-
-    Returns:
-        The modified frame dict
-    """
-    from .trace import reprocess_frame_from_line
-
-    return reprocess_frame_from_line(frame, except_start, except_end)

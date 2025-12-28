@@ -36,6 +36,42 @@ chainmsg = {
     "none": "",
 }
 
+# Symbol descriptions for display in HTML and TTY outputs
+symdesc = {
+    "call": "Call",
+    "warning": "Call from your code",
+    "except": "Call from except",
+    "error": "",
+    "stop": "",
+}
+
+# Symbols for each frame relevance type
+symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑", "except": "⚠️"}
+
+
+def build_chain_header(chain: list[dict]) -> str:
+    """Build a header message describing the exception chain."""
+    if not chain:
+        return ""
+
+    # Chain is oldest-first: chain[0] is first exception, chain[-1] is last (uncaught)
+    if len(chain) == 1:
+        exc_type = chain[0].get("type", "Exception")
+        return f"⚠️ Uncaught {exc_type}"
+
+    # Build from last to first
+    parts = [f"⚠️ Uncaught {chain[-1].get('type', 'Exception')}"]
+
+    # Add each previous exception with appropriate joiner
+    for i in range(len(chain) - 2, -1, -1):
+        exc = chain[i]
+        next_exc = chain[i + 1]
+        from_type = next_exc.get("from", "none")
+        joiner = "from" if from_type == "cause" else "while handling"
+        parts.append(f"{joiner} {exc.get('type', 'Exception')}")
+
+    return " ".join(parts)
+
 
 def extract_chain(exc=None, **kwargs) -> list:
     """Extract information on current exception.
@@ -227,6 +263,25 @@ def _is_notebook_cell(filename):
         return False
 
 
+def _find_except_start_for_line(frame, lineno: int) -> int | None:
+    """If lineno is inside an except handler, return the except line number.
+
+    Uses AST analysis to find if the given line is within an except block.
+    Returns the line number of the 'except' keyword, or None if not in an except block.
+    """
+    from .chain_analysis import parse_source_for_try_except
+
+    try:
+        filename = frame.f_code.co_filename
+        blocks = parse_source_for_try_except(filename)
+        for block in blocks:
+            if block.contains_in_except(lineno):
+                return block.except_start
+    except Exception:
+        pass
+    return None
+
+
 def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False):
     try:
         lines, start = inspect.getsourcelines(frame)
@@ -246,6 +301,14 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
             )
         ]
         start += max(0, lineno - start - lines_before)
+
+        # If lineno is inside an except handler, trim to start from the except line
+        except_start = _find_except_start_for_line(frame, lineno)
+        if except_start is not None and except_start > start:
+            skip = except_start - start
+            if skip < len(lines):
+                lines = lines[skip:]
+                start = except_start
 
         # Calculate error line position
         error_idx = lineno - start
@@ -290,100 +353,6 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
         return "".join(lines), start, common_indent
     except OSError:
         return "", lineno, ""  # Source not available (non-Python module)
-
-
-def reprocess_frame_from_line(
-    frame: dict, from_line: int, to_line: int | None = None
-) -> dict:
-    """Reprocess a frame's source context starting from a specific line.
-
-    This is used to adjust a frame to show only a subset of its context,
-    such as trimming to show only an except block. The function applies
-    the same dedenting and fragment parsing as normal frame extraction.
-
-    Args:
-        frame: The original frame dict
-        from_line: The absolute line number to start from
-        to_line: Optional absolute line number to end at (inclusive)
-
-    Returns:
-        A new frame dict with adjusted lines, fragments, and variables
-    """
-    import re
-
-    # Get current source info
-    lines = frame.get("lines", "")
-    linenostart = frame.get("linenostart", 1)
-    frame_range = frame.get("range")
-
-    if not lines:
-        return frame
-
-    lines_list = lines.splitlines(keepends=True)
-
-    # Calculate where from_line is relative to current context (0-based index)
-    from_offset = from_line - linenostart
-
-    # If from_line is before our current context, we can't adjust
-    if from_offset < 0 or from_offset >= len(lines_list):
-        return frame
-
-    # Calculate end index for slicing (exclusive, 0-based)
-    if to_line is not None:
-        end_idx = to_line - linenostart + 1
-        end_idx = min(end_idx, len(lines_list))
-    else:
-        end_idx = len(lines_list)
-
-    # Trim to the requested range
-    trimmed_lines = lines_list[from_offset:end_idx]
-
-    # Calculate common indent and dedent AFTER trimming
-    common_indent = _calculate_common_indent(trimmed_lines)
-    dedented_lines = [ln.removeprefix(common_indent) for ln in trimmed_lines]
-    new_lines = "".join(dedented_lines)
-
-    # Create a copy of the frame
-    new_frame = {**frame}
-    new_frame["lines"] = new_lines
-    new_frame["linenostart"] = from_line
-
-    # Recalculate fragments with proper dedenting
-    if frame_range and new_lines:
-        # Adjust column positions for the dedented code
-        indent_removed = len(common_indent)
-        adjusted_start_col = max(0, frame_range.cbeg - indent_removed)
-        adjusted_end_col = max(0, frame_range.cend - indent_removed)
-
-        # Calculate mark range relative to new context
-        error_line_in_new_context = frame_range.lfirst - from_line + 1
-        end_line_in_new_context = frame_range.lfinal - from_line + 1
-
-        if 1 <= error_line_in_new_context <= len(dedented_lines):
-            mark_range = Range(
-                error_line_in_new_context,
-                end_line_in_new_context,
-                adjusted_start_col,
-                adjusted_end_col,
-            )
-            new_frame["fragments"] = _parse_lines_to_fragments(
-                new_lines, mark_range, None
-            )
-        else:
-            new_frame["fragments"] = _parse_lines_to_fragments(new_lines, None, None)
-    elif new_lines:
-        new_frame["fragments"] = _parse_lines_to_fragments(new_lines, None, None)
-
-    # Filter variables to only include those that appear in the new trimmed code
-    if new_frame.get("variables") and new_lines:
-        identifiers = {
-            m.group(0) for p in (r"\w+", r"\w+\.\w+") for m in re.finditer(p, new_lines)
-        }
-        new_frame["variables"] = [
-            v for v in new_frame["variables"] if v.name in identifiers
-        ]
-
-    return new_frame
 
 
 def _libdir_match(path):
