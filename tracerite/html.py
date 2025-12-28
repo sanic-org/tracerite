@@ -86,6 +86,15 @@ def html_traceback(
     with E.div(
         class_=classes, data_replace_previous="1" if replace_previous else None
     ) as doc:
+        # Place Compact checkbox and label in a flex container at the top-right of .tracerite
+        with doc.div(class_="mode-toggle-container"):
+            doc.input(
+                type="checkbox",
+                class_="mode-toggle",
+                id="mode-toggle",
+                checked="checked",
+            )
+            doc.label("Compact", for_="mode-toggle")
         if include_js_css:
             doc._style(style)
         for i, e in enumerate(chain):
@@ -142,37 +151,63 @@ def _exception(
                     with doc.div(class_="traceback-details traceback-ellipsis"):
                         doc.p("...")
                     continue
+                relevance = frinfo.get("relevance", "call")
                 attrs = {
-                    "class_": "traceback-details",
+                    "class_": f"traceback-details traceback-{relevance}",
                     "data_function": frinfo["function"],
                     "id": frinfo["id"],
                 }
                 with doc.div(**attrs):
-                    _frame_label(doc, frinfo, local_urls=local_urls)
+                    with doc.div(class_="frame-label"):
+                        _frame_label(doc, frinfo, local_urls=local_urls)
+                        if relevance == "call":
+                            with doc.span(class_="compact-call-line"):
+                                _compact_call_line_html(doc, info, frinfo)
                     with doc.div(class_="frame-content"):
                         traceback_detail(doc, info, frinfo)
                         variable_inspector(doc, frinfo["variables"])
 
 
-def _frame_label(doc: Any, frinfo: dict[str, Any], *, local_urls: bool = False) -> None:
-    """Render sticky label for a code frame with optional editor links."""
-    # Build title text: full path with line number
-    if frinfo["filename"]:
-        lineno = frinfo["range"].lfirst if frinfo["range"] else "?"
-        title = f"{frinfo['filename']}:{lineno}"
-    else:
-        title = frinfo["location"] or frinfo["function"] or ""
+def _frame_label(doc: Any, frinfo: dict[str, Any], local_urls: bool = False) -> None:
+    if frinfo["function"]:
+        doc.span(frinfo["function"], class_="frame-function")
+        doc(" ")
+    lineno = None
+    if frinfo["relevance"] == "call" and frinfo["linenostart"]:
+        lineno = E.span(f":{frinfo['linenostart']}", class_="frame-lineno")
+    doc.span(frinfo["location"], lineno, class_="frame-location")
+    urls = frinfo.get("urls", {})
+    if local_urls and urls:
+        for name, href in urls.items():
+            doc.a(name, href=href, class_="frame-link")
 
-    with doc.div(class_="frame-label", title=title):
-        if frinfo["function"]:
-            doc.span(frinfo["function"], class_="frame-function")
-            doc(" ")
-        doc.strong(frinfo["location"])
-        # Editor links if available
-        urls = frinfo.get("urls", {})
-        if local_urls and urls:
-            for name, href in urls.items():
-                doc.a(name, href=href, class_="frame-link")
+
+def _compact_call_line_html(
+    doc: Any, info: dict[str, Any], frinfo: dict[str, Any]
+) -> None:
+    """Render compact one-liner for call frames: function location marked_code symbol."""
+    fragments = frinfo.get("fragments", [])
+    symbol = symbols["call"]
+    # Extract only marked code from the FIRST marked line only (like TTY)
+    if fragments:
+        with doc.code(class_="compact-code"):
+            inmark = False
+            for line_info in fragments:
+                for fragment in line_info.get("fragments", []):
+                    mark = fragment.get("mark")
+                    if mark in ["solo", "beg"]:
+                        inmark = True
+                    if inmark:
+                        em = fragment.get("em")
+                        if em in ["solo", "beg"]:
+                            doc(HTML("<em>"))
+                        doc(fragment["code"])
+                        if em in ["solo", "fin"]:
+                            doc(HTML("</em>"))
+                    if mark in ["fin", "solo"]:
+                        inmark = False
+    # Symbol
+    doc.span(symbol, class_="compact-symbol")
 
 
 def traceback_detail(doc: Any, info: dict[str, Any], frinfo: dict[str, Any]) -> None:
