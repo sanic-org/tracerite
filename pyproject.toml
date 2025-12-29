@@ -75,6 +75,10 @@ packages = ["tracerite"]
 [tool.ruff]
 line-length = 88
 target-version = "py38"
+extend-exclude = ["*.ipynb", "demo"]
+
+[tool.ty.src]
+exclude = ["*.ipynb", "demo"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
