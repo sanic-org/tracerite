@@ -9,6 +9,9 @@ from .html import html_traceback
 from .logging import logger
 from .tty import tty_traceback
 
+# Cleanup mode: "replace" (default) removes old reports, "keep" only removes script/style
+_cleanup_mode = "replace"
+
 
 def _can_display_html() -> bool:
     # Spyder runs IPython ZMQInteractiveShell but lacks HTML support. Using
@@ -42,6 +45,7 @@ def load_ipython_extension(ipython: Any) -> None:
                     html_traceback(
                         skip_until="<ipython-input-",
                         replace_previous=True,
+                        cleanup_mode=_cleanup_mode,
                         autodark=False,
                     )
                 )
@@ -60,6 +64,7 @@ def load_ipython_extension(ipython: Any) -> None:
                     html_traceback(
                         skip_until="<ipython-input-",
                         replace_previous=True,
+                        cleanup_mode=_cleanup_mode,
                         autodark=False,
                     )
                 )
@@ -76,6 +81,22 @@ def load_ipython_extension(ipython: Any) -> None:
     except Exception:
         logger.error("Unable to load Tracerite (please report a bug!)")
         raise
+
+    # Register the %tracerite magic command
+    from IPython.core.magic import register_line_magic  # type: ignore[import]
+
+    @register_line_magic
+    def tracerite(line: str) -> None:
+        """Configure tracerite behavior.
+
+        Usage:
+            %tracerite keep - Keep all previous error reports visible
+        """
+        global _cleanup_mode
+        if line.strip().lower() == "keep":
+            _cleanup_mode = "keep"
+        else:
+            print("Usage: %tracerite keep")
 
 
 def unload_ipython_extension(ipython: Any) -> None:

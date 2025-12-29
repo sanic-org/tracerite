@@ -71,6 +71,7 @@ def html_traceback(
     include_js_css: bool = True,
     local_urls: bool = False,
     replace_previous: bool = False,
+    cleanup_mode: str = "replace",
     autodark: bool = True,
     **extract_args: Any,
 ) -> Any:
@@ -78,7 +79,9 @@ def html_traceback(
     # Chain is oldest-first from extract_chain
     classes = "tracerite autodark" if autodark else "tracerite"
     with E.div(
-        class_=classes, data_replace_previous="1" if replace_previous else None
+        class_=classes,
+        data_replace_previous="1" if replace_previous else None,
+        data_cleanup_mode=cleanup_mode if replace_previous else None,
     ) as doc:
         if include_js_css:
             doc._style(style)
@@ -97,7 +100,10 @@ def html_traceback(
 
 
 def _chronological_output(
-    doc: Any, chain: list[dict[str, Any]], *, local_urls: bool = False
+    doc: Any,
+    chain: list[dict[str, Any]],
+    *,
+    local_urls: bool = False,
 ) -> None:
     """Output frames in chronological order with exception info after error frames."""
     chrono_frames = build_chronological_frames(chain)
@@ -130,24 +136,30 @@ def _chronological_output(
             "id": frinfo["id"],
         }
         with doc.div(**attrs):
+            # Hidden checkbox for CSS-only toggle (all frames are collapsible)
+            toggle_id = f"toggle-{frinfo['id']}"
+            # Non-call frames are open by default (checked)
             if relevance == "call":
-                # Hidden checkbox for CSS-only toggle
-                toggle_id = f"toggle-{frinfo['id']}"
-                doc.input_(type="checkbox", id=toggle_id, class_="call-toggle-checkbox")
+                doc.input_(
+                    type="checkbox", id=toggle_id, class_="frame-toggle-checkbox"
+                )
+            else:
+                doc.input_(
+                    type="checkbox",
+                    id=toggle_id,
+                    class_="frame-toggle-checkbox",
+                    checked="checked",
+                )
             _frame_label(
                 doc,
                 frinfo,
                 local_urls=local_urls,
-                toggle_id=toggle_id if relevance == "call" else None,
+                toggle_id=toggle_id,
             )
-            if relevance == "call":
-                with doc.span(class_="compact-call-line"):
-                    _compact_call_line_chrono(doc, frinfo)
-                # Animated wrapper for expandable content
-                with doc.div(class_="expand-wrapper"), doc.div(class_="expand-content"):
-                    _traceback_detail_chrono(doc, frinfo)
-                    variable_inspector(doc, frinfo.get("variables", []))
-            else:
+            with doc.span(class_="compact-call-line"):
+                _compact_code_line(doc, frinfo)
+            # Animated wrapper for expandable content
+            with doc.div(class_="expand-wrapper"), doc.div(class_="expand-content"):
                 _traceback_detail_chrono(doc, frinfo)
                 variable_inspector(doc, frinfo.get("variables", []))
 
@@ -166,34 +178,83 @@ def _exception_banner(doc: Any, exc_info: dict[str, Any]) -> None:
     chain_suffix = chainmsg.get(from_type, "")
 
     doc.h3(E.span(f"{exc_type}{chain_suffix}:", class_="exctype")(f" {summary}"))
-    if summary != message:
-        if message.startswith(summary):
-            message = message[len(summary) :]
-        doc.pre(message, class_="excmessage")
+    # Show remaining lines in pre only if message has multiple lines
+    # Summary is always the first line, so we strip that from pre
+    parts = message.split("\n", 1)
+    if len(parts) > 1:
+        rest = parts[1].rstrip()  # Only strip trailing whitespace, preserve leading
+        if rest:
+            doc.pre(rest, class_="excmessage")
 
 
-def _compact_call_line_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
-    """Render compact one-liner for call frames in chronological mode."""
+def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
+    """Render compact one-liner showing all marked code regions.
+
+    Em parts (typically function arguments) longer than 20 chars are
+    collapsed to show only first and last char with ellipsis.
+    """
     fragments = frinfo.get("fragments", [])
-    symbol = symbols.get(frinfo.get("relevance", "call"), symbols["call"])
+    relevance = frinfo.get("relevance", "call")
+    symbol = symbols.get(relevance, symbols["call"])
+    # Use highlight styling (yellow bg, red caret) for error/stop frames
+    use_highlight = relevance in ("error", "stop")
 
     if fragments:
+        # First pass: collect text and track em ranges
+        code_parts = []  # [(text, is_em), ...]
+
+        for line_info in fragments:
+            for fragment in line_info.get("fragments", []):
+                mark = fragment.get("mark")
+                if mark:
+                    em = fragment.get("em")
+                    text = fragment["code"]
+                    is_em = em is not None
+                    code_parts.append((text, is_em))
+
+        # Find the em span (from first em start to last em end)
+        em_indices = [i for i, (_, is_em) in enumerate(code_parts) if is_em]
+
+        # Collapse em parts longer than 20 chars
+        if em_indices:
+            first_em_idx = min(em_indices)
+            last_em_idx = max(em_indices)
+            em_text = "".join(
+                text
+                for i, (text, _) in enumerate(code_parts)
+                if first_em_idx <= i <= last_em_idx
+            )
+            if len(em_text) > 20:
+                # Collapse: keep first and last char (typically parentheses)
+                collapsed = em_text[0] + "…" + em_text[-1]
+                # Rebuild code_parts with collapsed em
+                new_parts = []
+                for i, (text, _is_em) in enumerate(code_parts):
+                    if i < first_em_idx:
+                        new_parts.append((text, False))
+                    elif i == first_em_idx:
+                        new_parts.append((collapsed, True))
+                    elif i > last_em_idx:
+                        new_parts.append((text, False))
+                    # Skip parts within em range (already collapsed)
+                code_parts = new_parts
+
         with doc.code(class_="compact-code"):
-            inmark = False
-            for line_info in fragments:
-                for fragment in line_info.get("fragments", []):
-                    mark = fragment.get("mark")
-                    if mark in ["solo", "beg"]:
-                        inmark = True
-                    if inmark:
-                        em = fragment.get("em")
-                        if em in ["solo", "beg"]:
-                            doc(HTML("<em>"))
-                        doc(fragment["code"])
-                        if em in ["solo", "fin"]:
-                            doc(HTML("</em>"))
-                    if mark in ["fin", "solo"]:
-                        inmark = False
+            if use_highlight:
+                doc(HTML("<mark>"))
+
+            for text, is_em in code_parts:
+                if is_em:
+                    doc(HTML("<em>"))
+                doc(text)
+                if is_em:
+                    doc(HTML("</em>"))
+
+            if use_highlight:
+                doc(HTML("</mark>"))
+    # Add space before symbol for error/stop frames
+    if use_highlight:
+        doc(" ")
     doc.span(symbol, class_="compact-symbol")
 
 
@@ -224,7 +285,11 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
                 relevance = frinfo.get("relevance", "call")
                 symbol = symbols.get(relevance, relevance)
                 exc_info = frinfo.get("exception")
-                text = "" if exc_info else symdesc.get(relevance, relevance)
+                text = symdesc.get(relevance, relevance)
+                # Only suppress text when there's an exception AND symdesc is empty
+                # (error/stop have empty symdesc, but warning should still show)
+                if exc_info and not text:
+                    text = ""
                 text = text.replace("\n", " ")
                 tooltip_attrs = {
                     "class": "tracerite-tooltip",
@@ -283,28 +348,51 @@ def _frame_label(
     local_urls: bool = False,
     toggle_id: str | None = None,
 ) -> None:
-    if frinfo["function"]:
-        function_display = f"{frinfo['function']}{frinfo.get('function_suffix', '')}"
-        if toggle_id:
-            # Wrap in label for checkbox toggle
-            doc.label(function_display, for_=toggle_id, class_="frame-function")
-        else:
-            doc.span(function_display, class_="frame-function")
-        doc(" ")
-    lineno = None
-    if frinfo["relevance"] == "call":
-        # Use the final marked line number (where the call happens)
+    function_name = frinfo["function"]
+    function_suffix = frinfo.get("function_suffix", "")
+    if function_name:
+        function_display = f"{function_name}{function_suffix}"
+    elif function_suffix:
+        function_display = function_suffix
+    else:
+        function_display = None  # No function to display
+
+    # Location comes first, with line number for non-notebook frames
+    # Notebook cells (In [N]) don't need line numbers displayed
+    notebook_cell = frinfo.get("notebook_cell", False)
+    if notebook_cell:
+        lineno = None
+    else:
         frame_range = frinfo.get("range")
         lineno = E.span(
             f":{frame_range.lfinal if frame_range and frame_range.lfinal else frinfo['linenostart']}",
             class_="frame-lineno",
         )
-    # For call frames, add semicolon that shows when expanded; for others add colon
-    if frinfo["relevance"] == "call":
-        colon = E.span(";", class_="frame-semicolon")
+
+    # Colon after function name, or after location if no function
+    colon = E.span(":", class_="frame-colon")
+
+    # Build location content (with or without line number)
+    location_content = (frinfo["location"], lineno) if lineno else (frinfo["location"],)
+
+    if toggle_id:
+        # Wrap both location and function in a label for click-to-toggle
+        with doc.label(for_=toggle_id, class_="frame-label-wrapper"):
+            if function_display:
+                doc.span(*location_content, class_="frame-location")
+                doc.span(function_display, colon, class_="frame-function")
+            else:
+                # No function: colon goes with location, empty span for grid column 2
+                doc.span(*location_content, colon, class_="frame-location")
+                doc.span(class_="frame-function")
     else:
-        colon = E.span(":", class_="frame-colon")
-    doc.span(frinfo["location"], lineno, colon, class_="frame-location")
+        if function_display:
+            doc.span(*location_content, class_="frame-location")
+            doc.span(function_display, colon, class_="frame-function")
+        else:
+            # No function: colon goes with location, empty span for grid column 2
+            doc.span(*location_content, colon, class_="frame-location")
+            doc.span(class_="frame-function")
     urls = frinfo.get("urls", {})
     if local_urls and urls:
         for name, href in urls.items():
