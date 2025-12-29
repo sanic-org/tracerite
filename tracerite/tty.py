@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import textwrap
 import threading
+import unicodedata
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -24,14 +26,14 @@ MARK_TEXT = f"{ESC}30m"
 EM = f"{ESC}31m"
 LOCFN = f"{ESC}32m"
 EM_CALL = f"{ESC}93m"  # Bright yellow
-DARK_GREY = f"{ESC}90m"
 EXC = f"{ESC}90m"  # Dark grey for exception text
 ELLIPSIS = f"{ESC}90m"  # Dark grey for ellipsis/skipped calls
 LOC_LINENO = f"{ESC}90m"  # Dark grey for :lineno
-INS_TYPE = f"{ESC}90m"  # Dark grey for message text in inspector
-SYMBOLDESC = f"{ESC}90m"  # Dark grey for symbol desc / exception type
-FUNC = f"{ESC}94m"
-VAR = f"{ESC}36m"
+TYPE_COLOR = f"{ESC}32m"  # Green for type in inspector (matches HTML --tracerite-type)
+NO_SOURCE = f"{ESC}2m"  # Dim for 'source code not available' message
+SYMBOLDESC = f"{ESC}1m"  # Bright white for symbol desc (e.g. Call from your code)
+FUNC = f"{ESC}38;5;153m"  # Light blue (xterm256 LightSkyBlue1) for function names
+VAR = f"{ESC}38;5;153m"  # Light blue (xterm256 LightSkyBlue1) for variable names (same as FUNC)
 BOLD = f"{ESC}1m"
 
 # Box drawing characters
@@ -47,6 +49,16 @@ SINGLE_T = "❴"  # T-junction for single line
 
 INDENT = ""  # No indent for function/location lines
 CODE_INDENT = "  "  # Indent for code in frame
+
+# Regex pattern to strip ANSI escape sequences
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _display_width(s: str) -> int:
+    """Calculate the display width of a string in terminal columns."""
+    plain = ANSI_ESCAPE_RE.sub("", s)
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in plain)
+
 
 # Store the original hooks for unload
 _original_excepthook = None
@@ -181,8 +193,6 @@ def tty_traceback(
 
     Args:
     """
-    import re
-
     chain = chain or extract_chain(exc=exc, **extract_args)
     # Chain is already oldest-first from extract_chain
 
@@ -233,23 +243,23 @@ def tty_traceback(
 
     if no_color:
         # Strip all ANSI escape sequences for non-TTY output
-        output = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", output)
+        output = ANSI_ESCAPE_RE.sub("", output)
 
     file.write(output)
 
 
-def _find_inspector_frame_idx(
+def _find_all_inspector_frames(
     frame_info_list: list[dict[str, Any]],
-) -> int | None:
-    """Find the first non-call frame that has variables to show.
+) -> list[int]:
+    """Find all non-call frames that have variables to show.
 
-    Returns the frame index, or None if no suitable frame is found.
-    Variables are deduplicated in trace.py, so we just check if any exist.
+    Returns list of frame indices with variables.
     """
+    result = []
     for i, info in enumerate(frame_info_list):
         if info["relevance"] != "call" and info["frinfo"].get("variables"):
-            return i
-    return None
+            result.append(i)
+    return result
 
 
 def _find_frame_line_range(
@@ -357,16 +367,19 @@ def _print_chronological(
             skip_indices.add(i)
         ellipsis_after[start_idx] = skipped_count
 
-    # Find first non-call frame with variables for inspector
-    inspector_frame_idx = _find_inspector_frame_idx(frame_info_list)
-
-    # Calculate max label width for call frame alignment
-    call_label_widths = [
-        len(info["label_plain"])
+    # Calculate max location and function widths for alignment
+    location_widths = [
+        _display_width(info["location_part"])
         for i, info in enumerate(frame_info_list)
-        if info["relevance"] == "call" and i not in skip_indices
+        if i not in skip_indices
     ]
-    label_width = max(call_label_widths, default=0)
+    function_widths = [
+        _display_width(info["function_part"])
+        for i, info in enumerate(frame_info_list)
+        if i not in skip_indices
+    ]
+    location_width = max(location_widths, default=0)
+    function_width = max(function_widths, default=0)
 
     # Build output lines
     output_lines = []
@@ -376,7 +389,9 @@ def _print_chronological(
         if i in skip_indices:
             continue
 
-        lines = _build_chrono_frame_lines(info, label_width, term_width)
+        lines = _build_chrono_frame_lines(
+            info, location_width, function_width, term_width
+        )
         len(output_lines)
         for line, plain_len, is_marked in lines:
             output_lines.append((line, plain_len, i, is_marked))
@@ -396,22 +411,30 @@ def _print_chronological(
             banner = _build_exception_banner(exc_info, term_width)
             exception_banners.append((len(output_lines), banner))
 
-    # Get variable inspector lines (inspector_frame_idx is only set for frames with variables)
-    inspector_lines = []
-    if not no_inspector and inspector_frame_idx is not None:
-        frinfo = frame_info_list[inspector_frame_idx]["frinfo"]
-        variables = frinfo.get("variables", [])
-        inspector_lines = _build_variable_inspector(variables, term_width)
+    # Get variable inspector lines for all frames with variables
+    all_inspector_lines = []
+    all_inspector_min_widths = []
+    inspector_frame_indices = []
+    if not no_inspector:
+        inspector_frame_indices = _find_all_inspector_frames(frame_info_list)
+        for frame_idx in inspector_frame_indices:
+            frinfo = frame_info_list[frame_idx]["frinfo"]
+            variables = frinfo.get("variables", [])
+            insp_lines, min_width = _build_variable_inspector(variables, term_width)
+            all_inspector_lines.append(insp_lines)
+            all_inspector_min_widths.append(min_width)
 
     # Build final output, inserting exception banners at the right positions
-    if inspector_lines:
-        # Complex case: merge inspector and banners
+    if all_inspector_lines:
+        # Complex case: merge inspectors and banners
         output += _merge_chrono_output(
             output_lines,
-            inspector_lines,
+            all_inspector_lines,
+            all_inspector_min_widths,
             term_width,
-            inspector_frame_idx,
+            inspector_frame_indices,
             exception_banners,
+            frame_info_list,
         )
     else:
         # Simpler case: just insert banners
@@ -506,23 +529,31 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
         except (ValueError, OSError):
             pass
 
-    # Build label with colors: light blue function, green filename, dark grey :lineno
-    label = ""
-    label_plain = ""
-    if frinfo["function"]:
-        function_display = f"{frinfo['function']}{frinfo.get('function_suffix', '')}"
-        label_plain += f"{function_display} "
-        label += f"{FUNC}{function_display} {RESET}"
-    label_plain += f"{location}:{lineno}"
-    label += f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}"
-    if frinfo["relevance"] != "call":
-        label += ":"
-    return label, label_plain
+    # Build label with colors: green filename, dark grey :lineno, light blue function
+    # Location comes first, then function (if present)
+    # Colon always goes after whichever comes last
+    function_name = frinfo["function"]
+    function_suffix = frinfo.get("function_suffix", "")
+    if function_name:
+        function_display = f"{function_name}{function_suffix}"
+    elif function_suffix:
+        function_display = function_suffix
+    else:
+        function_display = None
+
+    location_part = f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}"
+
+    if function_display:
+        function_part = f"{FUNC}{function_display}{RESET}:"
+    else:
+        function_part = ":"
+
+    return location_part, function_part
 
 
 def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
     """Gather info needed to print a chronological frame."""
-    label, label_plain = _get_frame_label(frinfo)
+    location_part, function_part = _get_frame_label(frinfo)
     fragments = frinfo.get("fragments", [])
     frame_range = frinfo.get("range")
     relevance = frinfo.get("relevance", "call")
@@ -534,8 +565,8 @@ def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
     ]
 
     return {
-        "label": label,
-        "label_plain": label_plain,
+        "location_part": location_part,
+        "function_part": function_part,
         "fragments": fragments,
         "frame_range": frame_range,
         "relevance": relevance,
@@ -546,16 +577,22 @@ def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_chrono_frame_lines(
-    info: dict[str, Any], label_width: int, term_width: int
+    info: dict[str, Any], location_width: int, function_width: int, term_width: int
 ) -> list[tuple[str, int, bool]]:
     """Build output lines for a chronological frame."""
-    label = info["label"]
-    label_plain = info["label_plain"]
+    location_part = info["location_part"]
+    function_part = info["function_part"]
     fragments = info["fragments"]
     frame_range = info["frame_range"]
     relevance = info["relevance"]
     exc_info = info["exc_info"]
     frinfo = info["frinfo"]
+
+    # Calculate padding for alignment
+    loc_pad = " " * (location_width - _display_width(location_part))
+    func_pad = " " * (function_width - _display_width(function_part))
+    label = f"{location_part}{loc_pad} {function_part}{func_pad}"
+    label_width = location_width + 1 + function_width
 
     lines = []
 
@@ -564,9 +601,8 @@ def _build_chrono_frame_lines(
             msg = f"Source code not available but {exc_info.get('type', 'Exception')} was raised from here"
         else:
             msg = "Source code not available"
-        line = f"{INDENT}{label}  {INS_TYPE}{msg}{RESET}"
-        plain_len = len(INDENT) + len(label_plain) + 2 + len(msg)
-        lines.append((line, plain_len, False))
+        line = f"{INDENT}{label} {NO_SOURCE}{msg}{RESET}"
+        lines.append((line, _display_width(line), False))
         return lines
 
     start = frinfo.get("linenostart", 1)
@@ -575,55 +611,135 @@ def _build_chrono_frame_lines(
 
     desc = symdesc[relevance]
 
+    # Account for LINE_PREFIX "│ " (2 chars) added to each line
+    margin = 2
+
     if relevance == "call":
         # One-liner for call frames
-        padding = " " * (label_width - len(label_plain))
-
         if info["marked_lines"]:
-            line_info = info["marked_lines"][0]
+            # Build full code with em parts
             code_parts = []
-            code_plain = ""
-            for fragment in line_info.get("fragments", []):
-                mark = fragment.get("mark")
-                if mark:
-                    colored, plain = _format_fragment_call(fragment)
-                    code_parts.append(colored)
-                    code_plain += plain
-            code_colored = "".join(code_parts)
+            # Also track em parts for potential collapsing
+            em_ranges = []  # [(start_idx, end_idx), ...] in plain text
+            em_start = None
+            plain_len = 0  # Track position for em_ranges
 
-            full_plain_len = (
-                len(INDENT)
-                + len(label_plain)
-                + len(padding)
+            for line_info in info["marked_lines"]:
+                for fragment in line_info.get("fragments", []):
+                    mark = fragment.get("mark")
+                    em = fragment.get("em")
+                    if mark:
+                        colored = _format_fragment_call(fragment)
+                        plain = fragment["code"].rstrip("\n\r")
+                        # Track em ranges
+                        if em in ("solo", "beg"):
+                            em_start = plain_len
+                        code_parts.append(colored)
+                        plain_len += len(plain)
+                        if em in ("solo", "fin") and em_start is not None:
+                            em_ranges.append((em_start, plain_len))
+                            em_start = None
+                # Add space between marked regions from different lines
+                if code_parts and line_info != info["marked_lines"][-1]:
+                    code_parts.append(" ")
+                    plain_len += 1
+            code_colored = "".join(code_parts)
+            code_plain = ANSI_ESCAPE_RE.sub("", code_colored)
+
+            full_width = (
+                margin
+                + _display_width(INDENT)
+                + label_width
                 + 1
-                + len(code_plain)
-                + 2
-                + len(symbol)
+                + _display_width(code_plain)
+                + _display_width(symbol)
             )
-            if full_plain_len <= term_width:
-                line = f"{INDENT}{label}{padding} {code_colored} {symbol_colored}"
-                lines.append((line, full_plain_len, False))
+            if full_width <= term_width:
+                # Full line fits
+                line = f"{INDENT}{label} {code_colored}{symbol_colored}"
+                lines.append((line, full_width, False))
+            elif em_ranges:
+                # Collapse em parts: merge all em ranges into one span, keep first
+                # and last char (the parentheses), replace everything inside with …
+                em_start_pos = min(s for s, e in em_ranges)
+                em_end_pos = max(e for s, e in em_ranges)
+                em_text = code_plain[em_start_pos:em_end_pos]
+
+                if len(em_text) > 3:  # Only collapse if there's something inside
+                    collapsed_em = em_text[0] + "…" + em_text[-1]
+                    collapsed_plain = (
+                        code_plain[:em_start_pos]
+                        + collapsed_em
+                        + code_plain[em_end_pos:]
+                    )
+                else:
+                    collapsed_plain = code_plain
+                    collapsed_em = em_text
+
+                collapsed_width = (
+                    margin
+                    + _display_width(INDENT)
+                    + label_width
+                    + 1
+                    + _display_width(collapsed_plain)
+                    + _display_width(symbol)
+                )
+                if collapsed_width <= term_width:
+                    # Rebuild colored version: non-em part + colored collapsed em + rest
+                    collapsed_colored = (
+                        collapsed_plain[:em_start_pos]
+                        + EM_CALL
+                        + collapsed_em
+                        + RESET
+                        + collapsed_plain[em_start_pos + len(collapsed_em) :]
+                    )
+                    line = f"{INDENT}{label} {collapsed_colored}{symbol_colored}"
+                    lines.append((line, collapsed_width, False))
+                else:
+                    # Still too long, just show label + symbol
+                    line = f"{INDENT}{label} {symbol_colored}"
+                    lines.append(
+                        (
+                            line,
+                            margin
+                            + _display_width(INDENT)
+                            + label_width
+                            + 1
+                            + _display_width(symbol),
+                            False,
+                        )
+                    )
             else:
-                line = f"{INDENT}{label}{padding} {symbol_colored}"
+                # No em parts to collapse, just show label + symbol
+                line = f"{INDENT}{label} {symbol_colored}"
                 lines.append(
                     (
                         line,
-                        len(INDENT) + len(label_plain) + len(padding) + 1 + len(symbol),
+                        margin
+                        + _display_width(INDENT)
+                        + label_width
+                        + 1
+                        + _display_width(symbol),
                         False,
                     )
                 )
         else:
-            line = f"{INDENT}{label}{padding} {symbol_colored}"
+            line = f"{INDENT}{label} {symbol_colored}"
             lines.append(
                 (
                     line,
-                    len(INDENT) + len(label_plain) + len(padding) + 1 + len(symbol),
+                    margin
+                    + _display_width(INDENT)
+                    + label_width
+                    + 1
+                    + _display_width(symbol),
                     False,
                 )
             )
     else:
         # Full format for error/warning/stop/except frames
-        lines.append((f"{INDENT}{label}", len(INDENT) + len(label_plain), False))
+        label_line = f"{INDENT}{label}"
+        lines.append((label_line, _display_width(label_line), False))
 
         marked_line_nums = set()
         for ml in info["marked_lines"]:
@@ -635,90 +751,331 @@ def _build_chrono_frame_lines(
             line_fragments = line_info.get("fragments", [])
             is_marked = line_num in marked_line_nums
 
-            code_parts = []
-            code_plain = ""
-            for fragment in line_fragments:
-                colored, plain = _format_fragment(fragment)
-                code_parts.append(colored)
-                code_plain += plain
-            code_colored = "".join(code_parts)
+            code_colored = "".join(_format_fragment(f) for f in line_fragments)
 
             if frame_range and abs_line == frame_range.lfinal and symbol:
-                line = f"{CODE_INDENT}{code_colored} {symbol_colored} {SYMBOLDESC}{desc}{RESET}"
-                plain_len = (
-                    len(CODE_INDENT) + len(code_plain) + 1 + len(symbol) + 2 + len(desc)
-                )
+                line = f"{CODE_INDENT}{code_colored} {symbol_colored}  {SYMBOLDESC}{desc}{RESET}"
             else:
                 line = f"{CODE_INDENT}{code_colored}"
-                plain_len = len(CODE_INDENT) + len(code_plain)
 
-            lines.append((line, plain_len, is_marked))
+            lines.append((line, _display_width(line), is_marked))
 
     return lines
 
 
+def _find_call_line_ranges(
+    output_lines: list[tuple[str, int, int, bool]],
+    frame_info_list: list[dict[str, Any]],
+) -> list[tuple[int, int]]:
+    """Find line ranges for call frames that can be used for inspector expansion.
+
+    Returns list of (start_line, end_line) tuples for call frames.
+    """
+    call_ranges = []
+    current_start = None
+
+    for li, (_, _, fidx, _) in enumerate(output_lines):
+        if fidx < len(frame_info_list) and frame_info_list[fidx]["relevance"] == "call":
+            if current_start is None:
+                current_start = li
+        else:
+            if current_start is not None:
+                call_ranges.append((current_start, li - 1))
+                current_start = None
+
+    # Handle trailing call frames
+    if current_start is not None:
+        call_ranges.append((current_start, len(output_lines) - 1))
+
+    return call_ranges
+
+
+def _compute_inspector_positions(
+    output_lines: list[tuple[str, int, int, bool]],
+    inspector_frames: list[int],
+    inspector_data: list[
+        tuple[list[tuple[str, int]], int]
+    ],  # [(lines, error_line), ...]
+    frame_info_list: list[dict[str, Any]],
+) -> tuple[list[int], int]:
+    """Compute vertical positions for all inspectors, avoiding overlap.
+
+    Positioning rules:
+    1. Ideally stay within own frame
+    2. If needed, expand to surrounding call lines
+    3. If still not enough, add empty lines after the frame
+
+    Returns (list of inspector_start positions, total_extra_lines needed).
+    """
+    if not inspector_frames:
+        return [], 0
+
+    # Get call line ranges that can be used for expansion
+    call_ranges = _find_call_line_ranges(output_lines, frame_info_list)
+
+    positions = []
+    extra_lines_after = {}  # frame_idx -> extra lines needed after it
+    min_allowed_start = 0  # Tracks where next inspector can start (prevents overlap)
+
+    for idx, frame_idx in enumerate(inspector_frames):
+        inspector_lines, error_line = inspector_data[idx]
+        inspector_height = len(inspector_lines)
+
+        # Find frame boundaries
+        frame_start, frame_end = _find_frame_line_range(output_lines, frame_idx)
+
+        # Account for any extra lines added after previous frames
+        extra_before = sum(v for k, v in extra_lines_after.items() if k < frame_idx)
+        frame_start += extra_before
+        frame_end += extra_before
+        error_line += extra_before
+
+        # Find adjacent call lines that we can expand into
+        expandable_above = frame_start
+        expandable_below = frame_end
+
+        # Look for call frames before this frame
+        for call_start, call_end in call_ranges:
+            adj_call_start = call_start + extra_before
+            adj_call_end = call_end + extra_before
+            if adj_call_end == frame_start - 1:
+                expandable_above = adj_call_start
+            if adj_call_start == frame_end + 1:
+                expandable_below = adj_call_end
+
+        # Respect minimum start to prevent overlap
+        expandable_above = max(expandable_above, min_allowed_start)
+
+        # Calculate ideal position (arrow in middle, pointing at error line)
+        ideal_arrow_pos = inspector_height // 2
+        ideal_start = error_line - ideal_arrow_pos
+
+        # Strategy 1: Try to fit within own frame
+        if frame_end - frame_start + 1 >= inspector_height:
+            # Enough space in frame, position centered on error line
+            inspector_start = max(
+                frame_start, min(ideal_start, frame_end - inspector_height + 1)
+            )
+        # Strategy 2: Expand to adjacent call lines
+        elif expandable_below - expandable_above + 1 >= inspector_height:
+            # Enough space with expansion
+            inspector_start = max(
+                expandable_above,
+                min(ideal_start, expandable_below - inspector_height + 1),
+            )
+        # Strategy 3: Add extra empty lines after frame
+        else:
+            # Not enough space even with expansion, need extra lines
+            available_space = expandable_below - expandable_above + 1
+            needed_extra = inspector_height - available_space
+            extra_lines_after[frame_idx] = needed_extra
+
+            # Position at the top of available space
+            inspector_start = expandable_above
+
+        # Ensure we respect the minimum allowed start
+        inspector_start = max(inspector_start, min_allowed_start)
+
+        # Ensure arrow points at error line
+        arrow_line_idx = error_line - inspector_start
+        if arrow_line_idx < 0:
+            inspector_start = error_line
+            arrow_line_idx = 0
+        elif arrow_line_idx >= inspector_height:
+            inspector_start = error_line - inspector_height + 1
+            arrow_line_idx = inspector_height - 1
+
+        positions.append(inspector_start)
+
+        # Update minimum start for next inspector (prevent overlap)
+        inspector_end = inspector_start + inspector_height
+        # Add any extra lines we're adding after this frame
+        if frame_idx in extra_lines_after:
+            inspector_end += extra_lines_after[frame_idx]
+        min_allowed_start = inspector_end
+
+    total_extra = sum(extra_lines_after.values())
+    return positions, total_extra
+
+
 def _merge_chrono_output(
     output_lines: list[tuple[str, int, int, bool]],
-    inspector_lines: list[tuple[str, int]],
+    all_inspector_lines: list[list[tuple[str, int, int]]],
+    all_inspector_min_widths: list[int],
     term_width: int,
-    inspector_frame_idx: int | None,
+    inspector_frame_indices: list[int],
     exception_banners: list[tuple[int, str]],
+    frame_info_list: list[dict[str, Any]],
 ) -> str:
-    """Merge chronological output with inspector and exception banners."""
-    assert inspector_frame_idx is not None
-    output = ""
-    frame_line_start, frame_line_end = _find_frame_line_range(
-        output_lines, inspector_frame_idx
+    """Merge chronological output with multiple inspectors and exception banners.
+
+    Args:
+        output_lines: List of (line, plain_len, frame_idx, is_marked) tuples
+        all_inspector_lines: List of inspector line lists, one per inspector frame
+            Each line is (colored_line, plain_width, value_start_col)
+        all_inspector_min_widths: Minimum required widths for each inspector
+        term_width: Terminal width
+        inspector_frame_indices: List of frame indices that have inspectors
+        exception_banners: List of (insert_pos, banner) tuples
+        frame_info_list: Frame info for all frames
+    """
+    if not inspector_frame_indices:
+        # No inspectors, just output lines and banners
+        output = ""
+        banner_idx = 0
+        for li, (line, _, _, _) in enumerate(output_lines):
+            output += f"{line}{EOL}"
+            while banner_idx < len(exception_banners):
+                insert_pos, banner = exception_banners[banner_idx]
+                if li + 1 == insert_pos:
+                    output += banner
+                    banner_idx += 1
+                else:
+                    break
+        for _, banner in exception_banners[banner_idx:]:
+            output += banner
+        return output
+
+    # Build inspector data: (lines, error_line) for each inspector
+    inspector_data = []
+    for i, frame_idx in enumerate(inspector_frame_indices):
+        frame_start, frame_end = _find_frame_line_range(output_lines, frame_idx)
+        error_line = _find_last_marked_line(output_lines, frame_start, frame_end)
+        inspector_data.append((all_inspector_lines[i], error_line))
+
+    # Compute positions
+    positions, total_extra = _compute_inspector_positions(
+        output_lines, inspector_frame_indices, inspector_data, frame_info_list
     )
-    error_line = _find_last_marked_line(output_lines, frame_line_start, frame_line_end)
-    inspector_height = len(inspector_lines)
 
-    ideal_arrow_pos = inspector_height // 2
-    ideal_start = error_line - ideal_arrow_pos
-    min_start = 0
-    inspector_start = ideal_start
+    # Build a map of which inspector is active at each line
+    inspector_at: dict[
+        int, tuple[int, int, int, int]
+    ] = {}  # line -> (insp_idx, insp_line_idx, arrow_line, col)
 
-    if inspector_start < min_start:
-        inspector_start = min_start
-
-    lines_available_below = len(output_lines) - inspector_start
-    if lines_available_below < inspector_height:
-        needed_shift = inspector_height - lines_available_below
-        inspector_start = max(min_start, inspector_start - needed_shift)
-
-    arrow_line_idx = error_line - inspector_start
-    assert 0 <= arrow_line_idx < inspector_height
-
-    max_line_len = 0
-    for li in range(
-        inspector_start,
-        min(inspector_start + inspector_height, len(output_lines)),
+    # Calculate column for each inspector and populate inspector_at
+    for insp_idx, (frame_idx, insp_lines) in enumerate(
+        zip(inspector_frame_indices, all_inspector_lines)
     ):
-        max_line_len = max(max_line_len, output_lines[li][1])
+        inspector_start = positions[insp_idx]
+        inspector_height = len(insp_lines)
 
-    max_insp_width = max(w for _, w in inspector_lines) if inspector_lines else 0
-    total_insp_width = 4 + max_insp_width
-    inspector_col = max_line_len + 2
+        # Get error line for this inspector (adjusted for any extra lines)
+        frame_start, frame_end = _find_frame_line_range(output_lines, frame_idx)
+        error_line = _find_last_marked_line(output_lines, frame_start, frame_end)
 
-    if inspector_col + total_insp_width > term_width:
-        inspector_col = term_width - total_insp_width
+        # Account for extra lines added by earlier inspectors
+        extra_before = 0
+        for prev_idx in range(insp_idx):
+            prev_frame_idx = inspector_frame_indices[prev_idx]
+            prev_frame_start, prev_frame_end = _find_frame_line_range(
+                output_lines, prev_frame_idx
+            )
+            if prev_frame_end < frame_start:
+                # Check if this inspector needed extra lines
+                prev_height = len(all_inspector_lines[prev_idx])
+                prev_available = prev_frame_end - max(0, positions[prev_idx]) + 1
+                if prev_height > prev_available:
+                    extra_before += prev_height - prev_available
 
-    inspector_count = len(inspector_lines)
+        # Calculate arrow position
+        arrow_line = error_line - inspector_start
+        if arrow_line < 0:
+            arrow_line = 0
+        elif arrow_line >= inspector_height:
+            arrow_line = inspector_height - 1
+
+        # Calculate column position for this inspector
+        max_line_len = 0
+        for li in range(
+            inspector_start, min(inspector_start + inspector_height, len(output_lines))
+        ):
+            if li < len(output_lines):
+                max_line_len = max(max_line_len, output_lines[li][1])
+
+        inspector_col = max_line_len + 2
+
+        # Calculate available space - inspector must not overlap with code
+        # Available = term_width - inspector_col - 4 (for box/arrow chars)
+        available_width = term_width - inspector_col - 4
+
+        # Get minimum required width for this inspector (name: type = + some value)
+        min_required = all_inspector_min_widths[insp_idx]
+
+        # Skip this inspector if not enough space to show meaningful content
+        if available_width < min_required:
+            continue
+
+        # Mark lines where this inspector is active
+        for insp_line_idx in range(inspector_height):
+            line_idx = inspector_start + insp_line_idx
+            inspector_at[line_idx] = (
+                insp_idx,
+                insp_line_idx,
+                arrow_line,
+                inspector_col,
+            )
+
+    # Build output
+    output = ""
     banner_idx = 0
 
-    for li, (line, *_) in enumerate(output_lines):
-        insp_idx = li - inspector_start
-        if 0 <= insp_idx < inspector_count:
-            insp_line, insp_width = inspector_lines[insp_idx]
+    for li in range(len(output_lines)):
+        line, plain_len, frame_idx, is_marked = output_lines[li]
+
+        # Check if inspector is active at this line
+        if li in inspector_at:
+            insp_idx, insp_line_idx, arrow_line, inspector_col = inspector_at[li]
+            insp_lines = all_inspector_lines[insp_idx]
+            insp_line, insp_width, value_start = insp_lines[insp_line_idx]
+            inspector_height = len(insp_lines)
+
             cursor_pos = f"{ESC}{inspector_col + 1}G"
-            is_first = insp_idx == 0
-            is_last = insp_idx == inspector_count - 1
-            is_arrow = insp_idx == arrow_line_idx
+            is_first = insp_line_idx == 0
+            is_last = insp_line_idx == inspector_height - 1
+            is_arrow = insp_line_idx == arrow_line
+
+            # Truncate inspector content if it exceeds available width
+            # Only truncate the value portion, preserving name/type coloring
+            available_for_content = (
+                term_width - inspector_col - 5
+            )  # 5 = box chars + space
+            if insp_width > available_for_content > 0:
+                # Get plain text to find where to truncate
+                insp_plain = ANSI_ESCAPE_RE.sub("", insp_line)
+                # Available space for value = total available - prefix
+                available_for_value = available_for_content - value_start
+                if available_for_value > 1:
+                    # Truncate value only, keep prefix with its coloring
+                    # Find the ANSI position corresponding to value_start in plain text
+                    # by scanning the colored string
+                    plain_idx = 0
+                    colored_idx = 0
+                    while plain_idx < value_start and colored_idx < len(insp_line):
+                        if insp_line[colored_idx] == "\x1b":
+                            # Skip ANSI sequence
+                            while (
+                                colored_idx < len(insp_line)
+                                and insp_line[colored_idx] != "m"
+                            ):
+                                colored_idx += 1
+                            colored_idx += 1  # skip the 'm'
+                        else:
+                            plain_idx += 1
+                            colored_idx += 1
+                    # colored_idx is now at the start of the value in the colored string
+                    prefix_colored = insp_line[:colored_idx]
+                    value_plain = insp_plain[value_start:]
+                    truncated_value = value_plain[: available_for_value - 1] + "…"
+                    insp_line = f"{prefix_colored}{VAR}{truncated_value}{RESET}"
+                elif available_for_content > 0:
+                    # Not enough space, just show ellipsis
+                    insp_line = f"{VAR}…{RESET}"
 
             if is_arrow:
                 if is_first and is_last:
                     box_char = SINGLE_T
-                elif is_first:  # pragma: no cover
+                elif is_first:
                     box_char = BOX_TR
                 elif is_last:
                     box_char = BOX_BR
@@ -728,7 +1085,7 @@ def _merge_chrono_output(
             else:
                 if is_first:
                     box_char = BOX_TL
-                elif is_last:  # pragma: no cover
+                elif is_last:
                     box_char = BOX_BL
                 else:
                     box_char = BOX_V
@@ -745,15 +1102,36 @@ def _merge_chrono_output(
             else:
                 break
 
-    # Remaining inspector lines
-    remaining_start = len(output_lines) - inspector_start
-    if remaining_start < inspector_count:
-        for idx in range(remaining_start, inspector_count):
-            insp_line, insp_width = inspector_lines[idx]
-            cursor_pos = f"{ESC}{inspector_col + 1}G"
-            is_last = idx == inspector_count - 1
-            box_char = BOX_BL if is_last else BOX_V
-            output += f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}{EOL}"
+        # Check if we need to emit extra lines for inspector overflow
+        # Find if any inspector ends after this line and needs extra lines
+        for insp_idx, frame_idx in enumerate(inspector_frame_indices):
+            frame_start, frame_end = _find_frame_line_range(output_lines, frame_idx)
+            if li == frame_end:
+                # Check if this inspector needs extra lines
+                inspector_start = positions[insp_idx]
+                inspector_height = len(all_inspector_lines[insp_idx])
+                inspector_end = inspector_start + inspector_height
+
+                # How many lines extend beyond the current output?
+                if inspector_end > li + 1:
+                    for extra_li in range(li + 1, inspector_end):
+                        if extra_li in inspector_at:
+                            _, insp_line_idx, arrow_line, inspector_col = inspector_at[
+                                extra_li
+                            ]
+                            insp_lines = all_inspector_lines[insp_idx]
+                            insp_line, _, _ = insp_lines[insp_line_idx]
+
+                            cursor_pos = f"{ESC}{inspector_col + 1}G"
+                            is_last = insp_line_idx == len(insp_lines) - 1
+                            is_arrow = insp_line_idx == arrow_line
+
+                            if is_arrow:
+                                box_char = BOX_BR if is_last else BOX_VL
+                                output += f"{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RESET} {insp_line}{EOL}"
+                            else:
+                                box_char = BOX_BL if is_last else BOX_V
+                                output += f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}{EOL}"
 
     # Any remaining banners
     for _, banner in exception_banners[banner_idx:]:
@@ -762,8 +1140,8 @@ def _merge_chrono_output(
     return output
 
 
-def _format_fragment(fragment: dict[str, Any]) -> tuple[str, str]:
-    """Format a fragment returning (colored_string, plain_string)."""
+def _format_fragment(fragment: dict[str, Any]) -> str:
+    """Format a fragment returning colored string."""
     code = fragment["code"].rstrip("\n\r")
     mark = fragment.get("mark")
     em = fragment.get("em")
@@ -789,10 +1167,10 @@ def _format_fragment(fragment: dict[str, Any]) -> tuple[str, str]:
     if mark in ("fin", "solo"):
         colored_parts.append(RESET)
 
-    return "".join(colored_parts), code
+    return "".join(colored_parts)
 
 
-def _format_fragment_call(fragment: dict[str, Any]) -> tuple[str, str]:
+def _format_fragment_call(fragment: dict[str, Any]) -> str:
     """Format a fragment for call frames: default color, only em in yellow."""
     code = fragment["code"].rstrip("\n\r")
     em = fragment.get("em")
@@ -810,25 +1188,32 @@ def _format_fragment_call(fragment: dict[str, Any]) -> tuple[str, str]:
     if em in ("fin", "solo"):
         colored_parts.append(RESET)
 
-    return "".join(colored_parts), code
+    return "".join(colored_parts)
 
 
 def _build_variable_inspector(
     variables: list[Any], term_width: int
-) -> list[tuple[str, int]]:
-    """Build variable inspector lines. Returns list of (colored_line, width).
+) -> tuple[list[tuple[str, int, int]], int]:
+    """Build variable inspector lines.
+
+    Returns:
+        tuple: (list of (colored_line, plain_width, value_start_col), min_required_width)
+            - list of lines for the inspector with metadata for smart truncation
+            - minimum width needed to display "name: type = " + some value chars
 
     Uses simple left-side vertical bar only, no top/bottom borders.
+    Multi-line string values are rendered with continuation lines properly indented.
+    Variable names are right-aligned so that = signs line up.
     """
     if not variables:
-        return []
+        return [], 0
 
-    # Build variable lines: "name: type = value" or "name = value"
-    var_lines = []
+    # First pass: collect variable info and filter out non-displayable values
+    var_data = []  # [(name, typename, val_str, fmt_hint), ...]
     for var_info in variables:
         # Handle both old tuple format and new VarInfo namedtuple
         if hasattr(var_info, "name"):
-            name, typename, value, _fmt = (
+            name, typename, value, fmt_hint = (
                 var_info.name,
                 var_info.typename,
                 var_info.value,
@@ -836,6 +1221,7 @@ def _build_variable_inspector(
             )
         else:
             name, typename, value = var_info
+            fmt_hint = "inline"
 
         # Format the value as a string
         if isinstance(value, str):
@@ -866,33 +1252,65 @@ def _build_variable_inspector(
         else:
             val_str = str(value)
 
-        # Build the line
-        if typename:
-            line = f"{VAR}{name}{RESET}{DIM}: {typename}{RESET} = {val_str}"
-            line_plain = f"{name}: {typename} = {val_str}"
-        else:
-            line = f"{VAR}{name}{RESET} = {val_str}"
-            line_plain = f"{name} = {val_str}"
+        # Skip variables with no displayable value
+        if val_str == "⋯":
+            continue
 
-        var_lines.append((line, line_plain))
+        var_data.append((name, typename, val_str, fmt_hint))
 
-    # Calculate width: just "| content" (bar + space + content)
-    max_content_width = max(len(lp) for _, lp in var_lines)
-    max_width = min(
-        max_content_width, term_width // 2 - 4
-    )  # Leave space for arrow "<-"
+    if not var_data:
+        return [], 0
 
+    # Calculate max width of "name: type" or "name" part for alignment
+    max_name_part_len = 0
+    for name, typename, _, _ in var_data:
+        name_part_len = len(name) + len(": ") + len(typename) if typename else len(name)
+        max_name_part_len = max(max_name_part_len, name_part_len)
+
+    # Calculate minimum required width: "name: type = " + at least 5 chars of value
+    prefix_width = max_name_part_len + len(" = ")
+    min_required_width = prefix_width + 5
+
+    # Pre-truncate values to a reasonable width (final truncation happens at render)
+    value_width = max(5, term_width // 2 - 4 - prefix_width)
+
+    # Build variable lines with right-aligned names
+    # Each result entry: (colored_line, plain_width, value_start_col)
+    # value_start_col is where the value starts, for smart truncation at render time
     result = []
+    for name, typename, val_str, fmt_hint in var_data:
+        name_part = f"{name}: {typename}" if typename else name
+        padding = " " * (max_name_part_len - len(name_part))
+        indent = " " * prefix_width
 
-    # Variable lines (bar added during printing to handle arrow line differently)
-    for line, line_plain in var_lines:
-        # Truncate if too long
-        if len(line_plain) > max_width:
-            truncated_plain = line_plain[: max_width - 1] + "…"
-            line = f"{VAR}{line_plain[: max_width - 1]}…{RESET}"
-            line_plain = truncated_plain
+        # Handle multi-line block format
+        if fmt_hint == "block" and "\n" in val_str:
+            for i, val_line in enumerate(val_str.split("\n")):
+                # Truncate value line if needed
+                if len(val_line) > value_width:
+                    val_line = val_line[: value_width - 1] + "…"
+                if i == 0:
+                    # First line with name and type
+                    if typename:
+                        line = f"{VAR}{padding}{name}: {TYPE_COLOR}{typename} = {VAR}{val_line}{RESET}"
+                    else:
+                        line = f"{VAR}{padding}{name} = {val_line}{RESET}"
+                    plain = f"{padding}{name_part} = {val_line}"
+                    result.append((line, len(plain), prefix_width))
+                else:
+                    # Continuation lines (indented) - all value
+                    line = f"{VAR}{indent}{val_line}{RESET}"
+                    plain = f"{indent}{val_line}"
+                    result.append((line, len(plain), prefix_width))
+        else:
+            # Single line format
+            if len(val_str) > value_width:
+                val_str = val_str[: value_width - 1] + "…"
+            if typename:
+                line = f"{VAR}{padding}{name}: {TYPE_COLOR}{typename} = {VAR}{val_str}{RESET}"
+            else:
+                line = f"{VAR}{padding}{name} = {val_str}{RESET}"
+            plain = f"{padding}{name_part} = {val_str}"
+            result.append((line, len(plain), prefix_width))
 
-        # Just content, bar added during printing
-        result.append((line, len(line_plain)))
-
-    return result
+    return result, min_required_width
