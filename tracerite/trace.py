@@ -952,6 +952,42 @@ def _trim_source_to_comprehension(lines: str, lineno: int, start: int):
     return lines, start
 
 
+def _get_variable_source_for_comprehension(
+    lines: str, lineno: int, start: int, mark_range
+) -> str:
+    """Get the source code to use for variable extraction, handling comprehensions.
+
+    For comprehensions, includes the entire comprehension plus the marked region.
+    This ensures external variables used anywhere in the comprehension are visible,
+    even when the error occurs in a specific part (e.g., the filter clause).
+
+    Comprehension loop variables (like 'x' in 'for x in data') won't be accessible
+    in frame.f_locals anyway, so including them doesn't hurt - they'll just be
+    filtered out during variable extraction.
+
+    Args:
+        lines: The source code snippet
+        lineno: The 1-based line number where the error occurred
+        start: The 1-based starting line number of the snippet
+        mark_range: Range object with the marked region, or None
+
+    Returns:
+        Source code string for variable extraction.
+    """
+    # Check if we're inside a comprehension
+    comp_range = _find_comprehension_range(lines, lineno, start)
+
+    if comp_range is not None:
+        # Inside a comprehension: use full comprehension text
+        lines_list = lines.splitlines(keepends=True)
+        comp_start_idx, comp_end_idx = comp_range
+        return "".join(lines_list[comp_start_idx:comp_end_idx])
+
+    # Not in a comprehension: use marked text or fall back to full lines
+    marked_text = _extract_text_from_range(lines, mark_range)
+    return marked_text or lines
+
+
 def _extract_emphasis_columns(
     lines, error_line_in_context, end_line, start_col, end_col, start
 ):
@@ -1290,10 +1326,9 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
         )
         fragments = _parse_lines_to_fragments(lines, mark_range, em_range)
 
-        # Extract variable source from marked region only, fall back to expanded comprehension
-        marked_text = _extract_text_from_range(lines, mark_range)
-        variable_source = marked_text or _expand_source_for_comprehension(
-            lines, lineno, start
+        # Extract variable source: use marked region + comprehension expansion if inside one
+        variable_source = _get_variable_source_for_comprehension(
+            lines, lineno, start, mark_range
         )
 
         frames.append(
