@@ -1247,3 +1247,94 @@ class TestMissingCoverageBranches:
 
         frame = _extract_syntax_error_frame(e)
         assert frame is not None
+
+
+class TestExtractSourceLinesEdgeCases:
+    """Tests for extract_source_lines edge cases (lines 478, 506)."""
+
+    def test_extract_source_lines_invalid_lineno_negative(self):
+        """Test extract_source_lines returns empty when error_idx < 0 (line 506)."""
+        from unittest.mock import MagicMock, patch
+
+        from tracerite.trace import extract_source_lines
+
+        # Create a mock frame
+        frame = MagicMock()
+        frame.f_code.co_filename = "test.py"
+
+        # Patch getsourcelines to return source starting at line 100
+        with patch(
+            "inspect.getsourcelines", return_value=(["line1\n", "line2\n"], 100)
+        ):
+            # lineno 1 is before start (100), so error_idx will be negative
+            lines, start, marks = extract_source_lines(frame, lineno=1)
+            # Should return empty on invalid error_idx
+            assert lines == ""
+            assert marks == ""
+
+    def test_extract_source_lines_lineno_beyond_source(self):
+        """Test extract_source_lines when lineno >= len(lines) (line 506)."""
+        from unittest.mock import MagicMock, patch
+
+        from tracerite.trace import extract_source_lines
+
+        frame = MagicMock()
+        frame.f_code.co_filename = "test.py"
+
+        # Patch getsourcelines to return small source with high start
+        with patch("inspect.getsourcelines", return_value=(["line1\n"], 1)):
+            # lineno 1000 is way beyond the source
+            lines, start, marks = extract_source_lines(frame, lineno=1000)
+            # Should return empty for invalid error_idx
+            assert lines == ""
+            assert marks == ""
+
+
+class TestHiddenFramesWithNoSource:
+    """Tests for hidden frames with no source (lines 1040-1041)."""
+
+    def test_hidden_frame_no_source_not_last(self):
+        """Test that hidden frames without source are still tracked (lines 1040-1041)."""
+        from unittest.mock import patch
+
+        from tracerite.trace import extract_frames
+
+        # This tests the case where a hidden frame (from tracebackhide)
+        # has no source lines but is not the last frame
+
+        def outer_func():
+            __tracebackhide__ = True  # noqa: F841
+            inner_func()
+
+        def inner_func():
+            raise ValueError("test error")
+
+        try:
+            outer_func()
+        except ValueError as e:
+            tb = e.__traceback__
+            if tb:
+                import inspect
+
+                tb_frames = inspect.getinnerframes(tb)
+
+                # Patch getsourcelines to return empty for outer_func but not inner_func
+                original_getsourcelines = inspect.getsourcelines
+
+                def patched_getsourcelines(frame_or_tb):
+                    if hasattr(frame_or_tb, "f_code"):
+                        code = frame_or_tb.f_code
+                    else:
+                        code = frame_or_tb.tb_frame.f_code
+                    # Return empty for outer_func to trigger hidden frame path
+                    if code.co_name == "outer_func":
+                        return ([], 1)
+                    return original_getsourcelines(frame_or_tb)
+
+                with patch(
+                    "inspect.getsourcelines", side_effect=patched_getsourcelines
+                ):
+                    frames = extract_frames(tb_frames)
+
+                # Should have extracted frames
+                assert len(frames) > 0
