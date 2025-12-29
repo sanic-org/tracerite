@@ -482,12 +482,18 @@ def extract_source_lines(
         else:
             lines_before = 10
             lines_after = (end_lineno - lineno + 2) if end_lineno else 2
-        lines = lines[
-            max(0, lineno - start - lines_before) : max(
-                0, lineno - start + lines_after + 1
-            )
-        ]
-        start += max(0, lineno - start - lines_before)
+        # Calculate slice bounds
+        slice_start = max(0, lineno - start - lines_before)
+        slice_end = max(0, lineno - start + lines_after + 1)
+
+        # Skip forward if the slice would start inside a string or unclosed parens
+        # Analyze all lines before slice_start to determine context state
+        skip_to = _find_clean_start_line(lines, slice_start)
+        if skip_to > slice_start:
+            slice_start = skip_to
+
+        lines = lines[slice_start:slice_end]
+        start += slice_start
 
         # If lineno is inside an except handler, trim to start from the except line
         # (For non-notebook cells, this may still trim if lines_before > distance to except)
@@ -613,6 +619,147 @@ def _count_bracket_depth(text: str) -> int:
     return depth
 
 
+def _find_clean_start_line(lines: list[str], target_idx: int) -> int:
+    """Find the first line at or after target_idx that isn't inside an unclosed context.
+
+    Analyzes lines[0:target_idx] to determine if target_idx would start inside:
+    - A multi-line string (triple-quoted docstring, etc.)
+    - An unclosed parenthesis/bracket/brace expression
+
+    If so, scans forward from target_idx to find where that context closes,
+    returning the index of the first "clean" line.
+
+    Args:
+        lines: List of source lines (with newlines)
+        target_idx: The 0-based index we want to start displaying from
+
+    Returns:
+        Index >= target_idx of the first line not inside an unclosed context
+    """
+    if target_idx <= 0 or target_idx >= len(lines):
+        return target_idx
+
+    # Parse all lines before target to determine state at target_idx
+    in_string = False
+    string_char = None  # The quote char(s) that opened the string
+    bracket_depth = 0
+
+    for line in lines[:target_idx]:
+        i = 0
+        text = line
+        escape_next = False
+
+        while i < len(text):
+            char = text[i]
+
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+
+            if char == "\\" and in_string:
+                escape_next = True
+                i += 1
+                continue
+
+            # Handle comments (outside strings)
+            if not in_string and char == "#":
+                break  # Rest of line is comment
+
+            # Handle string boundaries
+            if not in_string:
+                # Check for triple-quoted strings first
+                if char in ('"', "'") and text[i : i + 3] in ('"""', "'''"):
+                    in_string = True
+                    string_char = text[i : i + 3]
+                    i += 3
+                    continue
+                elif char in ('"', "'"):
+                    in_string = True
+                    string_char = char
+            else:
+                # Check for end of string
+                if string_char in ('"""', "'''") and text[i : i + 3] == string_char:
+                    in_string = False
+                    string_char = None
+                    i += 3
+                    continue
+                elif len(string_char) == 1 and char == string_char:
+                    in_string = False
+                    string_char = None
+
+            # Count brackets only outside strings
+            if not in_string:
+                if char in "([{":
+                    bracket_depth += 1
+                elif char in ")]}":
+                    bracket_depth -= 1
+
+            i += 1
+
+    # If we're not in a bad context, target_idx is fine
+    if not in_string and bracket_depth <= 0:
+        return target_idx
+
+    # Scan forward from target_idx until context closes
+    for idx in range(target_idx, len(lines)):
+        text = lines[idx]
+        i = 0
+        escape_next = False
+
+        while i < len(text):
+            char = text[i]
+
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+
+            if char == "\\" and in_string:
+                escape_next = True
+                i += 1
+                continue
+
+            # Handle comments (outside strings)
+            if not in_string and char == "#":
+                break
+
+            # Handle string boundaries
+            if not in_string:
+                if char in ('"', "'") and text[i : i + 3] in ('"""', "'''"):
+                    in_string = True
+                    string_char = text[i : i + 3]
+                    i += 3
+                    continue
+                elif char in ('"', "'"):
+                    in_string = True
+                    string_char = char
+            else:
+                if string_char in ('"""', "'''") and text[i : i + 3] == string_char:
+                    in_string = False
+                    string_char = None
+                    i += 3
+                    continue
+                elif string_char and len(string_char) == 1 and char == string_char:
+                    in_string = False
+                    string_char = None
+
+            if not in_string:
+                if char in "([{":
+                    bracket_depth += 1
+                elif char in ")]}":
+                    bracket_depth -= 1
+
+            i += 1
+
+        # After processing this line, check if we've exited the bad context
+        if not in_string and bracket_depth <= 0:
+            return idx + 1  # Start from the line AFTER the context closes
+
+    # Couldn't find clean exit, fall back to target
+    return target_idx
+
+
 def _get_full_source(frame):
     """Get the full source code for a frame using inspect.
 
@@ -681,6 +828,50 @@ def _get_qualified_function_name(frame, function):
     except StopIteration:
         pass
     return ".".join(function.split(".")[-2:])
+
+
+def _extract_text_from_range(lines: str, mark_range) -> str | None:
+    """Extract the text covered by a Range from source lines.
+
+    Args:
+        lines: The source code (may contain multiple lines)
+        mark_range: Range object with lfirst, lfinal (1-based inclusive lines),
+                   cbeg, cend (0-based exclusive columns), or None
+
+    Returns:
+        The extracted text, or None if mark_range is None.
+    """
+    if mark_range is None:
+        return None
+
+    lines_list = lines.splitlines(keepends=True)
+
+    # Convert to 0-based line indices
+    start_line_idx = mark_range.lfirst - 1
+    end_line_idx = mark_range.lfinal - 1
+
+    # Bounds check
+    if start_line_idx < 0 or end_line_idx >= len(lines_list):
+        return None
+
+    extracted_parts = []
+    for line_idx in range(start_line_idx, end_line_idx + 1):
+        line = lines_list[line_idx].rstrip("\r\n")
+
+        if line_idx == start_line_idx == end_line_idx:
+            # Single line case
+            extracted_parts.append(line[mark_range.cbeg : mark_range.cend])
+        elif line_idx == start_line_idx:
+            # First line of multi-line
+            extracted_parts.append(line[mark_range.cbeg :])
+        elif line_idx == end_line_idx:
+            # Last line of multi-line
+            extracted_parts.append(line[: mark_range.cend])
+        else:
+            # Middle lines of multi-line
+            extracted_parts.append(line)
+
+    return " ".join(extracted_parts)
 
 
 def _expand_source_for_comprehension(lines: str, lineno: int, start: int) -> str:
@@ -1099,8 +1290,11 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
         )
         fragments = _parse_lines_to_fragments(lines, mark_range, em_range)
 
-        # Expand source to include full comprehension for variable inspection
-        variable_source = _expand_source_for_comprehension(lines, lineno, start)
+        # Extract variable source from marked region only, fall back to expanded comprehension
+        marked_text = _extract_text_from_range(lines, mark_range)
+        variable_source = marked_text or _expand_source_for_comprehension(
+            lines, lineno, start
+        )
 
         frames.append(
             {
