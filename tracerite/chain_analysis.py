@@ -402,7 +402,7 @@ def enrich_chain_with_links(chain: list[dict]) -> list[dict]:
     return chain
 
 
-def build_chronological_frames(chain: list[dict], *, debug: bool = False) -> list[dict]:
+def build_chronological_frames(chain: list[dict]) -> list[dict]:
     """Build a chronological list of frames showing the actual sequence of events.
 
     This creates a flat list of frames in the order they were executed, with
@@ -418,10 +418,13 @@ def build_chronological_frames(chain: list[dict], *, debug: bool = False) -> lis
     from where they were raised. We use the outer exception's frames as the
     "backbone" and insert inner exception frames at the appropriate positions.
 
+    Hidden frames (marked with hidden=True, e.g., from __tracebackhide__) are
+    kept during chain analysis to enable proper try-except matching, then
+    filtered out at the end.
+
     Args:
         chain: List of exception info dicts from extract_chain (oldest first),
                should already be enriched with chain_link info
-        debug: If True, print debug information about the chain structure
 
     Returns:
         List of frame dicts in chronological order. Each frame may have:
@@ -434,35 +437,6 @@ def build_chronological_frames(chain: list[dict], *, debug: bool = False) -> lis
 
     # First, ensure chain has link info
     links = analyze_exception_chain_links(chain)
-
-    if debug:
-        print("=" * 60)
-        print("DEBUG: Chain Analysis")
-        print("=" * 60)
-        for i, exc in enumerate(chain):
-            print(f"\nException {i}: {exc.get('type')} - {exc.get('summary')}")
-            print(f"  from: {exc.get('from')}")
-            link = links[i]
-            if link:
-                print(
-                    f"  link: outer_frame_idx={link.outer_frame_idx}, matched={link.matched}"
-                )
-                if link.try_block:
-                    print(
-                        f"        try_block: try={link.try_block.try_start}-{link.try_block.try_end}, except={link.try_block.except_start}-{link.try_block.except_end}"
-                    )
-            else:
-                print("  link: None")
-            for j, frame in enumerate(exc.get("frames", [])):
-                print(
-                    f"  Frame {j}: {frame.get('function') or '(no name)'} @ {frame.get('location')}:{frame.get('lineno')}"
-                )
-                print(
-                    f"           relevance={frame.get('relevance')}, range={frame.get('range')}"
-                )
-                lines_preview = (frame.get("lines") or "")[:80].replace("\n", "\\n")
-                print(f"           lines: {lines_preview}...")
-        print("=" * 60)
 
     # Build chronological frames by working backwards from the last exception
     # The last exception has the full call stack; inner exceptions have partial stacks
@@ -479,7 +453,7 @@ def build_chronological_frames(chain: list[dict], *, debug: bool = False) -> lis
 
         # Check if this exception has a link to an inner exception
         # (i.e., is there a next exception in the chain that links to this one?)
-        inner_link = links[exc_idx + 1] if exc_idx + 1 < len(chain) else None
+        links[exc_idx + 1] if exc_idx + 1 < len(chain) else None
 
         if exc_idx == len(chain) - 1:
             # This is the outermost exception - use its frames as the backbone
@@ -487,7 +461,75 @@ def build_chronological_frames(chain: list[dict], *, debug: bool = False) -> lis
             _build_backbone_frames(chronological, exc, exc_idx, frames, links, chain)
         # Inner exceptions are handled by _build_backbone_frames inserting them
 
+    # Filter out hidden frames (kept for chain analysis, not for display)
+    chronological = [f for f in chronological if not f.get("hidden")]
+
+    # Apply suppression for BaseExceptions (KeyboardInterrupt, SystemExit, etc.)
+    # These should only show frames up to the last user code frame ("bug frame"),
+    # suppressing library internals that came after
+    chronological = _apply_base_exception_suppression(chronological, chain)
+
     return chronological
+
+
+def _apply_base_exception_suppression(
+    chronological: list[dict], chain: list[dict]
+) -> list[dict]:
+    """Suppress library frames after the last user code frame for BaseExceptions.
+
+    For BaseExceptions (KeyboardInterrupt, SystemExit, etc.), we don't want to
+    show library internals - only show frames up to the last user code frame
+    (the "bug frame"). The exception info is transferred to the last shown frame.
+
+    Args:
+        chronological: The full list of chronological frames
+        chain: The exception chain (to check suppress_inner flag)
+
+    Returns:
+        Filtered list of frames with appropriate adjustments
+    """
+    if not chronological or not chain:
+        return chronological
+
+    # Check if any exception in the chain has suppress_inner=True
+    # (This is set for BaseExceptions like KeyboardInterrupt, SystemExit)
+    has_suppress = any(exc.get("suppress_inner") for exc in chain)
+    if not has_suppress:
+        return chronological
+
+    # Find the last "bug frame" (last user code frame before library code)
+    # This is marked by relevance="warning" during extraction
+    last_bug_frame_idx = None
+    for idx, frame in enumerate(chronological):
+        if frame.get("relevance") == "warning":
+            last_bug_frame_idx = idx
+
+    if last_bug_frame_idx is None:
+        # No bug frame found, return as-is
+        return chronological
+
+    # Suppress all frames after the bug frame
+    result = chronological[: last_bug_frame_idx + 1]
+
+    # Transfer exception info from suppressed frames to the last shown frame
+    if result:
+        # Check if any suppressed frame had an exception attached
+        suppressed_exception = None
+        for suppressed in chronological[last_bug_frame_idx + 1 :]:
+            if suppressed.get("exception"):
+                suppressed_exception = suppressed["exception"]
+                break
+
+        # If we're suppressing frames with an exception, transfer it to the last shown frame
+        if suppressed_exception and not result[-1].get("exception"):
+            result[-1] = {**result[-1], "exception": suppressed_exception}
+
+        # Change relevance to "stop" to indicate suppression point
+        # (unless it already has an exception, which sets its own relevance)
+        if result[-1].get("relevance") in ("call", "warning"):
+            result[-1] = {**result[-1], "relevance": "stop"}
+
+    return result
 
 
 def _build_backbone_frames(
@@ -554,8 +596,8 @@ def _build_backbone_frames(
             is_last = frame_idx == len(frames) - 1
 
             if is_except_entry:
-                # Promote relevance to "except" if it was just a "call" frame
-                if chrono_frame.get("relevance") == "call":
+                # Promote relevance to "except" if it was just a "call" or "warning" frame
+                if chrono_frame.get("relevance") in ("call", "warning"):
                     chrono_frame["relevance"] = "except"
                 chrono_frame["function_suffix"] = "⚡except"
 

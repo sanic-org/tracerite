@@ -60,7 +60,7 @@ def build_chain_header(chain: list[dict]) -> str:
         return f"⚠️ Uncaught {exc_type}"
 
     # Build from last to first
-    parts = [f"⚠️ Uncaught {chain[-1].get('type', 'Exception')}"]
+    parts = [f"⚠️ {chain[-1].get('type', 'Exception')}"]
 
     # Add each previous exception with appropriate joiner
     for i in range(len(chain) - 2, -1, -1):
@@ -176,16 +176,31 @@ def _deduplicate_variables(chain: list) -> None:
 
 
 def _create_summary(message):
-    """Create a truncated summary of the exception message."""
-    summary = message.split("\n", 1)[0]
-    if len(summary) <= 100:
-        return summary
+    """Extract the first line of the exception message as summary."""
+    return message.split("\n", 1)[0]
 
-    if len(message) > 1000:
-        # Sometimes the useful bit is at the end of a very long message
-        return f"{message[:40]} ··· {message[-40:]}"
-    else:
-        return f"{summary[:60]} ···"
+
+def _set_relevances(frames: list, e: BaseException) -> None:
+    """Set relevance for frames after extraction.
+
+    - The last frame gets "error" (regular Exception) or "stop" (BaseException like KeyboardInterrupt)
+    - The last user code frame (if different from last) gets "warning"
+    - All other frames remain "call"
+    """
+    if not frames:
+        return
+
+    # Last frame is where the exception occurred
+    frames[-1]["relevance"] = "error" if isinstance(e, Exception) else "stop"
+
+    # Find the last user code frame (not in library directories)
+    # Iterate backwards to find the last frame with user code
+    for frame in reversed(frames[:-1]):  # Exclude the last frame
+        filename = frame.get("original_filename") or frame.get("filename") or ""
+        if _libdir_match(Path(filename).as_posix()) is None:
+            # This is user code - mark as warning (bug origin)
+            frame["relevance"] = "warning"
+            break
 
 
 def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
@@ -228,10 +243,16 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     if isinstance(e, SyntaxError):
         message = clean_syntax_error_message(message)
     summary = _create_summary(message)
+    # Check if context is suppressed (raise X from None) - affects source trimming
+    f = (
+        "cause"
+        if e.__cause__
+        else "context"
+        if e.__context__ and not e.__suppress_context__
+        else "none"
+    )
     try:
-        # KeyboardErrors and such need not be reported all the way
-        suppress = not isinstance(e, Exception)
-        frames = extract_frames(tb, raw_tb, suppress_inner=suppress)
+        frames = extract_frames(tb, raw_tb, except_block=(f != "none"), exc=e)
         # For SyntaxError, add the synthetic frame showing the problematic code
         if syntax_frame:
             # Demote the previous frame (compile, exec, etc.) to call only
@@ -241,17 +262,17 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     except Exception:
         logger.exception("Error extracting traceback")
         frames = None
+
     return {
         "type": type(e).__name__,
         "message": message,
         "summary": summary,
-        # "from" describes how this exception relates to its cause:
-        # - "cause": explicitly raised from another (raise X from Y)
-        # - "context": occurred while handling another
-        # - "none": root exception (no prior cause)
-        "from": ("cause" if e.__cause__ else "context" if e.__context__ else "none"),
+        "from": f,
         "repr": repr(e),
         "frames": frames or [],
+        # BaseExceptions (KeyboardInterrupt, SystemExit, etc.) should suppress
+        # inner library frames, showing only up to the last user code frame
+        "suppress_inner": not isinstance(e, Exception),
     }
 
 
@@ -267,22 +288,29 @@ def _find_except_start_for_line(frame, lineno: int) -> int | None:
     """If lineno is inside an except handler, return the except line number.
 
     Uses AST analysis to find if the given line is within an except block.
-    Returns the line number of the 'except' keyword, or None if not in an except block.
+    Returns the line number of the 'except' keyword for the innermost matching
+    except handler, or None if not in an except block.
     """
-    from .chain_analysis import parse_source_for_try_except
+    from .chain_analysis import (
+        find_try_block_for_except_line,
+        parse_source_for_try_except,
+    )
 
     try:
         filename = frame.f_code.co_filename
         blocks = parse_source_for_try_except(filename)
-        for block in blocks:
-            if block.contains_in_except(lineno):
-                return block.except_start
+        # Find the innermost except block containing this line
+        block = find_try_block_for_except_line(blocks, lineno)
+        if block:
+            return block.except_start
     except Exception:  # pragma: no cover
         pass
     return None
 
 
-def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False):
+def extract_source_lines(
+    frame, lineno, end_lineno=None, *, notebook_cell=False, except_block=False
+):
     try:
         lines, start = inspect.getsourcelines(frame)
         if start == 0:
@@ -290,7 +318,10 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
 
         # Check if lineno is inside an except handler BEFORE trimming
         # This ensures we include the except line even for notebook cells
-        except_start = _find_except_start_for_line(frame, lineno)
+        # Skip this detection if context was suppressed (raise X from None)
+        except_start = (
+            _find_except_start_for_line(frame, lineno) if except_block else None
+        )
 
         # For notebook cells, show only the error lines (no context)
         # For regular files, show 10 lines before and 2 lines after
@@ -435,15 +466,6 @@ def _get_qualified_function_name(frame, function):
     except StopIteration:
         pass
     return ".".join(function.split(".")[-2:])
-
-
-def _get_frame_relevance(is_last_frame, is_bug_frame, suppress_inner):
-    """Determine frame relevance: error, warning, call, or stop."""
-    if is_last_frame:
-        return "stop" if suppress_inner else "error"
-    elif is_bug_frame:
-        return "warning"
-    return "call"
 
 
 def _expand_source_for_comprehension(lines: str, lineno: int, start: int) -> str:
@@ -591,18 +613,6 @@ def _build_position_map(raw_tb):
     except Exception:
         logger.exception("Error extracting position information")
     return position_map
-
-
-def _find_bug_frame(tb):
-    """Find the most relevant user code frame in the traceback."""
-    return next(
-        (
-            f
-            for f in reversed(tb)
-            if f.code_context and _libdir_match(Path(f.filename).as_posix()) is None
-        ),
-        tb[-1],
-    ).frame
 
 
 def _extract_syntax_error_frame(e):
@@ -755,6 +765,7 @@ def _extract_syntax_error_frame(e):
         "relevance": "error",
         "filename": fmt_filename,
         "location": location,
+        "notebook_cell": notebook_cell,
         "codeline": codeline,
         "range": Range(lineno, end_lineno or lineno, start_col, end_col)
         if start_col is not None
@@ -768,12 +779,11 @@ def _extract_syntax_error_frame(e):
     }
 
 
-def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
+def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
     if not tb:
         return []
 
     position_map = _build_position_map(raw_tb)
-    bug_in_frame = _find_bug_frame(tb)
 
     frames = []
     for frame, filename, lineno, function, codeline, _ in tb:
@@ -784,11 +794,15 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
             if hide == "until":
                 # Hide this frame and all previous frames
                 frames = []
-            continue
+                continue
+            # Mark frame as hidden but keep it for chain analysis
+            # (will be filtered out after chronological ordering is built)
+            hidden = True
+        else:
+            hidden = False
 
-        is_last_frame = frame is tb[-1][0]
-        is_bug_frame = frame is bug_in_frame
-        relevance = _get_frame_relevance(is_last_frame, is_bug_frame, suppress_inner)
+        # Relevance is set later in extract_exception via _set_frame_relevance
+        relevance = "call"
 
         # Extract position information first so we can use it for source extraction
         pos = position_map.get(frame, [None] * 4)
@@ -798,9 +812,27 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         notebook_cell = _is_notebook_cell(filename)
 
         lines, start, original_common_indent = extract_source_lines(
-            frame, lineno, pos_end_lineno, notebook_cell=notebook_cell
+            frame,
+            lineno,
+            pos_end_lineno,
+            notebook_cell=notebook_cell,
+            except_block=except_block,
         )
-        if not lines and relevance == "call":
+        is_last_frame = frame is tb[-1][0]
+        if not lines and not is_last_frame:
+            if hidden:
+                # Still include hidden frames with minimal info for chain analysis
+                full_source, full_source_start = _get_full_source(frame)
+                frames.append(
+                    {
+                        "id": f"tb-{token_urlsafe(12)}",
+                        "relevance": relevance,
+                        "hidden": True,
+                        "lineno": lineno,
+                        "full_source": full_source,
+                        "full_source_start": full_source_start,
+                    }
+                )
             continue
 
         # Get full source for chain analysis (AST parsing for try-except matching)
@@ -859,9 +891,11 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
             {
                 "id": f"tb-{token_urlsafe(12)}",
                 "relevance": relevance,
+                "hidden": hidden,  # For chain analysis; filtered out after ordering
                 "filename": filename,
                 "original_filename": original_filename,  # For chain analysis AST parsing
                 "location": location,
+                "notebook_cell": notebook_cell,
                 "codeline": codeline[0].strip() if codeline else None,
                 "range": Range(lineno, pos_end_lineno or lineno, start_col, end_col)
                 if start_col is not None
@@ -872,16 +906,17 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
                 "fragments": fragments,
                 "function": function,
                 "urls": urls,
-                "variables": extract_variables(frame.f_locals, variable_source),
+                "variables": extract_variables(frame.f_locals, variable_source)
+                if not hidden
+                else [],
                 # Full source for chain analysis (try-except matching via AST)
                 "full_source": full_source,
                 "full_source_start": full_source_start,
             }
         )
 
-        if suppress_inner and is_bug_frame:
-            break
-
+    if exc is not None:
+        _set_relevances(frames, exc)
     return frames
 
 

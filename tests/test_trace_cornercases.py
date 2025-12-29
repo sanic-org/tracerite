@@ -44,7 +44,9 @@ class TestTraceCornercases:
         # Verify frames were extracted
         assert len(frames) > 0, "Should have extracted some frames"
 
-        function_names = [f["function"] for f in frames]
+        # Filter out hidden frames (they're kept for chain analysis but not shown)
+        visible_frames = [f for f in frames if not f.get("hidden")]
+        function_names = [f["function"] for f in visible_frames]
 
         # internal_helper_function should be excluded (has __tracebackhide__ in f_globals)
         assert "internal_helper_function" not in function_names, (
@@ -95,7 +97,9 @@ class TestTraceCornercases:
         # Verify frames were extracted
         assert len(frames) > 0, "Should have extracted some frames"
 
-        function_names = [f["function"] for f in frames]
+        # Filter out hidden frames (they're kept for chain analysis but not shown)
+        visible_frames = [f for f in frames if not f.get("hidden")]
+        function_names = [f["function"] for f in visible_frames]
 
         # internal_implementation_wrapper should be excluded (has __tracebackhide__ in f_locals)
         assert "internal_implementation_wrapper" not in function_names, (

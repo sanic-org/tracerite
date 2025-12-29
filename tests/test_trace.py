@@ -760,10 +760,9 @@ class TestExtractFrames:
         try:
             user_function()
         except RuntimeError as e:
-            import inspect
-
-            tb = inspect.getinnerframes(e.__traceback__)
-            frames = extract_frames(tb)
+            # Use extract_exception which now handles relevance assignment
+            info = extract_exception(e)
+            frames = info["frames"]
 
         # Last frame should be 'error' (where exception was raised)
         assert frames[-1]["relevance"] == "error"
@@ -847,8 +846,8 @@ class TestExtractFrames:
         # Should handle frames even without source
         assert len(frames) > 0
 
-    def test_suppress_inner_frames(self):
-        """Test that suppress_inner stops at the bug frame."""
+    def test_hidden_frames_kept_for_chain_analysis(self):
+        """Test that hidden frames are kept with hidden=True for chain analysis."""
 
         def outer():
             def middle():
@@ -865,10 +864,12 @@ class TestExtractFrames:
             import inspect
 
             tb = inspect.getinnerframes(e.__traceback__)
-            frames = extract_frames(tb, e.__traceback__, suppress_inner=True)
+            frames = extract_frames(tb, e.__traceback__)
 
-        # Should have fewer frames due to suppression
+        # Frames should be extracted (hidden ones marked, not removed)
         assert len(frames) > 0
+        # All frames should have a hidden key
+        assert all("hidden" in f or f.get("hidden") is not None for f in frames)
 
     def test_relative_path_display(self):
         """Test that paths in CWD are shown as relative."""
@@ -967,7 +968,7 @@ class TestExtractFrames:
             import inspect
 
             tb = inspect.getinnerframes(e.__traceback__)
-            frames = extract_frames(tb, e.__traceback__)
+            frames = extract_frames(tb, e.__traceback__, exc=e)
 
         # Find the frame where the exception was raised
         error_frame = next((f for f in frames if f["relevance"] == "error"), None)
