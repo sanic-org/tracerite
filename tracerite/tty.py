@@ -543,10 +543,7 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
 
     location_part = f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}"
 
-    if function_display:
-        function_part = f"{FUNC}{function_display}{RESET}:"
-    else:
-        function_part = ":"
+    function_part = f"{FUNC}{function_display}{RESET}:" if function_display else ":"
 
     return location_part, function_part
 
@@ -592,7 +589,7 @@ def _build_chrono_frame_lines(
     loc_pad = " " * (location_width - _display_width(location_part))
     func_pad = " " * (function_width - _display_width(function_part))
     label = f"{location_part}{loc_pad} {function_part}{func_pad}"
-    label_width = location_width + 1 + function_width
+    location_width + 1 + function_width
 
     lines = []
 
@@ -646,93 +643,37 @@ def _build_chrono_frame_lines(
             code_colored = "".join(code_parts)
             code_plain = ANSI_ESCAPE_RE.sub("", code_colored)
 
-            full_width = (
-                margin
-                + _display_width(INDENT)
-                + label_width
-                + 1
-                + _display_width(code_plain)
-                + _display_width(symbol)
-            )
-            if full_width <= term_width:
-                # Full line fits
-                line = f"{INDENT}{label} {code_colored}{symbol_colored}"
-                lines.append((line, full_width, False))
-            elif em_ranges:
-                # Collapse em parts: merge all em ranges into one span, keep first
-                # and last char (the parentheses), replace everything inside with …
+            # Collapse em parts longer than 20 chars
+            if em_ranges:
                 em_start_pos = min(s for s, e in em_ranges)
                 em_end_pos = max(e for s, e in em_ranges)
                 em_text = code_plain[em_start_pos:em_end_pos]
 
-                if len(em_text) > 3:  # Only collapse if there's something inside
+                if len(em_text) > 20:
                     collapsed_em = em_text[0] + "…" + em_text[-1]
-                    collapsed_plain = (
+                    code_plain = (
                         code_plain[:em_start_pos]
                         + collapsed_em
                         + code_plain[em_end_pos:]
                     )
-                else:
-                    collapsed_plain = code_plain
-                    collapsed_em = em_text
-
-                collapsed_width = (
-                    margin
-                    + _display_width(INDENT)
-                    + label_width
-                    + 1
-                    + _display_width(collapsed_plain)
-                    + _display_width(symbol)
-                )
-                if collapsed_width <= term_width:
-                    # Rebuild colored version: non-em part + colored collapsed em + rest
-                    collapsed_colored = (
-                        collapsed_plain[:em_start_pos]
+                    # Rebuild colored version
+                    code_colored = (
+                        code_plain[:em_start_pos]
                         + EM_CALL
                         + collapsed_em
                         + RESET
-                        + collapsed_plain[em_start_pos + len(collapsed_em) :]
+                        + code_plain[em_start_pos + len(collapsed_em) :]
                     )
-                    line = f"{INDENT}{label} {collapsed_colored}{symbol_colored}"
-                    lines.append((line, collapsed_width, False))
-                else:
-                    # Still too long, just show label + symbol
-                    line = f"{INDENT}{label} {symbol_colored}"
-                    lines.append(
-                        (
-                            line,
-                            margin
-                            + _display_width(INDENT)
-                            + label_width
-                            + 1
-                            + _display_width(symbol),
-                            False,
-                        )
-                    )
-            else:
-                # No em parts to collapse, just show label + symbol
-                line = f"{INDENT}{label} {symbol_colored}"
-                lines.append(
-                    (
-                        line,
-                        margin
-                        + _display_width(INDENT)
-                        + label_width
-                        + 1
-                        + _display_width(symbol),
-                        False,
-                    )
-                )
+
+            line = f"{INDENT}{label} {code_colored}{symbol_colored}"
+            line_width = margin + _display_width(line)
+            lines.append((line, line_width, False))
         else:
             line = f"{INDENT}{label} {symbol_colored}"
             lines.append(
                 (
                     line,
-                    margin
-                    + _display_width(INDENT)
-                    + label_width
-                    + 1
-                    + _display_width(symbol),
+                    margin + _display_width(line),
                     False,
                 )
             )
