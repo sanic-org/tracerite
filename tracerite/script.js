@@ -1,15 +1,20 @@
 (()=>{
+// Move style to head (replacing any old version) to preserve it when .tracerite elements are deleted
+const current=document.currentScript?.parentElement
+const style=current?.querySelector('style')
+if(style){
+  document.getElementById('tracerite-style')?.remove()
+  style.id='tracerite-style'
+  document.head.appendChild(style)
+}
 // Remove contents of any previous tracerite elements based on cleanup mode
-const current=document.currentScript?.parentElement;
 if(current?.dataset.replacePrevious){
-  const mode=current.dataset.cleanupMode||'replace';
+  const mode=current.dataset.cleanupMode||'replace'
   document.querySelectorAll('.tracerite').forEach(el=>{
     if(el!==current){
-      // Always remove script and style to prevent conflicts
-      el.querySelectorAll('script,style').forEach(c=>c.remove());
-      // In replace mode, also remove the traceback content (keep h2)
-      if(mode==='replace')el.querySelectorAll('.traceback-details,.traceback-ellipsis,h3,.excmessage').forEach(c=>c.remove());
+      // In replace mode, remove all direct children except h2
+      if(mode==='replace')[...el.children].forEach(c=>{if(c.tagName!=='H2')c.remove()})
     }
-  });
+  })
 }
 })()
