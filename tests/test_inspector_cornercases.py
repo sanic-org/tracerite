@@ -2,7 +2,110 @@
 
 import numpy as np
 
-from tracerite.inspector import extract_variables, prettyvalue
+from tracerite.inspector import (
+    _extract_identifiers_ast,
+    _extract_identifiers_regex,
+    extract_variables,
+    prettyvalue,
+)
+
+
+class TestASTIdentifierExtraction:
+    """Tests for AST-based identifier extraction."""
+
+    def test_simple_expression(self):
+        """Test AST extraction from a simple expression."""
+        result = _extract_identifiers_ast("x + y")
+        assert result == {"x", "y"}
+
+    def test_attribute_access(self):
+        """Test AST extraction with attribute access."""
+        result = _extract_identifiers_ast("obj.attr")
+        assert result is not None
+        assert "obj" in result
+        assert "obj.attr" in result
+
+    def test_nested_attribute_access(self):
+        """Test AST extraction with nested attribute access."""
+        result = _extract_identifiers_ast("obj.sub.attr")
+        assert result is not None
+        assert "obj" in result
+        assert "obj.sub" in result
+        assert "obj.sub.attr" in result
+
+    def test_function_call(self):
+        """Test AST extraction from function calls."""
+        result = _extract_identifiers_ast("foo(bar, baz)")
+        assert result == {"foo", "bar", "baz"}
+
+    def test_string_literal_not_matched(self):
+        """Test that variable names inside strings are NOT matched by AST."""
+        result = _extract_identifiers_ast('"hidden_var"')
+        assert result is not None
+        assert "hidden_var" not in result
+
+    def test_comment_not_matched(self):
+        """Test that variable names in comments would need regex fallback."""
+        # Single-line comments can't be parsed as expressions
+        # This will fall back to regex in real usage
+        result = _extract_identifiers_ast("x  # comment with y")
+        # AST can't parse this as an expression due to comment
+        # It should either return None or parse just 'x'
+        # Let's check both cases are acceptable
+        if result is not None:
+            # If it parses, only x should be found (y is in comment)
+            assert "x" in result
+
+    def test_invalid_syntax_returns_none(self):
+        """Test that invalid syntax returns None."""
+        result = _extract_identifiers_ast("def foo(")
+        assert result is None
+
+    def test_multiline_statement(self):
+        """Test AST extraction from multi-line code."""
+        result = _extract_identifiers_ast("x = 1\ny = 2")
+        assert result is not None
+        assert "x" in result
+        assert "y" in result
+
+    def test_list_comprehension(self):
+        """Test AST extraction from list comprehension."""
+        result = _extract_identifiers_ast("[x for x in items]")
+        assert result is not None
+        assert "x" in result
+        assert "items" in result
+
+    def test_complex_expression(self):
+        """Test AST extraction from complex expression."""
+        result = _extract_identifiers_ast("a + b * c - d / e")
+        assert result == {"a", "b", "c", "d", "e"}
+
+    def test_method_call(self):
+        """Test AST extraction from method call."""
+        result = _extract_identifiers_ast("obj.method(arg)")
+        assert result is not None
+        assert "obj" in result
+        assert "obj.method" in result
+        assert "arg" in result
+
+    def test_regex_fallback_includes_strings(self):
+        """Test that regex fallback does match names in strings (less accurate)."""
+        result = _extract_identifiers_regex('"hidden_var"')
+        # Regex will match hidden_var even inside the string
+        assert "hidden_var" in result
+
+    def test_empty_source(self):
+        """Test AST extraction from empty source."""
+        result = _extract_identifiers_ast("")
+        # Empty source should parse but have no identifiers
+        assert result is not None
+        assert len(result) == 0
+
+    def test_numeric_literal_only(self):
+        """Test AST extraction from numeric literal."""
+        result = _extract_identifiers_ast("42")
+        assert result is not None
+        assert len(result) == 0
 
 
 class TestInspectorCornercases:

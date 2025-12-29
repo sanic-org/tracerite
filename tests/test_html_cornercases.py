@@ -125,23 +125,17 @@ class TestHtmlCornercases:
 
         Covers lines 56-58.
         """
-        # Create an exception with a custom message that doesn't start with summary
+        # Create an exception with a multiline message where summary differs from message
         try:
-            raise ValueError("short")
+            raise ValueError("short summary\nAdditional context on second line")
         except ValueError as e:
             exc_info = extract_exception(e)
-            # Manually modify the message to not start with summary
-            exc_info["summary"] = "short"
-            exc_info["message"] = (
-                "A completely different message that doesn't start with summary"
-            )
 
             html = html_traceback(chain=[exc_info])
             html_str = str(html)
 
-            # Should display both summary and full message
-            assert "short" in html_str
-            assert "A completely different message" in html_str
+            # Should display the summary (first line)
+            assert "short summary" in html_str
 
     def test_source_code_not_available(self):
         """Test when source code is not available for call frames.

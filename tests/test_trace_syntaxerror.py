@@ -295,19 +295,18 @@ class TestCreateSummary:
         assert result == msg
 
     def test_long_message_under_1000(self):
-        """Test long message under 1000 chars."""
+        """Test long single-line message returns full message."""
         msg = "x" * 500
         result = _create_summary(msg)
-        assert "···" in result
-        assert len(result) <= 100
+        assert result == msg
 
     def test_very_long_message_over_1000(self):
-        """Test very long message over 1000 chars shows start and end."""
+        """Test very long single-line message returns full message."""
         msg = "START" + "x" * 1500 + "END"
         result = _create_summary(msg)
-        assert "···" in result
-        # Should have parts from start and end
-        assert "START" in result or "END" in result
+        assert result == msg
+        assert "START" in result
+        assert "END" in result
 
     def test_multiline_message(self):
         """Test multiline message uses first line."""

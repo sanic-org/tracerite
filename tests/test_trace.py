@@ -640,17 +640,16 @@ class TestExtractException:
         assert len(info["frames"]) > 0
 
     def test_exception_with_long_message(self):
-        """Test that long exception messages are truncated in summary."""
+        """Test that long exception messages use first line as summary."""
         long_msg = "x" * 150
         try:
             raise ValueError(long_msg)
         except ValueError as e:
             info = extract_exception(e)
 
-        # Message should be full, summary should be truncated
+        # For single-line message, summary equals message
         assert len(info["message"]) == 150
-        assert len(info["summary"]) < len(info["message"])
-        assert "···" in info["summary"]
+        assert info["summary"] == info["message"]
 
     def test_exception_with_very_long_message(self):
         """Test handling of very long messages (>1000 chars)."""
@@ -660,9 +659,9 @@ class TestExtractException:
         except RuntimeError as e:
             info = extract_exception(e)
 
-        # Summary should show beginning and end
+        # For single-line message, summary equals message
         summary = info["summary"]
-        assert "···" in summary
+        assert summary == info["message"]
         assert "A" in summary
         assert "B" in summary
 

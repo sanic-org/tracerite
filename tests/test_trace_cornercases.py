@@ -464,27 +464,28 @@ hidden_frame()
                     )
 
     def test_create_summary_long_message(self):
-        """Test _create_summary with message > 1000 chars (lines 42-46)."""
+        """Test _create_summary returns first line regardless of length."""
         from tracerite.trace import _create_summary
 
-        # Test with message > 1000 chars
+        # Single-line message - summary is the whole message
         long_message = "A" * 1500
         summary = _create_summary(long_message)
-        # Should use the pattern with beginning and end
-        assert "···" in summary
-        assert summary.startswith("A" * 40)
-        assert summary.endswith("A" * 40)
+        assert summary == long_message
 
-        # Test with message > 100 but < 1000 chars
+        # Single-line medium message
         medium_message = "B" * 200
         summary = _create_summary(medium_message)
-        assert "···" in summary
-        assert len(summary) < len(medium_message)
+        assert summary == medium_message
 
         # Test with short message
         short_message = "Short"
         summary = _create_summary(short_message)
         assert summary == short_message
+
+        # Multiline - only first line
+        multiline = "First\nSecond\nThird"
+        summary = _create_summary(multiline)
+        assert summary == "First"
 
     def test_skip_until_found(self):
         """Test skip_until when pattern IS found in frame (lines 60-61)."""

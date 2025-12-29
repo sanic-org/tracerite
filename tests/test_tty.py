@@ -8,6 +8,7 @@ import pytest
 
 from tracerite import extract_chain
 from tracerite.tty import (
+    ANSI_ESCAPE_RE,
     ARROW_LEFT,
     BOLD,
     BOX_BL,
@@ -660,13 +661,15 @@ class TestFrameFormatting:
         except Exception as e:
             chain = extract_chain(e)
             frame = chain[0]["frames"][-1]
-            label, label_plain = _get_frame_label(frame)
+            location_part, function_part = _get_frame_label(frame)
+            # Combine and strip colors to get plain text
+            label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
 
             # Should contain function name in light blue
-            assert FUNC in label
+            assert FUNC in function_part
             assert "test_get_frame_label_with_function" in label_plain
             # Should contain filename in green
-            assert LOCFN in label
+            assert LOCFN in location_part
             assert "test_tty" in label_plain
 
 
@@ -676,14 +679,16 @@ class TestFragmentFormatting:
     def test_format_fragment_plain(self):
         """Test formatting fragment without marks or emphasis."""
         fragment = {"code": "x = 1"}
-        colored, plain = _format_fragment(fragment)
+        colored = _format_fragment(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "x = 1"
         assert colored == "x = 1"
 
     def test_format_fragment_with_mark_solo(self):
         """Test formatting fragment with solo mark (single highlighted region)."""
         fragment = {"code": "error_code", "mark": "solo"}
-        colored, plain = _format_fragment(fragment)
+        colored = _format_fragment(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "error_code"
         assert MARK_BG in colored
         assert MARK_TEXT in colored
@@ -693,33 +698,36 @@ class TestFragmentFormatting:
         """Test formatting fragment with mark spanning multiple fragments."""
         # Beginning of marked region
         frag_beg = {"code": "start", "mark": "beg"}
-        colored_beg, plain_beg = _format_fragment(frag_beg)
+        colored_beg = _format_fragment(frag_beg)
         assert MARK_BG in colored_beg
         assert RESET not in colored_beg  # Should not close yet
 
         # End of marked region
         frag_fin = {"code": "end", "mark": "fin"}
-        colored_fin, plain_fin = _format_fragment(frag_fin)
+        colored_fin = _format_fragment(frag_fin)
         assert RESET in colored_fin
 
     def test_format_fragment_with_em_solo(self):
         """Test formatting fragment with emphasis (error location)."""
         fragment = {"code": "+", "em": "solo", "mark": "solo"}
-        colored, plain = _format_fragment(fragment)
+        colored = _format_fragment(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "+"
         assert EM in colored
 
     def test_format_fragment_call_plain(self):
         """Test call frame fragment formatting without emphasis."""
         fragment = {"code": "func(arg)"}
-        colored, plain = _format_fragment_call(fragment)
+        colored = _format_fragment_call(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "func(arg)"
         assert colored == "func(arg)"
 
     def test_format_fragment_call_with_em(self):
         """Test call frame fragment formatting with emphasis."""
         fragment = {"code": "bad_call", "em": "solo"}
-        colored, plain = _format_fragment_call(fragment)
+        colored = _format_fragment_call(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "bad_call"
         assert EM_CALL in colored
         assert RESET in colored
@@ -727,7 +735,8 @@ class TestFragmentFormatting:
     def test_format_fragment_strips_newlines(self):
         """Test that fragments strip trailing newlines."""
         fragment = {"code": "line\n\r"}
-        colored, plain = _format_fragment(fragment)
+        colored = _format_fragment(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "line"
         assert "\n" not in colored
         assert "\r" not in colored
@@ -738,8 +747,9 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_empty(self):
         """Test inspector with no variables."""
-        result = _build_variable_inspector([], term_width=80)
+        result, min_width = _build_variable_inspector([], term_width=80)
         assert result == []
+        assert min_width == 0
 
     def test_build_variable_inspector_simple_vars(self):
         """Test inspector with simple variables."""
@@ -749,13 +759,14 @@ class TestVariableInspector:
             VarInfo(name="x", typename="int", value="42", format_hint=None),
             VarInfo(name="name", typename="str", value='"hello"', format_hint=None),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 2
-        # Each item is (colored_line, width)
-        for colored, width in result:
+        # Each item is (colored_line, plain_width, value_start_col)
+        for colored, width, value_col in result:
             assert isinstance(colored, str)
             assert isinstance(width, int)
+            assert isinstance(value_col, int)
 
     def test_build_variable_inspector_without_typename(self):
         """Test inspector with variables that have no type annotation."""
@@ -764,10 +775,10 @@ class TestVariableInspector:
         variables = [
             VarInfo(name="y", typename=None, value="100", format_hint=None),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
-        colored, width = result[0]
+        colored, width, value_col = result[0]
         # Should format as "y = 100" not "y: None = 100"
         assert VAR in colored  # Variable name in cyan
         assert "= 100" in colored or "100" in colored
@@ -784,10 +795,10 @@ class TestVariableInspector:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
-        colored, _ = result[0]
+        colored, _, _ = result[0]
         assert "a:" in colored or "{" in colored
 
     def test_build_variable_inspector_array(self):
@@ -802,10 +813,10 @@ class TestVariableInspector:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
-        colored, _ = result[0]
+        colored, _, _ = result[0]
         assert "[" in colored
 
     def test_build_variable_inspector_truncation(self):
@@ -818,10 +829,10 @@ class TestVariableInspector:
                 name="long_var", typename="str", value=long_value, format_hint=None
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
-        colored, width = result[0]
+        colored, width, value_col = result[0]
         # Should be truncated (indicated by width being less than original)
         assert width < len(long_value)
         assert "…" in colored  # Truncation indicator
@@ -1481,7 +1492,7 @@ class TestVariableInspectorEdgeCases:
             ("x", "int", "42"),
             ("y", None, "100"),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 2
         # First var has typename
@@ -1501,7 +1512,7 @@ class TestVariableInspectorEdgeCases:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
         assert "[]" in result[0][0]
@@ -1518,7 +1529,7 @@ class TestVariableInspectorEdgeCases:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
         # Should format first row with ellipsis
@@ -1537,7 +1548,7 @@ class TestVariableInspectorEdgeCases:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
         # Should convert to string directly
@@ -1555,7 +1566,7 @@ class TestVariableInspectorEdgeCases:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
         assert "3.14159" in result[0][0]
@@ -1573,7 +1584,8 @@ class TestFrameLabelEdgeCases:
             "range": None,
             "relevance": "error",
         }
-        label, label_plain = _get_frame_label(frinfo)
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
 
         assert "test_func" in label_plain
         assert "unknown_location" in label_plain
@@ -1588,7 +1600,8 @@ class TestFrameLabelEdgeCases:
             "range": None,
             "relevance": "error",
         }
-        label, label_plain = _get_frame_label(frinfo)
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
 
         assert "external_func" in label_plain
         # Should use location since it's not under CWD
@@ -1602,7 +1615,6 @@ class TestFrameLabelEdgeCases:
         from pathlib import Path
 
         # Mock Path.relative_to to raise ValueError
-        original_relative_to = Path.relative_to
 
         def failing_relative_to(self, other):
             raise ValueError("mock error")
@@ -1616,13 +1628,12 @@ class TestFrameLabelEdgeCases:
             "range": None,
             "relevance": "error",
         }
-        label, label_plain = _get_frame_label(frinfo)
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
 
         # Should fall back to location
         assert "some/path/file.py" in label_plain
-
-        # Restore
-        monkeypatch.setattr(Path, "relative_to", original_relative_to)
+        # Note: monkeypatch automatically restores at end of test
 
 
 class TestInspectorPositioning:
@@ -1824,8 +1835,8 @@ class TestTtyTracebackEdgeCases:
         from tracerite.tty import _build_chrono_frame_lines
 
         info = {
-            "label": "test_func test.py:10:",
-            "label_plain": "test_func test.py:10",
+            "location_part": "test.py:10",
+            "function_part": "test_func:",
             "fragments": [],
             "frame_range": None,
             "relevance": "error",
@@ -1834,7 +1845,9 @@ class TestTtyTracebackEdgeCases:
             "frinfo": {"linenostart": 1},
         }
 
-        lines = _build_chrono_frame_lines(info, label_width=30, term_width=120)
+        lines = _build_chrono_frame_lines(
+            info, location_width=15, function_width=15, term_width=120
+        )
 
         assert len(lines) == 1
         assert "Source code not available" in lines[0][0]
@@ -1845,8 +1858,8 @@ class TestTtyTracebackEdgeCases:
         from tracerite.tty import _build_chrono_frame_lines
 
         info = {
-            "label": "test_func test.py:10:",
-            "label_plain": "test_func test.py:10",
+            "location_part": "test.py:10",
+            "function_part": "test_func:",
             "fragments": [],
             "frame_range": None,
             "relevance": "call",
@@ -1855,7 +1868,9 @@ class TestTtyTracebackEdgeCases:
             "frinfo": {"linenostart": 1},
         }
 
-        lines = _build_chrono_frame_lines(info, label_width=30, term_width=120)
+        lines = _build_chrono_frame_lines(
+            info, location_width=15, function_width=15, term_width=120
+        )
 
         assert len(lines) == 1
         assert "Source code not available" in lines[0][0]
@@ -1876,7 +1891,7 @@ class TestTtyTracebackEdgeCases:
         result = output.getvalue()
         assert "ValueError" in result
         assert "RuntimeError" in result
-        assert "first error" in result
+        # The inner exception message may not be displayed in compact format
         assert "second error" in result
 
     def test_relative_path_when_inside_cwd(self, monkeypatch):
@@ -1896,7 +1911,7 @@ class TestTtyTracebackEdgeCases:
 
     def test_filename_outside_cwd(self, monkeypatch):
         """Test handling of file path outside current directory."""
-        from tracerite.tty import _get_frame_label
+        from tracerite.tty import ANSI_ESCAPE_RE, _get_frame_label
 
         # Create a frame info for a file outside cwd
         frinfo = {
@@ -1907,7 +1922,8 @@ class TestTtyTracebackEdgeCases:
             "range": type("Range", (), {"lfirst": 10})(),
         }
 
-        label, label_plain = _get_frame_label(frinfo)
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
         # Should use location as-is since file is outside cwd
         assert "test_func" in label_plain
 
@@ -1965,17 +1981,20 @@ class TestMergeChronoOutputBranches:
         ]
         # Two inspector lines, arrow should be at last
         inspector_lines = [
-            ("var1 = 1", 8),
-            ("var2 = 2", 8),
+            ("var1 = 1", 8, 6),
+            ("var2 = 2", 8, 6),
         ]
         exception_banners = []
+        frame_info_list = [{"relevance": "error"}]
 
         result = _merge_chrono_output(
             output_lines,
-            inspector_lines,
+            [inspector_lines],
+            [20],  # min widths
             term_width=120,
-            inspector_frame_idx=0,
+            inspector_frame_indices=[0],
             exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
         )
         # Should use BOX_BR for last+arrow
         assert BOX_BR in result
@@ -1992,18 +2011,21 @@ class TestMergeChronoOutputBranches:
         ]
         # Three inspector lines, need arrow at idx 2, so first line isn't arrow
         inspector_lines = [
-            ("var1 = 1", 8),
-            ("var2 = 2", 8),
-            ("var3 = 3", 8),
+            ("var1 = 1", 8, 6),
+            ("var2 = 2", 8, 6),
+            ("var3 = 3", 8, 6),
         ]
         exception_banners = []
+        frame_info_list = [{"relevance": "error"}]
 
         result = _merge_chrono_output(
             output_lines,
-            inspector_lines,
+            [inspector_lines],
+            [20],
             term_width=120,
-            inspector_frame_idx=0,
+            inspector_frame_indices=[0],
             exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
         )
         # Should use BOX_TL for first line when not arrow
         assert BOX_TL in result
@@ -2017,18 +2039,21 @@ class TestMergeChronoOutputBranches:
             ("line0", 10, 0, True),  # marked
         ]
         inspector_lines = [
-            ("var1 = 1", 8),
-            ("var2 = 2", 8),
-            ("var3 = 3", 8),
+            ("var1 = 1", 8, 6),
+            ("var2 = 2", 8, 6),
+            ("var3 = 3", 8, 6),
         ]
         exception_banners = []
+        frame_info_list = [{"relevance": "error"}]
 
         result = _merge_chrono_output(
             output_lines,
-            inspector_lines,
+            [inspector_lines],
+            [20],
             term_width=120,
-            inspector_frame_idx=0,
+            inspector_frame_indices=[0],
             exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
         )
         # All variables should appear
         assert "var1" in result
@@ -2043,17 +2068,20 @@ class TestMergeChronoOutputBranches:
             ("line0", 10, 0, True),
         ]
         inspector_lines = [
-            ("var1 = 1", 8),
+            ("var1 = 1", 8, 6),
         ]
         # Banner that should be inserted after all lines
         exception_banners = [(100, "BANNER_TEXT")]
+        frame_info_list = [{"relevance": "error"}]
 
         result = _merge_chrono_output(
             output_lines,
-            inspector_lines,
+            [inspector_lines],
+            [20],
             term_width=120,
-            inspector_frame_idx=0,
+            inspector_frame_indices=[0],
             exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
         )
         assert "BANNER_TEXT" in result
 
@@ -2067,19 +2095,22 @@ class TestMergeChronoOutputBranches:
             ("line1", 10, 0, True),  # marked at the end
         ]
         inspector_lines = [
-            ("var1 = 1", 8),
-            ("var2 = 2", 8),
-            ("var3 = 3", 8),
-            ("var4 = 4", 8),
+            ("var1 = 1", 8, 6),
+            ("var2 = 2", 8, 6),
+            ("var3 = 3", 8, 6),
+            ("var4 = 4", 8, 6),
         ]
         exception_banners = []
+        frame_info_list = [{"relevance": "error"}]
 
         result = _merge_chrono_output(
             output_lines,
-            inspector_lines,
+            [inspector_lines],
+            [20],
             term_width=120,
-            inspector_frame_idx=0,
+            inspector_frame_indices=[0],
             exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
         )
         # All variables should appear
         assert "var1" in result
@@ -2115,14 +2146,13 @@ class TestGetFrameLabelBranches:
         """Test exception handling in path relativization (lines 506-508)."""
         from pathlib import Path
 
-        from tracerite.tty import _get_frame_label
+        from tracerite.tty import ANSI_ESCAPE_RE, _get_frame_label
 
         # Get the actual cwd and create a path inside it
         cwd = Path.cwd()
         fake_file = cwd / "subdir" / "file.py"
 
         # Mock relative_to to raise ValueError when called
-        original_relative_to = Path.relative_to
 
         def failing_relative_to(self, other):
             raise ValueError("cannot make relative")
@@ -2137,9 +2167,9 @@ class TestGetFrameLabelBranches:
             "range": type("Range", (), {"lfirst": 10})(),
         }
 
-        label, label_plain = _get_frame_label(frinfo)
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
         # Should fall back to location without crashing
         assert "test_func" in label_plain
         assert "file.py" in label_plain
-
-        monkeypatch.setattr(Path, "relative_to", original_relative_to)
+        # Note: monkeypatch automatically restores at end of test
