@@ -184,7 +184,7 @@ def _set_relevances(frames: list, e: BaseException) -> None:
     """Set relevance for frames after extraction.
 
     - The last frame gets "error" (regular Exception) or "stop" (BaseException like KeyboardInterrupt)
-    - The last user code frame (if different from last) gets "warning"
+    - If the last frame is in library code, the last user code frame gets "warning"
     - All other frames remain "call"
     """
     if not frames:
@@ -193,8 +193,13 @@ def _set_relevances(frames: list, e: BaseException) -> None:
     # Last frame is where the exception occurred
     frames[-1]["relevance"] = "error" if isinstance(e, Exception) else "stop"
 
-    # Find the last user code frame (not in library directories)
-    # Iterate backwards to find the last frame with user code
+    # Check if the last frame (error frame) is in user code
+    last_filename = (
+        frames[-1].get("original_filename") or frames[-1].get("filename") or ""
+    )
+    if _libdir_match(Path(last_filename).as_posix()) is None:
+        return
+    # Error is in library code - find the last user code frame to mark as warning
     for frame in reversed(frames[:-1]):  # Exclude the last frame
         filename = frame.get("original_filename") or frame.get("filename") or ""
         if _libdir_match(Path(filename).as_posix()) is None:
@@ -378,9 +383,16 @@ def extract_source_lines(
 
         # Trim trailing lines with less indentation than the error line
         # (hides external structures like else/except that aren't relevant)
+        # But don't trim if we're inside unclosed brackets (e.g., list comprehension)
         trim_after = end_idx + 1
+        bracket_depth = _count_bracket_depth("".join(lines[: end_idx + 1]))
         while trim_after < len(lines):
             line = lines[trim_after]
+            # Keep lines if brackets are still open
+            if bracket_depth > 0:
+                bracket_depth += _count_bracket_depth(line)
+                trim_after += 1
+                continue
             # Keep empty lines, but check non-empty lines for indentation
             if line.strip():
                 line_indent = len(line) - len(line.lstrip(" \t"))
@@ -396,6 +408,68 @@ def extract_source_lines(
         return "".join(lines), start, common_indent
     except OSError:
         return "", lineno, ""  # Source not available (non-Python module)
+
+
+def _count_bracket_depth(text: str) -> int:
+    """Count net bracket depth change in text, ignoring brackets in strings/comments.
+
+    Returns positive for more opens than closes, negative for more closes.
+    """
+    depth = 0
+    in_string = False
+    string_char = None
+    escape_next = False
+    i = 0
+
+    while i < len(text):
+        char = text[i]
+
+        if escape_next:
+            escape_next = False
+            i += 1
+            continue
+
+        if char == "\\":
+            escape_next = True
+            i += 1
+            continue
+
+        # Handle comments (outside strings)
+        if not in_string and char == "#":
+            break  # Rest of line is comment
+
+        # Handle string boundaries
+        if not in_string:
+            # Check for triple-quoted strings
+            if char in ('"', "'") and text[i : i + 3] in ('"""', "'''"):
+                in_string = True
+                string_char = text[i : i + 3]
+                i += 3
+                continue
+            elif char in ('"', "'"):
+                in_string = True
+                string_char = char
+        else:
+            # Check for end of string
+            if string_char in ('"""', "'''") and text[i : i + 3] == string_char:
+                in_string = False
+                string_char = None
+                i += 3
+                continue
+            elif len(string_char) == 1 and char == string_char:
+                in_string = False
+                string_char = None
+
+        # Count brackets only outside strings
+        if not in_string:
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+
+        i += 1
+
+    return depth
 
 
 def _get_full_source(frame):
