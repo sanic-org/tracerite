@@ -21,6 +21,7 @@ __all__ = [
     "TryExceptBlock",
     "ChainLink",
     "parse_source_for_try_except",
+    "parse_source_string_for_try_except",
     "find_try_block_for_except_line",
     "find_matching_try_for_inner_exception",
     "analyze_exception_chain_links",
@@ -143,6 +144,58 @@ def parse_source_for_try_except(
         return visitor.try_except_blocks
     except (SyntaxError, OSError, ValueError) as e:
         logger.debug(f"Failed to parse {filename} for try-except analysis: {e}")
+        return []
+
+
+def parse_source_string_for_try_except(
+    source: str, start_line: int = 1
+) -> list[TryExceptBlock]:
+    """Parse source string and extract try-except blocks.
+
+    Args:
+        source: The source code as a string
+        start_line: The line number where this source starts (for offset adjustment)
+
+    Returns:
+        List of TryExceptBlock objects found in the source
+    """
+    try:
+        if not source:
+            return []
+
+        tree = ast.parse(source)
+
+        visitor = TryExceptVisitor()
+        visitor.visit(tree)
+
+        # Adjust line numbers if source doesn't start at line 1
+        if start_line != 1:
+            offset = start_line - 1
+            adjusted_blocks = []
+            for block in visitor.try_except_blocks:
+                adjusted_blocks.append(
+                    TryExceptBlock(
+                        try_start=block.try_start + offset,
+                        try_end=block.try_end + offset,
+                        except_start=block.except_start + offset
+                        if block.except_start
+                        else None,
+                        except_end=block.except_end + offset
+                        if block.except_end
+                        else None,
+                        finally_start=block.finally_start + offset
+                        if block.finally_start
+                        else None,
+                        finally_end=block.finally_end + offset
+                        if block.finally_end
+                        else None,
+                    )
+                )
+            return adjusted_blocks
+
+        return visitor.try_except_blocks
+    except (SyntaxError, ValueError) as e:
+        logger.debug(f"Failed to parse source string for try-except analysis: {e}")
         return []
 
 
@@ -269,14 +322,29 @@ def _find_chain_link(inner_exc: dict, outer_exc: dict) -> ChainLink | None:
     # Inner exception: first frame is always in the try block
     # (Python captures frames starting from the try block, not app entry)
     inner_first_frame = inner_frames[0]
-    inner_filename = inner_first_frame.get("filename")
     inner_first_lineno = _get_frame_lineno(inner_first_frame)
 
-    if not inner_filename or inner_first_lineno is None:
+    if inner_first_lineno is None:
         return None
 
-    # Parse the source file for try-except blocks
-    try_except_blocks = parse_source_for_try_except(inner_filename)
+    # Get try-except blocks from the frame's full source (works with any source)
+    # This avoids reading from files, using the source Python already has
+    inner_full_source = inner_first_frame.get("full_source")
+    inner_source_start = inner_first_frame.get("full_source_start", 1)
+
+    if inner_full_source:
+        try_except_blocks = parse_source_string_for_try_except(
+            inner_full_source, inner_source_start
+        )
+    else:
+        # Fallback to file-based parsing if full_source not available
+        inner_filename = inner_first_frame.get(
+            "original_filename"
+        ) or inner_first_frame.get("filename")
+        if not inner_filename:
+            return None
+        try_except_blocks = parse_source_for_try_except(inner_filename)
+
     if not try_except_blocks:
         return None
 
@@ -284,12 +352,6 @@ def _find_chain_link(inner_exc: dict, outer_exc: dict) -> ChainLink | None:
     # The frame list starts from app entry point and may visit the same function
     # multiple times, or have additional frames after the except block
     for frame_idx, frame in enumerate(outer_frames):
-        frame_filename = frame.get("filename")
-
-        # Must be in the same file as inner's first frame
-        if frame_filename != inner_filename:
-            continue
-
         frame_lineno = _get_frame_lineno(frame)
         if frame_lineno is None:
             continue
@@ -340,20 +402,26 @@ def enrich_chain_with_links(chain: list[dict]) -> list[dict]:
     return chain
 
 
-def build_chronological_frames(chain: list[dict]) -> list[dict]:
+def build_chronological_frames(chain: list[dict], *, debug: bool = False) -> list[dict]:
     """Build a chronological list of frames showing the actual sequence of events.
 
     This creates a flat list of frames in the order they were executed, with
     exception information embedded in the frames. The result shows:
-    1. Frames leading to the first exception
-    2. The exception (as metadata on the error frame)
+    1. Frames from entry point leading to the try block
+    2. The inner exception's frames (from try block to error)
     3. The except handler frame (promoted to relevance="except")
-    4. Frames leading to the next exception
-    5. ...and so on
+    4. Any frames after except leading to the next exception
+    5. ...and so on for nested chains
+
+    The key insight is that the LAST exception in the chain has the full call
+    stack from entry point. Inner exceptions only have partial stacks starting
+    from where they were raised. We use the outer exception's frames as the
+    "backbone" and insert inner exception frames at the appropriate positions.
 
     Args:
         chain: List of exception info dicts from extract_chain (oldest first),
                should already be enriched with chain_link info
+        debug: If True, print debug information about the chain structure
 
     Returns:
         List of frame dicts in chronological order. Each frame may have:
@@ -367,56 +435,130 @@ def build_chronological_frames(chain: list[dict]) -> list[dict]:
     # First, ensure chain has link info
     links = analyze_exception_chain_links(chain)
 
+    if debug:
+        print("=" * 60)
+        print("DEBUG: Chain Analysis")
+        print("=" * 60)
+        for i, exc in enumerate(chain):
+            print(f"\nException {i}: {exc.get('type')} - {exc.get('summary')}")
+            print(f"  from: {exc.get('from')}")
+            link = links[i]
+            if link:
+                print(
+                    f"  link: outer_frame_idx={link.outer_frame_idx}, matched={link.matched}"
+                )
+                if link.try_block:
+                    print(
+                        f"        try_block: try={link.try_block.try_start}-{link.try_block.try_end}, except={link.try_block.except_start}-{link.try_block.except_end}"
+                    )
+            else:
+                print("  link: None")
+            for j, frame in enumerate(exc.get("frames", [])):
+                print(
+                    f"  Frame {j}: {frame.get('function') or '(no name)'} @ {frame.get('location')}:{frame.get('lineno')}"
+                )
+                print(
+                    f"           relevance={frame.get('relevance')}, range={frame.get('range')}"
+                )
+                lines_preview = (frame.get("lines") or "")[:80].replace("\n", "\\n")
+                print(f"           lines: {lines_preview}...")
+        print("=" * 60)
+
+    # Build chronological frames by working backwards from the last exception
+    # The last exception has the full call stack; inner exceptions have partial stacks
     chronological: list[dict] = []
 
-    for exc_idx, exc in enumerate(chain):
-        link = links[exc_idx]
+    # Process from the last (outermost) exception backwards
+    # This lets us use the outer exception's frames as the backbone
+    for exc_idx in range(len(chain) - 1, -1, -1):
+        exc = chain[exc_idx]
         frames = exc.get("frames", [])
 
         if not frames:
             continue
 
-        # Determine which frames to include from this exception
-        # For the first exception: all frames
-        # For subsequent exceptions: frames from the except handler onward
-        # (frames before that are duplicates from the previous exception's path)
+        # Check if this exception has a link to an inner exception
+        # (i.e., is there a next exception in the chain that links to this one?)
+        inner_link = links[exc_idx + 1] if exc_idx + 1 < len(chain) else None
 
-        if exc_idx == 0:
-            # First exception: include all frames
-            start_frame_idx = 0
-        elif link and link.matched:
-            # Subsequent exception with matched link:
-            # Start from the frame in the except block
-            start_frame_idx = link.outer_frame_idx
+        if exc_idx == len(chain) - 1:
+            # This is the outermost exception - use its frames as the backbone
+            # But we need to insert inner exception frames at the right positions
+            _build_backbone_frames(chronological, exc, exc_idx, frames, links, chain)
+        # Inner exceptions are handled by _build_backbone_frames inserting them
+
+    return chronological
+
+
+def _build_backbone_frames(
+    chronological: list[dict],
+    exc: dict,
+    exc_idx: int,
+    frames: list[dict],
+    links: list,
+    chain: list[dict],
+) -> None:
+    """Build chronological frames using this exception's frames as backbone.
+
+    Recursively inserts inner exception frames at the appropriate positions.
+    """
+    # Find if there's an inner exception that links to one of our frames
+    inner_exc_idx = exc_idx - 1
+    inner_link = links[exc_idx] if exc_idx > 0 else None
+
+    # If we have an inner exception with a matched link, we need to:
+    # 1. Output frames from start up to (but not including) the except handler
+    # 2. Insert the inner exception's frames
+    # 3. Output the except handler frame and any frames after it
+
+    if inner_link and inner_link.matched and inner_exc_idx >= 0:
+        except_frame_idx = inner_link.outer_frame_idx
+        inner_exc = chain[inner_exc_idx]
+        inner_frames = inner_exc.get("frames", [])
+
+        # Output frames before the except handler (these are the call stack leading to try)
+        for frame_idx in range(except_frame_idx):
+            frame = frames[frame_idx]
+            chrono_frame = _copy_frame(frame)
+            chronological.append(chrono_frame)
+
+        # Recursively handle the inner exception
+        # Check if the inner exception itself has an even more inner exception
+        inner_inner_link = links[inner_exc_idx] if inner_exc_idx > 0 else None
+        if inner_inner_link and inner_inner_link.matched and inner_exc_idx > 0:
+            # Recursively build inner exception's frames
+            _build_backbone_frames(
+                chronological, inner_exc, inner_exc_idx, inner_frames, links, chain
+            )
         else:
-            # No link found, include all frames (may have duplicates)
-            start_frame_idx = 0
+            # No deeper nesting - just output inner exception's frames
+            for frame_idx, frame in enumerate(inner_frames):
+                chrono_frame = _copy_frame(frame)
+                is_last = frame_idx == len(inner_frames) - 1
+                if is_last:
+                    chrono_frame["exception"] = {
+                        "type": inner_exc.get("type"),
+                        "message": inner_exc.get("message"),
+                        "summary": inner_exc.get("summary"),
+                        "from": inner_exc.get("from"),
+                        "exc_idx": inner_exc_idx,
+                    }
+                chronological.append(chrono_frame)
 
-        for frame_idx, frame in enumerate(frames):
-            if frame_idx < start_frame_idx:
-                continue
-
-            # Create a copy of the frame to avoid modifying the original
+        # Now output the except handler frame and frames after it
+        for frame_idx in range(except_frame_idx, len(frames)):
+            frame = frames[frame_idx]
             chrono_frame = _copy_frame(frame)
 
-            # Determine if this frame needs special handling
-            is_first_included = frame_idx == start_frame_idx
+            is_except_entry = frame_idx == except_frame_idx
             is_last = frame_idx == len(frames) - 1
-            is_except_entry = (
-                is_first_included and exc_idx > 0 and link and link.matched
-            )
 
-            # For except entry frames, mark them specially. The frame already has
-            # lines trimmed to start from the except line (done in extract_source_lines)
-            # with Python's correct position marking preserved.
             if is_except_entry:
                 # Promote relevance to "except" if it was just a "call" frame
                 if chrono_frame.get("relevance") == "call":
                     chrono_frame["relevance"] = "except"
-                # Add display suffix for except frames (separate from function name)
                 chrono_frame["function_suffix"] = "⚡except"
 
-            # Add exception info to the error frame (last frame)
             if is_last:
                 chrono_frame["exception"] = {
                     "type": exc.get("type"),
@@ -427,8 +569,22 @@ def build_chronological_frames(chain: list[dict]) -> list[dict]:
                 }
 
             chronological.append(chrono_frame)
+    else:
+        # No inner exception link - just output all frames
+        for frame_idx, frame in enumerate(frames):
+            chrono_frame = _copy_frame(frame)
+            is_last = frame_idx == len(frames) - 1
 
-    return chronological
+            if is_last:
+                chrono_frame["exception"] = {
+                    "type": exc.get("type"),
+                    "message": exc.get("message"),
+                    "summary": exc.get("summary"),
+                    "from": exc.get("from"),
+                    "exc_idx": exc_idx,
+                }
+
+            chronological.append(chrono_frame)
 
 
 def _copy_frame(frame: dict) -> dict:

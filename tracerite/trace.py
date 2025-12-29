@@ -287,10 +287,20 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
         lines, start = inspect.getsourcelines(frame)
         if start == 0:
             start = 1
+
+        # Check if lineno is inside an except handler BEFORE trimming
+        # This ensures we include the except line even for notebook cells
+        except_start = _find_except_start_for_line(frame, lineno)
+
         # For notebook cells, show only the error lines (no context)
         # For regular files, show 10 lines before and 2 lines after
+        # Exception: if we're in an except block, ensure except line is included
         if notebook_cell:
-            lines_before = 0
+            if except_start is not None and except_start >= start:
+                # In except block: include from except line to lineno
+                lines_before = lineno - except_start
+            else:
+                lines_before = 0
             lines_after = (end_lineno - lineno) if end_lineno else 0
         else:
             lines_before = 10
@@ -303,7 +313,7 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
         start += max(0, lineno - start - lines_before)
 
         # If lineno is inside an except handler, trim to start from the except line
-        except_start = _find_except_start_for_line(frame, lineno)
+        # (For non-notebook cells, this may still trim if lines_before > distance to except)
         if except_start is not None and except_start > start:
             skip = except_start - start
             if skip < len(lines):  # pragma: no branch
@@ -313,6 +323,10 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
         # Calculate error line position
         error_idx = lineno - start
         end_idx = (end_lineno - start) if end_lineno else error_idx
+
+        # Safety check: ensure error_idx is valid
+        if not lines or error_idx < 0 or error_idx >= len(lines):
+            return "", lineno, ""
 
         # Get the indentation of the first marked line (error line) before any dedenting
         error_indent = 0
@@ -351,6 +365,21 @@ def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False)
         return "".join(lines), start, common_indent
     except OSError:
         return "", lineno, ""  # Source not available (non-Python module)
+
+
+def _get_full_source(frame):
+    """Get the full source code for a frame using inspect.
+
+    Returns (source, start_line) tuple. This works with any source Python
+    knows about, including notebook cells and exec'd strings.
+    """
+    try:
+        lines, start = inspect.getsourcelines(frame)
+        if start == 0:
+            start = 1
+        return "".join(lines), start
+    except OSError:
+        return None, None
 
 
 def _libdir_match(path):
@@ -774,6 +803,10 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         if not lines and relevance == "call":
             continue
 
+        # Get full source for chain analysis (AST parsing for try-except matching)
+        # This uses inspect which works with any source Python knows about
+        full_source, full_source_start = _get_full_source(frame)
+
         # For comprehensions/generators, trim context to just the expression
         lines, start = _trim_source_to_comprehension(lines, lineno, start)
         # Recalculate common indent after trimming and dedent again if needed
@@ -783,6 +816,8 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         # Total indent removed is original + any extra from trimming
         total_indent = len(original_common_indent) + len(extra_indent)
 
+        # Preserve original filename for chain analysis (needed for AST parsing)
+        original_filename = filename
         filename, location, urls = format_location(filename, lineno)
         function = _get_qualified_function_name(frame, function)
 
@@ -825,6 +860,7 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
                 "id": f"tb-{token_urlsafe(12)}",
                 "relevance": relevance,
                 "filename": filename,
+                "original_filename": original_filename,  # For chain analysis AST parsing
                 "location": location,
                 "codeline": codeline[0].strip() if codeline else None,
                 "range": Range(lineno, pos_end_lineno or lineno, start_col, end_col)
@@ -837,6 +873,9 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
                 "function": function,
                 "urls": urls,
                 "variables": extract_variables(frame.f_locals, variable_source),
+                # Full source for chain analysis (try-except matching via AST)
+                "full_source": full_source,
+                "full_source_start": full_source_start,
             }
         )
 
