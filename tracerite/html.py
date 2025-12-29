@@ -119,8 +119,18 @@ def _chronological_output(
             _exception_banner(doc, exc_info)
         return
 
+    _render_frame_list(doc, chrono_frames, local_urls=local_urls)
+
+
+def _render_frame_list(
+    doc: Any,
+    frames: list[dict[str, Any]],
+    *,
+    local_urls: bool = False,
+) -> None:
+    """Render a list of chronological frames, handling parallel branches."""
     # Collapse consecutive call runs
-    limited_frames = _collapse_call_runs(chrono_frames, min_run_length=10)
+    limited_frames = _collapse_call_runs(frames, min_run_length=10)
 
     for frinfo in limited_frames:
         if frinfo is ...:
@@ -129,6 +139,7 @@ def _chronological_output(
 
         relevance = frinfo.get("relevance", "call")
         exc_info = frinfo.get("exception")
+        parallel_branches = frinfo.get("parallel")
 
         attrs = {
             "class_": f"traceback-details traceback-{relevance}",
@@ -163,9 +174,29 @@ def _chronological_output(
                 _traceback_detail_chrono(doc, frinfo)
                 variable_inspector(doc, frinfo.get("variables", []))
 
-        # Print exception info AFTER the error frame
+        # Render parallel branches (subexceptions) before the exception banner
+        if parallel_branches:
+            _render_parallel_branches(doc, parallel_branches, local_urls=local_urls)
+
+        # Print exception info AFTER the error frame (and parallel branches)
         if exc_info:
             _exception_banner(doc, exc_info)
+
+
+def _render_parallel_branches(
+    doc: Any,
+    branches: list[list[dict[str, Any]]],
+    *,
+    local_urls: bool = False,
+) -> None:
+    """Render parallel exception branches from an ExceptionGroup.
+
+    Each branch is rendered side by side.
+    """
+    with doc.div(class_="parallel-branches"):
+        for branch in branches:
+            with doc.div(class_="parallel-branch"):
+                _render_frame_list(doc, branch, local_urls=local_urls)
 
 
 def _exception_banner(doc: Any, exc_info: dict[str, Any]) -> None:

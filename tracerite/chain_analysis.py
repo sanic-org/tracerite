@@ -11,6 +11,12 @@ Key insight about Python exception frames:
 - Outer exception frames start from app entry point and traverse through
   the call stack. We search these to find a frame in an except handler
   that corresponds to the inner's try block.
+
+ExceptionGroups (Python 3.11+) introduce parallel timelines:
+- An ExceptionGroup contains multiple subexceptions that occurred concurrently
+- Each subexception has its own traceback chain
+- These parallel timelines are represented as branches in the chronological view
+- The ExceptionGroup's own traceback provides the surrounding context
 """
 
 from __future__ import annotations
@@ -413,6 +419,12 @@ def build_chronological_frames(chain: list[dict]) -> list[dict]:
     4. Any frames after except leading to the next exception
     5. ...and so on for nested chains
 
+    For ExceptionGroups:
+    - Subexceptions form parallel timelines that occurred concurrently
+    - These are represented as a special "parallel" frame containing multiple branches
+    - Each branch is itself a list of chronological frames
+    - The parallel block is inserted before the ExceptionGroup's error frame
+
     The key insight is that the LAST exception in the chain has the full call
     stack from entry point. Inner exceptions only have partial stacks starting
     from where they were raised. We use the outer exception's frames as the
@@ -431,6 +443,7 @@ def build_chronological_frames(chain: list[dict]) -> list[dict]:
         - "exception": dict with exception info (type, message, from) if this
           frame is where an exception was raised
         - "relevance": may be promoted to "except" for except handler frames
+        - "parallel": list of parallel branches (for ExceptionGroup subexceptions)
     """
     if not chain:
         return []
@@ -462,7 +475,7 @@ def build_chronological_frames(chain: list[dict]) -> list[dict]:
         # Inner exceptions are handled by _build_backbone_frames inserting them
 
     # Filter out hidden frames (kept for chain analysis, not for display)
-    chronological = [f for f in chronological if not f.get("hidden")]
+    chronological = _filter_hidden_frames(chronological)
 
     # Apply suppression for BaseExceptions (KeyboardInterrupt, SystemExit, etc.)
     # These should only show frames up to the last user code frame ("bug frame"),
@@ -470,6 +483,27 @@ def build_chronological_frames(chain: list[dict]) -> list[dict]:
     chronological = _apply_base_exception_suppression(chronological, chain)
 
     return chronological
+
+
+def _filter_hidden_frames(chronological: list[dict]) -> list[dict]:
+    """Filter out hidden frames, handling parallel branches recursively."""
+    result = []
+    for frame in chronological:
+        if frame.get("hidden"):
+            continue
+        # Recursively filter parallel branches
+        if "parallel" in frame:
+            filtered_branches = []
+            for branch in frame["parallel"]:
+                filtered_branch = _filter_hidden_frames(branch)
+                if filtered_branch:
+                    filtered_branches.append(filtered_branch)
+            if filtered_branches:
+                frame = {**frame, "parallel": filtered_branches}
+                result.append(frame)
+        else:
+            result.append(frame)
+    return result
 
 
 def _apply_base_exception_suppression(
@@ -511,18 +545,24 @@ def _apply_base_exception_suppression(
     # Suppress all frames after the bug frame
     result = chronological[: last_bug_frame_idx + 1]
 
-    # Transfer exception info from suppressed frames to the last shown frame
+    # Transfer exception info and parallel branches from suppressed frames to the last shown frame
     if result:
-        # Check if any suppressed frame had an exception attached
+        # Check if any suppressed frame had an exception or parallel branches attached
         suppressed_exception = None
+        suppressed_parallel = None
         for suppressed in chronological[last_bug_frame_idx + 1 :]:
-            if suppressed.get("exception"):
+            if suppressed.get("exception") and not suppressed_exception:
                 suppressed_exception = suppressed["exception"]
-                break
+            if suppressed.get("parallel") and not suppressed_parallel:
+                suppressed_parallel = suppressed["parallel"]
 
         # If we're suppressing frames with an exception, transfer it to the last shown frame
         if suppressed_exception and not result[-1].get("exception"):
             result[-1] = {**result[-1], "exception": suppressed_exception}
+
+        # Transfer parallel branches (subexceptions) to the last shown frame
+        if suppressed_parallel and not result[-1].get("parallel"):
+            result[-1] = {**result[-1], "parallel": suppressed_parallel}
 
         # Change relevance to "stop" to indicate suppression point
         # (unless it already has an exception, which sets its own relevance)
@@ -543,6 +583,7 @@ def _build_backbone_frames(
     """Build chronological frames using this exception's frames as backbone.
 
     Recursively inserts inner exception frames at the appropriate positions.
+    Also handles ExceptionGroup subexceptions as parallel branches.
     """
     # Find if there's an inner exception that links to one of our frames
     inner_exc_idx = exc_idx - 1
@@ -585,6 +626,8 @@ def _build_backbone_frames(
                         "from": inner_exc.get("from"),
                         "exc_idx": inner_exc_idx,
                     }
+                    # Handle subexceptions for inner ExceptionGroups
+                    _add_subexceptions_to_frame(chrono_frame, inner_exc)
                 chronological.append(chrono_frame)
 
         # Now output the except handler frame and frames after it
@@ -609,6 +652,8 @@ def _build_backbone_frames(
                     "from": exc.get("from"),
                     "exc_idx": exc_idx,
                 }
+                # Handle subexceptions for this ExceptionGroup
+                _add_subexceptions_to_frame(chrono_frame, exc)
 
             chronological.append(chrono_frame)
     else:
@@ -625,8 +670,36 @@ def _build_backbone_frames(
                     "from": exc.get("from"),
                     "exc_idx": exc_idx,
                 }
+                # Handle subexceptions for this ExceptionGroup
+                _add_subexceptions_to_frame(chrono_frame, exc)
 
             chronological.append(chrono_frame)
+
+
+def _add_subexceptions_to_frame(frame: dict, exc: dict) -> None:
+    """Add subexceptions from an ExceptionGroup as parallel branches.
+
+    If the exception has subexceptions (from an ExceptionGroup), each one
+    is processed into its own chronological frame list and added as a
+    parallel branch to the frame.
+
+    Args:
+        frame: The frame dict to add parallel branches to
+        exc: The exception dict that may contain subexceptions
+    """
+    subexceptions = exc.get("subexceptions")
+    if not subexceptions:
+        return
+
+    parallel_branches = []
+    for sub_chain in subexceptions:
+        # Build chronological frames for this subexception chain
+        sub_chrono = build_chronological_frames(sub_chain)
+        if sub_chrono:
+            parallel_branches.append(sub_chrono)
+
+    if parallel_branches:
+        frame["parallel"] = parallel_branches
 
 
 def _copy_frame(frame: dict) -> dict:

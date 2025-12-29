@@ -434,3 +434,33 @@
 :root .tracerite .traceback-stop .compact-call-line em {
   color: var(--tracerite-caret);
 }
+
+/* Parallel branches for ExceptionGroups - side by side layout */
+:root .tracerite .parallel-branches {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  align-items: flex-start;
+  border-left: .2em solid var(--tracerite-exception);
+  margin-left: 0.2em;
+  padding-left: 0.5em;
+}
+
+:root .tracerite .parallel-branch {
+  flex: 1 1 300px;
+  min-width: 250px;
+  max-width: 100%;
+  /* Same grid layout as .tracerite for consistent frame alignment */
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  align-items: baseline;
+  gap: 0 0.5em;
+  justify-content: start;
+}
+
+/* Exception headers and messages inside parallel branches span all columns */
+:root .tracerite .parallel-branch > h3,
+:root .tracerite .parallel-branch > pre.excmessage {
+  grid-column: 1 / -1;
+}

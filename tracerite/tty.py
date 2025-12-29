@@ -403,6 +403,13 @@ def _print_chronological(
             ellipsis_plain_len = len(INDENT) + 2 + len(f"{skipped} more calls")
             output_lines.append((ellipsis_line, ellipsis_plain_len, i, False))
 
+        # Check if this frame has parallel branches (subexceptions) to print
+        parallel_branches = info["frinfo"].get("parallel")
+        if parallel_branches:
+            # Build subexception summaries
+            sub_output = _build_subexception_summaries(parallel_branches, term_width)
+            exception_banners.append((len(output_lines), sub_output))
+
         # Check if this frame has exception info to print after it
         exc_info = info["frinfo"].get("exception")
         info["relevance"]
@@ -510,6 +517,93 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
                 output += f"{cont_prefix.rstrip()}{EOL}"
 
     return output
+
+
+def _build_subexception_summaries(
+    parallel_branches: list[list[dict[str, Any]]], term_width: int
+) -> str:
+    """Build one-line summaries for each subexception branch.
+
+    For TTY output, we don't have space for full tracebacks, so we show
+    a compact summary: location, function, exception type and message.
+    """
+    output = ""
+    prefix = f"{EXC}{BOX_V}{RESET} "
+    prefix_len = 2  # "│ "
+
+    for branch in parallel_branches:
+        # Get the summary for this branch
+        summary = _get_branch_summary(branch, term_width - prefix_len)
+        branch_line = f"{prefix}{summary}"
+        output += f"{branch_line}{EOL}"
+
+    return output
+
+
+def _get_branch_summary(branch: list[dict[str, Any]], max_width: int) -> str:
+    """Get a one-line summary for a subexception branch.
+
+    Returns something like "file.py:10 func: ValueError: message"
+    Truncates at the end if needed to fit max_width.
+    """
+    if not branch:
+        return f"{EXC}(empty){RESET}"
+
+    # Find the last frame with an exception (the final error in this branch)
+    last_exc_info = None
+    last_frame = None
+    last_frame_with_parallel = None
+    for frame in branch:
+        if frame.get("exception"):
+            last_exc_info = frame["exception"]
+            last_frame = frame
+        if frame.get("parallel"):
+            last_frame_with_parallel = frame
+
+    # If there are nested parallel branches, show them recursively
+    if last_frame_with_parallel and last_frame_with_parallel.get("parallel"):
+        nested = last_frame_with_parallel["parallel"]
+        nested_summaries = []
+        for nested_branch in nested:
+            nested_summaries.append(_get_branch_summary(nested_branch, max_width - 4))
+        return (
+            f"{EXC}[{RESET}"
+            + f"{EXC}, {RESET}".join(nested_summaries)
+            + f"{EXC}]{RESET}"
+        )
+
+    if not last_exc_info:
+        return f"{EXC}(no exception){RESET}"
+
+    # Build location:lineno function prefix
+    loc_prefix = ""
+    if last_frame:
+        location = last_frame.get("location", "")
+        frame_range = last_frame.get("range")
+        lineno = frame_range.lfirst if frame_range else ""
+        function = last_frame.get("function", "")
+
+        if location and lineno:
+            loc_prefix = f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET} "
+            if function:
+                loc_prefix += f"{FUNC}{function}{RESET}: "
+        elif function:
+            loc_prefix = f"{FUNC}{function}{RESET}: "
+
+    exc_type = last_exc_info.get("type", "Exception")
+    summary = last_exc_info.get("summary", "")
+
+    # Calculate plain text length (without ANSI codes)
+    loc_plain = ANSI_ESCAPE_RE.sub("", loc_prefix)
+    exc_part = f"{exc_type}: {summary}"
+    total_plain_len = len(loc_plain) + len(exc_part)
+
+    # Truncate summary if too long
+    if total_plain_len > max_width:
+        available = max_width - len(loc_plain) - len(exc_type) - 3  # ": " + "…"
+        summary = summary[:available] + "…" if available > 0 else "…"
+
+    return f"{loc_prefix}{EXC}{exc_type}:{RESET} {BOLD}{summary}{RESET}"
 
 
 def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:

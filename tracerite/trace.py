@@ -55,12 +55,27 @@ def build_chain_header(chain: list[dict]) -> str:
         return ""
 
     # Chain is oldest-first: chain[0] is first exception, chain[-1] is last (uncaught)
+    last_exc = chain[-1]
+
+    # For ExceptionGroups, show the final exception types from subexceptions
+    subexceptions = last_exc.get("subexceptions")
+    if subexceptions:
+        leaf_types = _collect_leaf_exception_types(subexceptions)
+        if leaf_types:
+            exc_type = " | ".join(leaf_types)
+            # Don't say "Uncaught" for ExceptionGroups, just show the leaf types
+            if len(chain) == 1:
+                return f"⚠️ {exc_type}"
+        else:
+            exc_type = last_exc.get("type", "Exception")
+    else:
+        exc_type = last_exc.get("type", "Exception")
+
     if len(chain) == 1:
-        exc_type = chain[0].get("type", "Exception")
         return f"⚠️ Uncaught {exc_type}"
 
     # Build from last to first
-    parts = [f"⚠️ {chain[-1].get('type', 'Exception')}"]
+    parts = [f"⚠️ {exc_type}"]
 
     # Add each previous exception with appropriate joiner
     for i in range(len(chain) - 2, -1, -1):
@@ -71,6 +86,29 @@ def build_chain_header(chain: list[dict]) -> str:
         parts.append(f"{joiner} {exc.get('type', 'Exception')}")
 
     return " ".join(parts)
+
+
+def _collect_leaf_exception_types(subexceptions: list[list[dict]]) -> list[str]:
+    """Collect the final exception types from all subexception chains.
+
+    For nested ExceptionGroups, recursively collects leaf exception types.
+    Returns a flat list of exception type names.
+    """
+    leaf_types = []
+    for sub_chain in subexceptions:
+        if not sub_chain:
+            continue
+        # Get the last exception in this chain (the one that was raised)
+        last_exc = sub_chain[-1]
+        # Check if this is itself an ExceptionGroup with subexceptions
+        nested_subs = last_exc.get("subexceptions")
+        if nested_subs:
+            # Recursively collect from nested ExceptionGroup
+            leaf_types.extend(_collect_leaf_exception_types(nested_subs))
+        else:
+            # This is a leaf exception
+            leaf_types.append(last_exc.get("type", "Exception"))
+    return leaf_types
 
 
 def extract_chain(exc=None, **kwargs) -> list:
@@ -184,6 +222,7 @@ def _set_relevances(frames: list, e: BaseException) -> None:
     """Set relevance for frames after extraction.
 
     - The last frame gets "error" (regular Exception) or "stop" (BaseException like KeyboardInterrupt)
+    - ExceptionGroups also get "stop" since the interesting parts are in subexceptions
     - If the last frame is in library code, the last user code frame gets "warning"
     - All other frames remain "call"
     """
@@ -191,7 +230,9 @@ def _set_relevances(frames: list, e: BaseException) -> None:
         return
 
     # Last frame is where the exception occurred
-    frames[-1]["relevance"] = "error" if isinstance(e, Exception) else "stop"
+    # ExceptionGroups get "stop" like BaseExceptions - the real errors are in subexceptions
+    is_regular_exception = isinstance(e, Exception) and not _is_exception_group(e)
+    frames[-1]["relevance"] = "error" if is_regular_exception else "stop"
 
     # Check if the last frame (error frame) is in user code
     last_filename = (
@@ -268,17 +309,108 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         logger.exception("Error extracting traceback")
         frames = None
 
-    return {
+    # Determine if this is a "stop" type exception (BaseException or ExceptionGroup)
+    # These suppress inner library frames, showing only up to the last user code frame.
+    # ExceptionGroups suppress because the interesting parts are in subexceptions.
+    is_stop_type = not isinstance(e, Exception) or _is_exception_group(e)
+
+    result = {
         "type": type(e).__name__,
         "message": message,
         "summary": summary,
         "from": f,
         "repr": repr(e),
         "frames": frames or [],
-        # BaseExceptions (KeyboardInterrupt, SystemExit, etc.) should suppress
-        # inner library frames, showing only up to the last user code frame
-        "suppress_inner": not isinstance(e, Exception),
+        "suppress_inner": is_stop_type,
     }
+
+    # Extract subexceptions for ExceptionGroups (Python 3.11+)
+    # These form parallel timelines within the group's traceback
+    subexceptions = _extract_subexceptions(
+        e, skip_outmost=skip_outmost, skip_until=skip_until
+    )
+    if subexceptions:
+        result["subexceptions"] = subexceptions
+
+    return result
+
+
+def _extract_subexceptions(
+    e, *, skip_outmost=0, skip_until=None
+) -> list[list[dict]] | None:
+    """Extract subexceptions from an ExceptionGroup.
+
+    ExceptionGroups (Python 3.11+) contain multiple exceptions that occurred
+    in parallel (e.g., in concurrent tasks). Each subexception forms its own
+    traceback chain that ran in parallel with others.
+
+    Args:
+        e: The exception to check for subexceptions
+        skip_outmost: Number of outermost frames to skip
+        skip_until: Skip frames until this string is found in filename
+
+    Returns:
+        List of exception chains (each chain is a list of exception info dicts),
+        or None if not an ExceptionGroup or has no subexceptions.
+        Each chain represents a parallel timeline of exceptions.
+    """
+    # Check if this is an ExceptionGroup (Python 3.11+)
+    # BaseExceptionGroup is the base class for both ExceptionGroup and BaseExceptionGroup
+    if not hasattr(e, "exceptions") or not isinstance(
+        getattr(e, "exceptions", None), (tuple, list)
+    ):
+        return None
+
+    subexceptions = e.exceptions
+    if not subexceptions:
+        return None
+
+    # Extract each subexception as its own chain
+    # Each subexception may itself be an ExceptionGroup with nested subexceptions
+    parallel_chains = []
+    for sub_exc in subexceptions:
+        # Recursively extract the chain for this subexception
+        # This handles nested ExceptionGroups and exception chaining within each sub
+        sub_chain = _extract_subexception_chain(
+            sub_exc, skip_outmost=skip_outmost, skip_until=skip_until
+        )
+        if sub_chain:
+            parallel_chains.append(sub_chain)
+
+    return parallel_chains if parallel_chains else None
+
+
+def _extract_subexception_chain(exc, *, skip_outmost=0, skip_until=None) -> list[dict]:
+    """Extract the full exception chain for a single subexception.
+
+    Similar to extract_chain but for a subexception that may have its own
+    __cause__ or __context__ chain.
+
+    Args:
+        exc: The subexception to extract
+        skip_outmost: Number of outermost frames to skip
+        skip_until: Skip frames until this string is found in filename
+
+    Returns:
+        List of exception info dicts, ordered from oldest to newest
+    """
+    chain = []
+    current = exc
+    while current:
+        chain.append(current)
+        current = (
+            current.__cause__ or None
+            if current.__suppress_context__
+            else current.__context__
+        )
+    # Reverse to get oldest first
+    chain = list(reversed(chain))
+
+    # Extract info for each exception in the chain
+    # Pass skip args only to the last one (the actual subexception)
+    kwargs = {"skip_outmost": skip_outmost, "skip_until": skip_until}
+    result = [extract_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
+    return result
 
 
 def _is_notebook_cell(filename):
@@ -287,6 +419,15 @@ def _is_notebook_cell(filename):
         return filename in ipython.compile._filename_map  # type: ignore[attr-defined]
     except (AttributeError, KeyError, TypeError):
         return False
+
+
+def _is_exception_group(e: BaseException) -> bool:
+    """Check if exception is an ExceptionGroup (Python 3.11+)."""
+    # Check for BaseExceptionGroup which is the base class for both
+    # ExceptionGroup and BaseExceptionGroup
+    return hasattr(e, "exceptions") and isinstance(
+        getattr(e, "exceptions", None), (tuple, list)
+    )
 
 
 def _find_except_start_for_line(frame, lineno: int) -> int | None:
