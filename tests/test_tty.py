@@ -2551,3 +2551,239 @@ class TestMultilineExceptionMessage:
         result_plain = ANSI_ESCAPE_RE.sub("", result)
         # Should contain first line
         assert "First line" in result_plain
+
+
+# Python 3.13+ has linecache._getline_from_code for interactive source retrieval
+requires_python_313 = pytest.mark.skipif(
+    sys.version_info < (3, 13),
+    reason="linecache._getline_from_code requires Python 3.13+",
+)
+
+
+@requires_python_313
+class TestInteractiveSourceRetrieval:
+    """Tests for source code retrieval from -c commands and interactive code.
+
+    These tests verify that tracerite can retrieve source code for code
+    that doesn't come from a file, such as python -c commands or REPL input.
+    This uses Python 3.13+ linecache._getline_from_code functionality.
+    """
+
+    def test_python_c_simple_function(self):
+        """Test source retrieval for a simple function in -c code."""
+        import subprocess
+
+        code = """
+import sys
+sys.path.insert(0, '.')
+from tracerite.tty import tty_traceback
+
+def broken():
+    x = 1 / 0
+
+try:
+    broken()
+except:
+    tty_traceback()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+        )
+        output = result.stderr + result.stdout
+
+        # Should contain the function source code
+        assert "def broken():" in output
+        assert "x = 1 / 0" in output
+        assert "ZeroDivisionError" in output
+
+    def test_python_c_nested_function(self):
+        """Test source retrieval for nested functions in -c code."""
+        import subprocess
+
+        code = """
+import sys
+sys.path.insert(0, '.')
+from tracerite.tty import tty_traceback
+
+def outer():
+    def inner():
+        return 1 / 0
+    return inner()
+
+try:
+    outer()
+except:
+    tty_traceback()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+        )
+        output = result.stderr + result.stdout
+
+        # Should contain the inner function source
+        assert "def inner():" in output
+        assert "return 1 / 0" in output
+
+    def test_python_c_module_level_error(self):
+        """Test source retrieval for module-level error in -c code."""
+        import subprocess
+
+        code = """
+import sys
+sys.path.insert(0, '.')
+from tracerite.tty import tty_traceback
+
+x = 10
+y = 0
+try:
+    result = x / y
+except:
+    tty_traceback()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+        )
+        output = result.stderr + result.stdout
+
+        # Should contain module-level source code
+        assert "result = x / y" in output
+        assert "ZeroDivisionError" in output
+
+    def test_python_c_multiline_function(self):
+        """Test source retrieval for multi-line function with variables."""
+        import subprocess
+
+        code = """
+import sys
+sys.path.insert(0, '.')
+from tracerite.tty import tty_traceback
+
+def calculate():
+    a = 5
+    b = 3
+    c = b - 3
+    return a / c
+
+try:
+    calculate()
+except:
+    tty_traceback()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+        )
+        output = result.stderr + result.stdout
+
+        # Should show the complete function with all its lines
+        assert "def calculate():" in output
+        assert "a = 5" in output
+        assert "b = 3" in output
+        assert "return a / c" in output
+
+    def test_python_c_function_does_not_include_following_code(self):
+        """Test that function source doesn't include code after the function."""
+        import subprocess
+
+        code = """
+import sys
+sys.path.insert(0, '.')
+from tracerite.tty import tty_traceback
+
+def broken():
+    x = 1 / 0
+
+def other_function():
+    pass
+
+SOME_CONSTANT = 42
+
+try:
+    broken()
+except:
+    tty_traceback()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+        )
+        output = result.stderr + result.stdout
+
+        # Should show broken() source
+        assert "def broken():" in output
+        assert "x = 1 / 0" in output
+        # Should NOT include the following function or constant
+        assert "def other_function():" not in output
+        assert "SOME_CONSTANT" not in output
+
+    def test_python_c_chained_exception(self):
+        """Test source retrieval for chained exceptions in -c code."""
+        import subprocess
+
+        code = """
+import sys
+sys.path.insert(0, '.')
+from tracerite.tty import tty_traceback
+
+def inner():
+    raise ValueError("inner error")
+
+def outer():
+    try:
+        inner()
+    except ValueError:
+        raise RuntimeError("outer error")
+
+try:
+    outer()
+except:
+    tty_traceback()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+        )
+        output = result.stderr + result.stdout
+
+        # Should show source for both exceptions
+        assert 'raise ValueError("inner error")' in output
+        assert 'raise RuntimeError("outer error")' in output
+
+    def test_python_c_class_method(self):
+        """Test source retrieval for class methods in -c code."""
+        import subprocess
+
+        code = """
+import sys
+sys.path.insert(0, '.')
+from tracerite.tty import tty_traceback
+
+class Calculator:
+    def divide(self, a, b):
+        return a / b
+
+try:
+    calc = Calculator()
+    calc.divide(1, 0)
+except:
+    tty_traceback()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+        )
+        output = result.stderr + result.stdout
+
+        # Should show the method source
+        assert "def divide(self, a, b):" in output
+        assert "return a / b" in output

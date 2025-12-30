@@ -1211,3 +1211,105 @@ def test_deduplicate_variables_invalid_range():
     _deduplicate_variables(mock_chain)
     # Variables should still be processed (possibly filtered out)
     assert "variables" in mock_chain[0]["frames"][0]
+
+
+# Python 3.13+ has linecache._getline_from_code for interactive source retrieval
+requires_python_313 = pytest.mark.skipif(
+    sys.version_info < (3, 13),
+    reason="linecache._getline_from_code requires Python 3.13+",
+)
+
+
+@requires_python_313
+class TestGetSourceLinesFromCode:
+    """Tests for _get_source_lines_from_code function.
+
+    These tests verify source code retrieval from code objects for interactive
+    code (REPL, -c commands) using Python 3.13+ linecache._getline_from_code.
+    """
+
+    def test_get_source_lines_from_code_function(self):
+        """Test retrieving source for a function code object."""
+        import linecache
+
+        from tracerite.trace import _get_source_lines_from_code
+
+        source = "def broken():\n    x = 1 / 0\n"
+        code = compile(source, "<test>", "exec")
+        # Register the source with linecache (simulates what Python does for -c)
+        linecache._register_code(code, source, "<test>")
+
+        # Get the function's code object
+        func_code = None
+        for const in code.co_consts:
+            if hasattr(const, "co_name") and const.co_name == "broken":
+                func_code = const
+                break
+
+        assert func_code is not None
+
+        lines, start = _get_source_lines_from_code(func_code, 2)
+        assert lines is not None
+        assert start == 1  # Function starts at line 1
+        assert "def broken():" in "".join(lines)
+        assert "x = 1 / 0" in "".join(lines)
+
+    def test_get_source_lines_from_code_module(self):
+        """Test retrieving source for module-level code object."""
+        import linecache
+
+        from tracerite.trace import _get_source_lines_from_code
+
+        source = "x = 10\ny = 0\nresult = x / y\n"
+        code = compile(source, "<test-module>", "exec")
+        linecache._register_code(code, source, "<test-module>")
+
+        lines, start = _get_source_lines_from_code(code, 3)
+        assert lines is not None
+        assert "result = x / y" in "".join(lines)
+
+    def test_get_source_lines_from_code_no_source(self):
+        """Test that function returns None when no source is available."""
+        from tracerite.trace import _get_source_lines_from_code
+
+        # Create code without registering source
+        source = "x = 1\n"
+        code = compile(source, "<unregistered>", "exec")
+        # Don't register it
+
+        lines, start = _get_source_lines_from_code(code, 1)
+        assert lines is None
+        assert start is None
+
+    def test_get_source_lines_from_code_uses_getblock(self):
+        """Test that function boundaries are determined by inspect.getblock."""
+        import linecache
+
+        from tracerite.trace import _get_source_lines_from_code
+
+        source = """def foo():
+    x = 1
+    return x
+
+def bar():
+    y = 2
+"""
+        code = compile(source, "<test-getblock>", "exec")
+        linecache._register_code(code, source, "<test-getblock>")
+
+        # Get foo's code object
+        foo_code = None
+        for const in code.co_consts:
+            if hasattr(const, "co_name") and const.co_name == "foo":
+                foo_code = const
+                break
+
+        assert foo_code is not None
+
+        lines, start = _get_source_lines_from_code(foo_code, 2)
+        assert lines is not None
+        joined = "".join(lines)
+        # Should include foo but NOT bar
+        assert "def foo():" in joined
+        assert "return x" in joined
+        assert "def bar():" not in joined

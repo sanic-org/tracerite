@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import inspect
+import linecache
 import re
 import sys
+import tokenize
 from collections import namedtuple
 from contextlib import suppress
 from pathlib import Path
@@ -505,6 +507,83 @@ def _find_except_start_for_line(frame, lineno: int) -> int | None:
     return None
 
 
+def _get_source_lines_from_code(code, lineno: int, end_lineno: int | None = None):
+    """Get source lines from a code object using Python 3.11+ linecache API.
+
+    This provides a fallback for getting source code for interactive code
+    (REPL, -c command, exec'd strings) where inspect.getsourcelines() fails.
+
+    Args:
+        code: The code object from a frame (frame.f_code)
+        lineno: The line number where the error occurred (1-based)
+        end_lineno: Optional end line number for multi-line errors
+
+    Returns:
+        (lines, start) tuple where lines is a list of source lines with
+        newlines, or (None, None) if source cannot be retrieved.
+    """
+    # Python 3.13+ has linecache._getline_from_code for interactive code
+    if not hasattr(linecache, "_getline_from_code"):
+        return None, None  # pragma: no cover
+
+    # First, check if we can get the error line at all
+    error_line = linecache._getline_from_code(code, lineno)
+    if not error_line:
+        return None, None
+
+    first_lineno = code.co_firstlineno
+    is_module = code.co_name in (
+        "<module>",
+        "<listcomp>",
+        "<dictcomp>",
+        "<setcomp>",
+        "<genexpr>",
+    )
+
+    # For module level, just get context around the error line
+    if is_module:
+        start = max(1, lineno - 10)
+        final = (end_lineno or lineno) + 3
+        lines = []
+        actual_start = None
+        for ln in range(start, final + 1):
+            line = linecache._getline_from_code(code, ln)
+            if line:
+                if actual_start is None:
+                    actual_start = ln
+                lines.append(line)
+            elif lines and ln > (end_lineno or lineno):  # pragma: no cover
+                break  # Stop at empty lines after error (e.g., end of source)
+        # Defensive: error_line check above guarantees we have lines
+        if not lines or actual_start is None:  # pragma: no cover
+            return None, None
+        return lines, actual_start
+
+    # For functions/methods, collect all lines starting from definition
+    # then use inspect.getblock to find the function boundaries
+    all_lines = []
+    ln = first_lineno
+    while True:
+        line = linecache._getline_from_code(code, ln)
+        if not line:
+            break
+        all_lines.append(line)
+        ln += 1
+
+    # Defensive: error_line check above guarantees we have lines
+    if not all_lines:  # pragma: no cover
+        return None, None
+
+    # Use inspect.getblock to find the function's extent (same as inspect.getsourcelines)
+    try:
+        block_lines = inspect.getblock(all_lines)
+    except (IndentationError, SyntaxError, tokenize.TokenError):  # pragma: no cover
+        # Fallback: just use lines up to a reasonable extent
+        block_lines = all_lines[: (end_lineno or lineno) - first_lineno + 3]
+
+    return block_lines, first_lineno
+
+
 def extract_source_lines(
     frame, lineno, end_lineno=None, *, notebook_cell=False, except_block=False
 ):
@@ -605,6 +684,18 @@ def extract_source_lines(
 
         return "".join(lines), start, common_indent
     except OSError:
+        # Fallback: try to get source from code object (Python 3.13+ interactive code)
+        # This is tested via subprocess tests in test_tty.py::TestInteractiveSourceRetrieval
+        code = frame.f_code if hasattr(frame, "f_code") else frame  # pragma: no cover
+        fallback_lines, fallback_start = (
+            _get_source_lines_from_code(  # pragma: no cover
+                code, lineno, end_lineno
+            )
+        )
+        if fallback_lines:  # pragma: no cover
+            common_indent = _calculate_common_indent(fallback_lines)
+            lines = [ln.removeprefix(common_indent) for ln in fallback_lines]
+            return "".join(lines), fallback_start, common_indent
         return "", lineno, ""  # Source not available (non-Python module)
 
 
@@ -812,11 +903,15 @@ def _find_clean_start_line(lines: list[str], target_idx: int) -> int:
     return target_idx  # pragma: no cover
 
 
-def _get_full_source(frame):
+def _get_full_source(frame, lineno=None):
     """Get the full source code for a frame using inspect.
 
     Returns (source, start_line) tuple. This works with any source Python
     knows about, including notebook cells and exec'd strings.
+
+    Args:
+        frame: The frame object or code object
+        lineno: Optional line number hint for fallback source retrieval
     """
     try:
         lines, start = inspect.getsourcelines(frame)
@@ -824,6 +919,16 @@ def _get_full_source(frame):
             start = 1
         return "".join(lines), start
     except OSError:
+        # Fallback: try to get source from code object (Python 3.13+ interactive code)
+        # This is tested via subprocess tests in test_tty.py::TestInteractiveSourceRetrieval
+        code = frame.f_code if hasattr(frame, "f_code") else frame  # pragma: no cover
+        if lineno is None:  # pragma: no cover
+            lineno = getattr(frame, "f_lineno", code.co_firstlineno)
+        fallback_lines, fallback_start = _get_source_lines_from_code(
+            code, lineno
+        )  # pragma: no cover
+        if fallback_lines:  # pragma: no cover
+            return "".join(fallback_lines), fallback_start
         return None, None
 
 
