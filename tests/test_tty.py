@@ -1901,8 +1901,9 @@ class TestTtyTracebackEdgeCases:
         )
 
         assert len(lines) == 1
-        assert "Source code not available" in lines[0][0]
-        assert "ValueError was raised from here" in lines[0][0]
+        assert "(no source code)" in lines[0][0]
+        # Error frames should show the error symbol
+        assert "💣" in lines[0][0]
 
     def test_frame_without_source_no_exception(self):
         """Test frame without source code and no exception info."""
@@ -1924,8 +1925,9 @@ class TestTtyTracebackEdgeCases:
         )
 
         assert len(lines) == 1
-        assert "Source code not available" in lines[0][0]
-        assert "was raised from here" not in lines[0][0]
+        assert "(no source code)" in lines[0][0]
+        # Call frames should show the call symbol
+        assert "➤" in lines[0][0]
 
     def test_chained_exception_with_banners(self):
         """Test chained exceptions produce banners correctly."""

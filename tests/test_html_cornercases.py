@@ -154,8 +154,8 @@ class TestHtmlCornercases:
             html = html_traceback(chain=[exc_info])
             html_str = str(html)
 
-            # Should show "Source code not available"
-            assert "Source code not available" in html_str
+            # Should show "(no source code)" with symbol
+            assert "(no source code)" in html_str
 
     def test_source_not_available_on_last_frame(self):
         """Test message when source is not available on the last frame (where error was raised).
@@ -174,9 +174,10 @@ class TestHtmlCornercases:
             html = html_traceback(chain=[exc_info])
             html_str = str(html)
 
-            # Should show both "Source code not available" and mention where error was raised
-            assert "Source code not available" in html_str
-            assert "raised from here" in html_str or "TypeError" in html_str
+            # Should show "(no source code)" with symbol
+            assert "(no source code)" in html_str
+            # Error frames show the bomb emoji
+            assert "💣" in html_str or "TypeError" in html_str
 
     def test_tooltip_formatting_exception(self):
         """Test exception handling in tooltip text formatting.
@@ -486,8 +487,8 @@ class TestHtmlCornercases:
             html = html_traceback(chain=[exc_info])
             html_str = str(html)
 
-            # Should show source not available but NOT the "raised from here" message
-            assert "Source code not available" in html_str
+            # Should show "(no source code)" with symbol
+            assert "(no source code)" in html_str
             assert "ValueError" in html_str
 
     def test_native_function_without_location(self):

@@ -292,14 +292,12 @@ def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
 def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
     """Render frame detail in chronological mode."""
     fragments = frinfo["fragments"]
-    exc_info = frinfo.get("exception")
+    relevance = frinfo["relevance"]
 
     if not fragments:
-        doc.p("Source code not available")
-        if exc_info:
-            doc(" but ").strong(exc_info.get("type", "Exception"))(
-                " was raised from here"
-            )
+        # Show "(no source code)" with the symbol emoji like a code line would have
+        symbol = symbols.get(relevance, "")
+        doc.p(f"(no source code) {symbol}")
         return
 
     with doc.pre, doc.code:

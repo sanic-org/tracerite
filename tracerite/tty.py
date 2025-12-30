@@ -701,7 +701,7 @@ def _build_chrono_frame_lines(
     fragments = info["fragments"]
     frame_range = info["frame_range"]
     relevance = info["relevance"]
-    exc_info = info["exc_info"]
+    info["exc_info"]
     frinfo = info["frinfo"]
 
     # Calculate padding for alignment
@@ -713,10 +713,9 @@ def _build_chrono_frame_lines(
     lines = []
 
     if not fragments:
-        if exc_info:
-            msg = f"Source code not available but {exc_info.get('type', 'Exception')} was raised from here"
-        else:
-            msg = "Source code not available"
+        # Show "(no source code)" with the symbol emoji like a code line would have
+        symbol = symbols.get(relevance, "")
+        msg = f"(no source code) {symbol}"
         line = f"{INDENT}{label} {NO_SOURCE}{msg}{RESET}"
         lines.append((line, _display_width(line), False))
         return lines
