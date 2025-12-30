@@ -19,7 +19,7 @@ from tracerite.fastapi import patch_fastapi
 # Load TraceRite extension before creating the app
 patch_fastapi()
 
-app = FastAPI(title="TraceriteDemo", debug=True)
+app = FastAPI(title="TraceRiteDemo", debug=True)
 
 
 # Deep call chain example - each function in a different frame

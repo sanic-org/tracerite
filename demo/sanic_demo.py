@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from sanic import Request, Sanic, response
 
-app = Sanic("TraceriteDemo")
+app = Sanic("TraceRiteDemo")
 
 
 # Deep call chain example - each function in a different frame
