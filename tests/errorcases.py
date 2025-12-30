@@ -180,3 +180,106 @@ def multiline_before_error(a, b):
 def comprehension_error():
     """Error inside a list comprehension."""
     return [x / 0 for x in [1, 2, 3]]
+
+
+def exception_group_with_frames():
+    """Create an ExceptionGroup where subexceptions have proper tracebacks.
+
+    This is needed because inline exceptions like ExceptionGroup("test", [ValueError("a")])
+    don't have tracebacks attached to them.
+    """
+    import sys
+
+    if sys.version_info < (3, 11):
+        raise RuntimeError("ExceptionGroup requires Python 3.11+")
+
+    def raise_value_error():
+        raise ValueError("value error with frames")
+
+    def raise_type_error():
+        raise TypeError("type error with frames")
+
+    # Capture exceptions with full tracebacks
+    exceptions = []
+    try:
+        raise_value_error()
+    except Exception as e:
+        exceptions.append(e)
+    try:
+        raise_type_error()
+    except Exception as e:
+        exceptions.append(e)
+
+    raise ExceptionGroup("multiple errors", exceptions)  # noqa: F821
+
+
+def long_arguments_error():
+    """Error in a function call with very long arguments (>20 chars).
+
+    This triggers the em collapse code path in both HTML and TTY rendering.
+    """
+    max("this_is_a_very_long_string_argument", 123)
+
+
+def nested_exception_group():
+    """Create a nested ExceptionGroup for testing.
+
+    This creates an ExceptionGroup containing another ExceptionGroup.
+    """
+    import sys
+
+    if sys.version_info < (3, 11):
+        raise RuntimeError("ExceptionGroup requires Python 3.11+")
+
+    def raise_inner():
+        raise ValueError("inner error")
+
+    def raise_outer():
+        raise TypeError("outer error")
+
+    inner_exceptions = []
+    try:
+        raise_inner()
+    except Exception as e:
+        inner_exceptions.append(e)
+
+    outer_exceptions = []
+    try:
+        raise_outer()
+    except Exception as e:
+        outer_exceptions.append(e)
+    outer_exceptions.append(ExceptionGroup("inner group", inner_exceptions))  # noqa: F821
+
+    raise ExceptionGroup("outer group", outer_exceptions)  # noqa: F821
+
+
+def multiline_exception_message():
+    """Raise an exception with a multiline message."""
+    raise ValueError(
+        "First line of error\nSecond line with details\nThird line with more info"
+    )
+
+
+def empty_second_line_exception():
+    """Raise an exception with an empty line in the middle."""
+    raise ValueError("First line\n\nThird line after empty")
+
+
+def base_exception_error():
+    """Raise a BaseException (KeyboardInterrupt) for testing stop frame relevance."""
+    raise KeyboardInterrupt("User cancelled")
+
+
+def trailing_newline_message():
+    """Raise an exception with only trailing newline (empty rest after split)."""
+    raise ValueError("Single line with trailing\n")
+
+
+def long_args_with_suffix():
+    """Error in function call with long args followed by more code.
+
+    This tests the collapse em code path where there's code after the em.
+    """
+    # Call max with long arg, then access something on result
+    result = max("this_is_a_very_long_string_argument", 123)
+    return result + 1  # This line won't execute but shows pattern

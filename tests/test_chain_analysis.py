@@ -3,6 +3,9 @@
 from tracerite.chain_analysis import (
     TryExceptBlock,
     TryExceptVisitor,
+    _apply_base_exception_suppression,
+    _filter_hidden_frames,
+    _find_chain_link,
     _get_frame_lineno,
     analyze_exception_chain_links,
     build_chronological_frames,
@@ -10,6 +13,7 @@ from tracerite.chain_analysis import (
     find_matching_try_for_inner_exception,
     find_try_block_for_except_line,
     parse_source_for_try_except,
+    parse_source_string_for_try_except,
 )
 from tracerite.trace import Range, extract_chain
 
@@ -531,3 +535,443 @@ class TestBuildChronologicalFrames:
         assert exc_frames[1]["exception"]["from"] == "cause"
         # Third was implicit context
         assert exc_frames[2]["exception"]["from"] == "context"
+
+
+class TestParseSourceStringForTryExcept:
+    """Tests for parse_source_string_for_try_except function."""
+
+    def test_empty_source_returns_empty_list(self):
+        """Test that empty source string returns empty list (line 170)."""
+        blocks = parse_source_string_for_try_except("")
+        assert blocks == []
+
+    def test_start_line_equals_one(self):
+        """Test parsing with start_line=1 (default, line 202)."""
+        source = """
+try:
+    x = 1
+except Exception:
+    pass
+"""
+        blocks = parse_source_string_for_try_except(source, start_line=1)
+        assert len(blocks) == 1
+        # Line numbers should not be adjusted when start_line=1
+        assert blocks[0].try_start == 2  # Line 2 in the source
+
+    def test_start_line_adjustment(self):
+        """Test that line numbers are adjusted when start_line != 1."""
+        source = """try:
+    x = 1
+except Exception:
+    pass
+"""
+        # Parse with offset
+        blocks = parse_source_string_for_try_except(source, start_line=10)
+        assert len(blocks) == 1
+        # Line numbers should be adjusted by offset
+        assert blocks[0].try_start == 10  # Was 1, +9 offset
+
+    def test_invalid_syntax_returns_empty(self):
+        """Test that invalid syntax returns empty list."""
+        blocks = parse_source_string_for_try_except("def invalid syntax:")
+        assert blocks == []
+
+
+class TestFindChainLinkFallbacks:
+    """Tests for _find_chain_link fallback paths."""
+
+    def test_no_full_source_fallback_to_file(self):
+        """Test fallback to file-based parsing when full_source not available (lines 347-352)."""
+        # Create a chain where inner frame has no full_source
+        try:
+            raise ValueError("inner")
+        except ValueError:
+            try:
+                raise RuntimeError("outer")
+            except RuntimeError as e:
+                chain = extract_chain(e)
+
+        # Remove full_source from inner frame to trigger fallback
+        if len(chain) >= 2 and chain[0]["frames"]:
+            chain[0]["frames"][0].pop("full_source", None)
+            # Keep the filename so file-based parsing works
+
+        # Should still work with file-based fallback
+        links = analyze_exception_chain_links(chain)
+        assert len(links) == 2
+
+    def test_no_filename_returns_none(self):
+        """Test that missing filename in fallback returns None (line 351)."""
+        try:
+            raise ValueError("inner")
+        except ValueError:
+            try:
+                raise RuntimeError("outer")
+            except RuntimeError as e:
+                chain = extract_chain(e)
+
+        # Remove both full_source and filename
+        if len(chain) >= 2 and chain[0]["frames"]:
+            chain[0]["frames"][0].pop("full_source", None)
+            chain[0]["frames"][0]["filename"] = None
+            chain[0]["frames"][0]["original_filename"] = None
+
+        links = analyze_exception_chain_links(chain)
+        # Link analysis should return None for the second exception
+        assert links[1] is None
+
+    def test_frame_lineno_none_skipped(self):
+        """Test that frames with no lineno are skipped (line 363)."""
+        try:
+            raise ValueError("inner")
+        except ValueError:
+            try:
+                raise RuntimeError("outer")
+            except RuntimeError as e:
+                chain = extract_chain(e)
+
+        # Remove lineno from outer frames
+        if len(chain) >= 2 and chain[1]["frames"]:
+            for frame in chain[1]["frames"]:
+                frame.pop("lineno", None)
+                frame.pop("linenostart", None)
+                frame.pop("range", None)
+
+        links = analyze_exception_chain_links(chain)
+        # Should still have links list, but the link should be None
+        assert len(links) == 2
+
+    def test_no_matching_block_returns_none(self):
+        """Test that no matching try-except block returns None (line 379)."""
+        # Create mock chain data where try-except blocks don't match
+        inner_exc = {
+            "type": "ValueError",
+            "frames": [
+                {
+                    "filename": "/nonexistent/path.py",
+                    "lineno": 100,  # Not in any try block
+                }
+            ],
+        }
+        outer_exc = {
+            "type": "RuntimeError",
+            "frames": [
+                {
+                    "filename": "/nonexistent/path.py",
+                    "lineno": 200,  # Not in any except block
+                }
+            ],
+        }
+        # _find_chain_link should return None since no try-except can be found
+        result = _find_chain_link(inner_exc, outer_exc)
+        assert result is None
+
+
+class TestFilterHiddenFrames:
+    """Tests for _filter_hidden_frames function."""
+
+    def test_filters_hidden_frames(self):
+        """Test that hidden frames are filtered out (line 493)."""
+        frames = [
+            {"lineno": 1, "hidden": False},
+            {"lineno": 2, "hidden": True},  # Should be filtered
+            {"lineno": 3},  # No hidden key = not hidden
+        ]
+        result = _filter_hidden_frames(frames)
+        assert len(result) == 2
+        assert result[0]["lineno"] == 1
+        assert result[1]["lineno"] == 3
+
+    def test_filters_parallel_branches_recursively(self):
+        """Test that parallel branches are filtered recursively (lines 496-503)."""
+        frames = [
+            {
+                "lineno": 1,
+                "parallel": [
+                    [
+                        {"lineno": 10, "hidden": False},
+                        {"lineno": 11, "hidden": True},  # Should be filtered
+                    ],
+                    [
+                        {"lineno": 20, "hidden": True},  # All hidden
+                        {"lineno": 21, "hidden": True},
+                    ],
+                ],
+            },
+        ]
+        result = _filter_hidden_frames(frames)
+        assert len(result) == 1
+        # First parallel branch should have hidden frames filtered
+        assert len(result[0]["parallel"]) == 1  # Second branch was all hidden
+        assert len(result[0]["parallel"][0]) == 1  # Only non-hidden frame left
+        assert result[0]["parallel"][0][0]["lineno"] == 10
+
+    def test_empty_parallel_branches_removed(self):
+        """Test that empty parallel branches after filtering are removed."""
+        frames = [
+            {
+                "lineno": 1,
+                "parallel": [
+                    [{"lineno": 10, "hidden": True}],  # All hidden
+                ],
+            },
+        ]
+        result = _filter_hidden_frames(frames)
+        # The frame with empty parallel branches should not be included
+        assert len(result) == 0
+
+
+class TestApplyBaseExceptionSuppression:
+    """Tests for _apply_base_exception_suppression function."""
+
+    def test_no_suppression_without_flag(self):
+        """Test that suppression doesn't happen without suppress_inner flag."""
+        chronological = [
+            {"lineno": 1, "relevance": "call"},
+            {"lineno": 2, "relevance": "warning"},
+            {"lineno": 3, "relevance": "error"},
+        ]
+        chain = [{"type": "ValueError"}]  # No suppress_inner
+        result = _apply_base_exception_suppression(chronological, chain)
+        assert result == chronological
+
+    def test_suppression_with_flag(self):
+        """Test suppression when suppress_inner=True (lines 539, 546-572)."""
+        chronological = [
+            {"lineno": 1, "relevance": "call"},
+            {"lineno": 2, "relevance": "warning"},  # Bug frame
+            {"lineno": 3, "relevance": "call"},  # Should be suppressed
+            {
+                "lineno": 4,
+                "relevance": "error",
+                "exception": {"type": "KeyboardInterrupt"},
+            },
+        ]
+        chain = [{"suppress_inner": True}]
+        result = _apply_base_exception_suppression(chronological, chain)
+        # Should only have frames up to bug frame
+        assert len(result) == 2
+        # Last frame should have exception transferred
+        assert result[-1].get("exception") == {"type": "KeyboardInterrupt"}
+        # Relevance should be changed to "stop"
+        assert result[-1]["relevance"] == "stop"
+
+    def test_suppression_transfers_parallel(self):
+        """Test that parallel branches are transferred during suppression."""
+        chronological = [
+            {"lineno": 1, "relevance": "warning"},  # Bug frame
+            {"lineno": 2, "relevance": "error", "parallel": [["branch1"]]},
+        ]
+        chain = [{"suppress_inner": True}]
+        result = _apply_base_exception_suppression(chronological, chain)
+        assert len(result) == 1
+        # Parallel should be transferred
+        assert result[-1].get("parallel") == [["branch1"]]
+
+    def test_suppression_no_bug_frame(self):
+        """Test suppression when no bug frame exists."""
+        chronological = [
+            {"lineno": 1, "relevance": "call"},
+            {"lineno": 2, "relevance": "error"},
+        ]
+        chain = [{"suppress_inner": True}]
+        result = _apply_base_exception_suppression(chronological, chain)
+        # Should return as-is when no bug frame found
+        assert result == chronological
+
+    def test_empty_chain(self):
+        """Test with empty chain."""
+        result = _apply_base_exception_suppression([], [])
+        assert result == []
+
+
+class TestGetFrameLinenoFallbacks:
+    """Tests for _get_frame_lineno function fallbacks."""
+
+    def test_uses_lineno_fallback(self):
+        """Test fallback to lineno when no range."""
+        frame = {"lineno": 15}
+        assert _get_frame_lineno(frame) == 15
+
+    def test_uses_linenostart_fallback(self):
+        """Test fallback to linenostart when no lineno."""
+        frame = {"linenostart": 20}
+        assert _get_frame_lineno(frame) == 20
+
+    def test_returns_none_when_no_line_info(self):
+        """Test returns None when no line info available."""
+        frame = {"filename": "test.py"}
+        assert _get_frame_lineno(frame) is None
+
+
+class TestFindChainLinkEdgeCases:
+    """Additional edge case tests for _find_chain_link."""
+
+    def test_inner_frame_lineno_none(self):
+        """Test _find_chain_link returns None when inner frame has no lineno (line 334)."""
+        inner_exc = {
+            "type": "ValueError",
+            "frames": [
+                {
+                    "filename": "/test/path.py",
+                    # No lineno, linenostart, or range
+                }
+            ],
+        }
+        outer_exc = {
+            "type": "RuntimeError",
+            "frames": [
+                {
+                    "filename": "/test/path.py",
+                    "lineno": 20,
+                }
+            ],
+        }
+        result = _find_chain_link(inner_exc, outer_exc)
+        assert result is None
+
+    def test_outer_frame_lineno_none_skipped(self):
+        """Test that outer frames with no lineno are skipped (line 363)."""
+        inner_exc = {
+            "type": "ValueError",
+            "frames": [
+                {
+                    "filename": "/test/path.py",
+                    "lineno": 10,
+                    "full_source": "try:\n    x = 1\nexcept:\n    pass\n",
+                    "full_source_start": 1,
+                }
+            ],
+        }
+        outer_exc = {
+            "type": "RuntimeError",
+            "frames": [
+                {
+                    "filename": "/test/path.py",
+                    # No lineno - should be skipped
+                },
+                {
+                    "filename": "/test/path.py",
+                    "lineno": 4,  # In except block
+                },
+            ],
+        }
+        # First outer frame has no lineno and should be skipped,
+        # second frame should match
+        result = _find_chain_link(inner_exc, outer_exc)
+        # Since source shows try on line 1 (try_start=1, try_end=2),
+        # and inner is at line 10 (not in try block 1-2), it won't match
+        # This test exercises the continue path but won't find a match
+        assert result is None
+
+    def test_loop_completes_without_match(self):
+        """Test that loop completes and returns None when no match (line 379)."""
+        inner_exc = {
+            "type": "ValueError",
+            "frames": [
+                {
+                    "filename": "/test/path.py",
+                    "lineno": 100,  # Not in any try block
+                    "full_source": "try:\n    x = 1\nexcept:\n    pass\n",
+                    "full_source_start": 1,
+                }
+            ],
+        }
+        outer_exc = {
+            "type": "RuntimeError",
+            "frames": [
+                {
+                    "filename": "/test/path.py",
+                    "lineno": 200,  # Not in any except block
+                },
+            ],
+        }
+        result = _find_chain_link(inner_exc, outer_exc)
+        assert result is None
+
+
+class TestSuppressionRelevanceChange:
+    """Tests for relevance change during suppression."""
+
+    def test_suppression_changes_call_to_stop(self):
+        """Test that relevance='call' is changed to 'stop' during suppression (line 569)."""
+        chronological = [
+            {"lineno": 1, "relevance": "warning"},  # Bug frame
+            {"lineno": 2, "relevance": "call"},  # Will be suppressed
+            {
+                "lineno": 3,
+                "relevance": "error",
+                "exception": {"type": "KeyboardInterrupt"},
+            },
+        ]
+        chain = [{"suppress_inner": True}]
+        result = _apply_base_exception_suppression(chronological, chain)
+        # Last frame should have relevance changed from warning to stop
+        assert result[-1]["relevance"] == "stop"
+
+    def test_suppression_keeps_error_relevance(self):
+        """Test that relevance='error' is not changed during suppression."""
+        chronological = [
+            {"lineno": 1, "relevance": "warning"},  # Bug frame
+            {
+                "lineno": 2,
+                "relevance": "error",
+                "exception": {"type": "KeyboardInterrupt"},
+            },
+        ]
+        chain = [{"suppress_inner": True}]
+        result = _apply_base_exception_suppression(chronological, chain)
+        # Only one frame returned (bug frame), and it should have the exception
+        assert len(result) == 1
+        assert result[-1].get("exception") == {"type": "KeyboardInterrupt"}
+        assert result[-1]["relevance"] == "stop"
+
+    def test_suppression_does_not_change_error_relevance(self):
+        """Test suppression with relevance='error' at bug frame (from edge case)."""
+        # In practice, bug frames always have "warning" relevance by design
+        # This test verifies the expected behavior
+        chronological = [
+            {"lineno": 1, "relevance": "warning"},
+            {"lineno": 2, "relevance": "error", "exception": {"type": "Error"}},
+        ]
+        chain = [{"suppress_inner": True}]
+        result = _apply_base_exception_suppression(chronological, chain)
+        assert len(result) == 1
+        # Bug frame's "warning" relevance gets changed to "stop"
+        assert result[-1]["relevance"] == "stop"
+
+    def test_suppression_not_change_except_relevance(self):
+        """Test that relevance='except' on non-bug frame is preserved before suppression."""
+        chronological = [
+            {"lineno": 1, "relevance": "except"},  # Not "warning" so not bug frame
+            {"lineno": 2, "relevance": "warning"},  # Bug frame
+            {"lineno": 3, "relevance": "error", "exception": {"type": "Error"}},
+        ]
+        chain = [{"suppress_inner": True}]
+        result = _apply_base_exception_suppression(chronological, chain)
+        # Frames up to and including bug frame are kept
+        assert len(result) == 2
+        # First frame keeps "except" relevance
+        assert result[0]["relevance"] == "except"
+        # Bug frame (last) changes to "stop"
+        assert result[-1]["relevance"] == "stop"
+
+    def test_suppression_with_existing_parallel(self):
+        """Test that existing parallel is not overwritten during suppression."""
+        chronological = [
+            {
+                "lineno": 1,
+                "relevance": "warning",
+                "parallel": [["existing"]],
+            },  # Bug frame with parallel
+            {
+                "lineno": 2,
+                "relevance": "error",
+                "parallel": [["suppressed"]],
+            },  # Will be suppressed
+        ]
+        chain = [{"suppress_inner": True}]
+        result = _apply_base_exception_suppression(chronological, chain)
+        assert len(result) == 1
+        # Existing parallel should not be overwritten
+        assert result[-1]["parallel"] == [["existing"]]

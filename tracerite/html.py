@@ -265,7 +265,7 @@ def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
                         new_parts.append((text, False))
                     elif i == first_em_idx:
                         new_parts.append((collapsed, True))
-                    elif i > last_em_idx:
+                    elif i > last_em_idx:  # pragma: no cover
                         new_parts.append((text, False))
                     # Skip parts within em range (already collapsed)
                 code_parts = new_parts

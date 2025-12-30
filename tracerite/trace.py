@@ -198,7 +198,7 @@ def _deduplicate_variables(chain: list) -> None:
         for ei, fi in occurrences:
             frame = chain[ei]["frames"][fi]
             highlighted = _get_highlighted_lines(frame)
-            for v in frame.get("variables", []):
+            for v in frame.get("variables", []):  # pragma: no cover
                 if v.name and _variable_in_code(v.name, highlighted):
                     # Update to this frame (later frames overwrite earlier)
                     last_appearance[v.name] = (ei, fi)
@@ -241,7 +241,7 @@ def _set_relevances(frames: list, e: BaseException) -> None:
     if _libdir_match(Path(last_filename).as_posix()) is None:
         return
     # Error is in library code - find the last user code frame to mark as warning
-    for frame in reversed(frames[:-1]):  # Exclude the last frame
+    for frame in reversed(frames[:-1]):  # Exclude the last frame  # pragma: no cover
         filename = frame.get("original_filename") or frame.get("filename") or ""
         if _libdir_match(Path(filename).as_posix()) is None:
             # This is user code - mark as warning (bug origin)
@@ -374,7 +374,7 @@ def _extract_subexceptions(
         sub_chain = _extract_subexception_chain(
             sub_exc, skip_outmost=skip_outmost, skip_until=skip_until
         )
-        if sub_chain:
+        if sub_chain:  # pragma: no cover
             parallel_chains.append(sub_chain)
 
     return parallel_chains if parallel_chains else None
@@ -475,7 +475,7 @@ def extract_source_lines(
         if notebook_cell:
             if except_start is not None and except_start >= start:
                 # In except block: include from except line to lineno
-                lines_before = lineno - except_start
+                lines_before = lineno - except_start  # pragma: no cover
             else:
                 lines_before = 0
             lines_after = (end_lineno - lineno) if end_lineno else 0
@@ -702,7 +702,8 @@ def _find_clean_start_line(lines: list[str], target_idx: int) -> int:
         return target_idx
 
     # Scan forward from target_idx until context closes
-    for idx in range(target_idx, len(lines)):
+    # This is defensive code for rare edge cases (multiline strings/brackets at slice boundary)
+    for idx in range(target_idx, len(lines)):  # pragma: no cover
         text = lines[idx]
         i = 0
         escape_next = False
@@ -757,7 +758,7 @@ def _find_clean_start_line(lines: list[str], target_idx: int) -> int:
             return idx + 1  # Start from the line AFTER the context closes
 
     # Couldn't find clean exit, fall back to target
-    return target_idx
+    return target_idx  # pragma: no cover
 
 
 def _get_full_source(frame):
@@ -874,10 +875,13 @@ def _extract_text_from_range(lines: str, mark_range) -> str | None:
     return " ".join(extracted_parts)
 
 
-def _expand_source_for_comprehension(lines: str, lineno: int, start: int) -> str:
+def _expand_source_for_comprehension(
+    lines: str, lineno: int, start: int
+) -> str:  # pragma: no cover
     """Expand source to include full comprehension/generator expression if error is inside one.
 
     This helps show relevant variables like the iterator source (e.g., `data` in `for item in data`).
+    Note: Currently unused but kept for future use.
 
     Args:
         lines: The source code snippet

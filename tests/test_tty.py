@@ -28,9 +28,11 @@ from tracerite.tty import (
     MARK_TEXT,
     RESET,
     VAR,
+    _build_subexception_summaries,
     _build_variable_inspector,
     _format_fragment,
     _format_fragment_call,
+    _get_branch_summary,
     _get_frame_label,
     load,
     symbols,
@@ -41,6 +43,7 @@ from tracerite.tty import (
 from .errorcases import (
     binomial_operator,
     chained_from_and_without,
+    exception_group_with_frames,
     function_with_many_locals,
     function_with_many_locals_chained,
     function_with_single_local,
@@ -2173,3 +2176,297 @@ class TestGetFrameLabelBranches:
         assert "test_func" in label_plain
         assert "file.py" in label_plain
         # Note: monkeypatch automatically restores at end of test
+
+
+class TestNotebookCellDisplay:
+    """Tests for notebook cell handling in TTY output."""
+
+    def test_frame_label_with_notebook_cell(self):
+        """Test frame label for notebook cell (line 647-653)."""
+        frinfo = {
+            "filename": "/path/to/notebook.ipynb",
+            "location": "Cell [5]",
+            "function": "test_func",
+            "relevance": "call",
+            "range": type("Range", (), {"lfirst": 10})(),
+            "notebook_cell": True,
+        }
+
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
+        # For notebook cells, lineno is not shown in the label
+        assert "Cell [5]" in label_plain
+        assert "test_func" in label_plain
+        # Should not have :10 in it (line number omitted for notebooks)
+        assert ":10" not in label_plain
+
+    def test_frame_label_with_notebook_cell_no_function(self):
+        """Test frame label for notebook cell without function (line 652-653)."""
+        frinfo = {
+            "filename": "/path/to/notebook.ipynb",
+            "location": "Cell [5]",
+            "function": "",
+            "relevance": "call",
+            "range": type("Range", (), {"lfirst": 10})(),
+            "notebook_cell": True,
+        }
+
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
+        assert "Cell [5]" in label_plain
+        # No function part
+        assert function_part == ""
+
+
+class TestFunctionSuffixDisplay:
+    """Tests for function suffix handling."""
+
+    def test_function_suffix_without_function_name(self):
+        """Test function_suffix when function_name is empty (line 643)."""
+        frinfo = {
+            "filename": "/path/to/file.py",
+            "location": "file.py",
+            "function": "",  # Empty function name
+            "function_suffix": "⚡except",  # But has suffix
+            "relevance": "except",
+            "range": type("Range", (), {"lfirst": 10})(),
+        }
+
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
+        # Should show the suffix even without function name
+        assert "⚡except" in label_plain
+
+
+class TestSubexceptionSummaries:
+    """Tests for _build_subexception_summaries and _get_branch_summary."""
+
+    def test_build_subexception_summaries(self):
+        """Test _build_subexception_summaries with parallel branches (lines 530-540)."""
+        # Create mock parallel branches
+        parallel_branches = [
+            [
+                {
+                    "filename": "/path/file1.py",
+                    "location": "file1.py",
+                    "function": "func1",
+                    "range": type("Range", (), {"lfirst": 10})(),
+                    "exception": {"type": "ValueError", "summary": "value error"},
+                }
+            ],
+            [
+                {
+                    "filename": "/path/file2.py",
+                    "location": "file2.py",
+                    "function": "func2",
+                    "range": type("Range", (), {"lfirst": 20})(),
+                    "exception": {"type": "TypeError", "summary": "type error"},
+                }
+            ],
+        ]
+
+        output = _build_subexception_summaries(parallel_branches, 120)
+        # Should contain both exception types
+        assert "ValueError" in output
+        assert "TypeError" in output
+
+    def test_get_branch_summary_empty_branch(self):
+        """Test _get_branch_summary with empty branch (lines 549-550)."""
+        result = _get_branch_summary([], 80)
+        assert "(empty)" in result
+
+    def test_get_branch_summary_no_exception(self):
+        """Test _get_branch_summary when no exception in frames (lines 575-576)."""
+        # Frames without exception info
+        branch = [
+            {
+                "filename": "/path/file.py",
+                "location": "file.py",
+                "function": "func",
+                "range": type("Range", (), {"lfirst": 10})(),
+            }
+        ]
+        result = _get_branch_summary(branch, 80)
+        assert "(no exception)" in result
+
+    def test_get_branch_summary_with_exception(self):
+        """Test _get_branch_summary with exception info (lines 579-612)."""
+        branch = [
+            {
+                "filename": "/path/file.py",
+                "location": "file.py",
+                "function": "func",
+                "range": type("Range", (), {"lfirst": 10})(),
+                "exception": {"type": "ValueError", "summary": "test error message"},
+            }
+        ]
+        result = _get_branch_summary(branch, 80)
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        assert "ValueError" in result_plain
+        assert "test error message" in result_plain
+
+    def test_get_branch_summary_truncation(self):
+        """Test _get_branch_summary truncates long messages (lines 608-610)."""
+        long_message = "x" * 200
+        branch = [
+            {
+                "filename": "/path/file.py",
+                "location": "file.py",
+                "function": "func",
+                "range": type("Range", (), {"lfirst": 10})(),
+                "exception": {"type": "ValueError", "summary": long_message},
+            }
+        ]
+        # Use a small width to force truncation
+        result = _get_branch_summary(branch, 50)
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should be truncated with ellipsis
+        assert "…" in result_plain
+        assert len(result_plain) <= 60  # Some buffer for ANSI codes
+
+    def test_get_branch_summary_with_nested_parallel(self):
+        """Test _get_branch_summary with nested parallel branches (lines 564-573)."""
+        # Create a branch where a frame has parallel sub-branches
+        branch = [
+            {
+                "filename": "/path/file.py",
+                "location": "file.py",
+                "function": "outer",
+                "range": type("Range", (), {"lfirst": 10})(),
+                "exception": {"type": "ExceptionGroup", "summary": "nested"},
+                "parallel": [
+                    [
+                        {
+                            "exception": {"type": "ValueError", "summary": "inner1"},
+                        }
+                    ],
+                    [
+                        {
+                            "exception": {"type": "TypeError", "summary": "inner2"},
+                        }
+                    ],
+                ],
+            }
+        ]
+        result = _get_branch_summary(branch, 120)
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should show nested exceptions in brackets
+        assert "[" in result_plain
+        assert "ValueError" in result_plain
+        assert "TypeError" in result_plain
+
+    def test_get_branch_summary_notebook_cell(self):
+        """Test _get_branch_summary with notebook cell (lines 592-595)."""
+        branch = [
+            {
+                "filename": "/path/notebook.ipynb",
+                "location": "Cell [5]",
+                "function": "func",
+                "range": type("Range", (), {"lfirst": 10})(),
+                "notebook_cell": True,
+                "exception": {"type": "ValueError", "summary": "test"},
+            }
+        ]
+        result = _get_branch_summary(branch, 80)
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should include Cell reference
+        assert "Cell [5]" in result_plain
+
+    def test_get_branch_summary_no_location_just_function(self):
+        """Test _get_branch_summary when only function is available (lines 596-597)."""
+        branch = [
+            {
+                "filename": "",
+                "location": "",
+                "function": "test_func",
+                "range": type("Range", (), {"lfirst": 10})(),
+                "exception": {"type": "ValueError", "summary": "test"},
+            }
+        ]
+        result = _get_branch_summary(branch, 80)
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should include function name
+        assert "test_func" in result_plain
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Exception groups require Python 3.11+"
+)
+class TestExceptionGroupTTY:
+    """Tests for ExceptionGroup TTY output with parallel branches."""
+
+    def test_exception_group_shows_parallel_branches(self):
+        """Test that ExceptionGroup triggers parallel branch display (lines 410-411)."""
+        output = io.StringIO()
+        try:
+            exception_group_with_frames()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        # Should show the exception group
+        assert "ExceptionGroup" in result
+        # Should show the sub-exceptions
+        assert "ValueError" in result
+        assert "TypeError" in result
+
+
+class TestLongArgumentsCollapse:
+    """Tests for collapsing long em parts in TTY output."""
+
+    @pytest.mark.skipif(
+        sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+    )
+    def test_long_arguments_em_collapse_tty(self):
+        """Test that long em parts (>20 chars) are collapsed in TTY output."""
+        from tests.errorcases import long_arguments_error
+
+        output = io.StringIO()
+        try:
+            long_arguments_error()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should contain the function name
+        assert "long_arguments_error" in result_plain or "max" in result_plain
+        # The collapsed em should contain ellipsis
+        # Long arguments get collapsed to first char + … + last char
+        assert "TypeError" in result
+
+
+class TestMultilineExceptionMessage:
+    """Tests for multiline exception messages in TTY output."""
+
+    def test_multiline_exception_message_tty(self):
+        """Test TTY output for exception with multiline message."""
+        from tests.errorcases import multiline_exception_message
+
+        output = io.StringIO()
+        try:
+            multiline_exception_message()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should contain first line
+        assert "First line of error" in result_plain
+        # Should contain subsequent lines
+        assert "Second line" in result_plain
+
+    def test_empty_line_exception_message_tty(self):
+        """Test TTY output for exception with empty line in message."""
+        from tests.errorcases import empty_second_line_exception
+
+        output = io.StringIO()
+        try:
+            empty_second_line_exception()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should contain first line
+        assert "First line" in result_plain

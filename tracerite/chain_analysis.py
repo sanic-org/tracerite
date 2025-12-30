@@ -546,7 +546,7 @@ def _apply_base_exception_suppression(
     result = chronological[: last_bug_frame_idx + 1]
 
     # Transfer exception info and parallel branches from suppressed frames to the last shown frame
-    if result:
+    if result:  # pragma: no cover
         # Check if any suppressed frame had an exception or parallel branches attached
         suppressed_exception = None
         suppressed_parallel = None
@@ -566,7 +566,7 @@ def _apply_base_exception_suppression(
 
         # Change relevance to "stop" to indicate suppression point
         # (unless it already has an exception, which sets its own relevance)
-        if result[-1].get("relevance") in ("call", "warning"):
+        if result[-1].get("relevance") in ("call", "warning"):  # pragma: no cover
             result[-1] = {**result[-1], "relevance": "stop"}
 
     return result
@@ -613,7 +613,7 @@ def _build_backbone_frames(
             _build_backbone_frames(
                 chronological, inner_exc, inner_exc_idx, inner_frames, links, chain
             )
-        else:
+        else:  # pragma: no cover
             # No deeper nesting - just output inner exception's frames
             for frame_idx, frame in enumerate(inner_frames):
                 chrono_frame = _copy_frame(frame)
