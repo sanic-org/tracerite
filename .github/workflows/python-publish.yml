@@ -29,3 +29,6 @@ jobs:
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.SANIC_PYPI_API_TOKEN }}
         run: uv publish
+
+      - name: Purge GitHub Camo cache for badges
+        uses: kevincobain2000/action-camo-purge@v1
