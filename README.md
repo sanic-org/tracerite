@@ -2,7 +2,7 @@
 
 **Beautiful, readable error messages for Python, with text and HTML formatting.**
 
-[![PyPI version](https://badge.fury.io/py/tracerite.svg)](https://badge.fury.io/py/tracerite)
+[![PyPI version](https://badge.fury.io/py/tracerite.svg)](https://pypi.org/project/tracerite/)
 ![Tests](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/img/tests-badge.svg)
 ![Coverage](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/img/coverage-badge.svg)
 
