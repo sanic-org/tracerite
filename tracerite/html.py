@@ -31,7 +31,7 @@ def _collapse_call_runs(
     run_start = None
 
     for i, frinfo in enumerate(frames):
-        if frinfo.get("relevance", "call") == "call":
+        if frinfo["relevance"] == "call":
             if run_start is None:
                 run_start = i
         else:
@@ -137,13 +137,13 @@ def _render_frame_list(
             doc.p("...", class_="traceback-ellipsis")
             continue
 
-        relevance = frinfo.get("relevance", "call")
+        relevance = frinfo["relevance"]
         exc_info = frinfo.get("exception")
         parallel_branches = frinfo.get("parallel")
 
         attrs = {
             "class_": f"traceback-details traceback-{relevance}",
-            "data_function": frinfo.get("function"),
+            "data_function": frinfo["function"],
             "id": frinfo["id"],
         }
         with doc.div(**attrs):
@@ -172,7 +172,7 @@ def _render_frame_list(
             # Animated wrapper for expandable content
             with doc.div(class_="expand-wrapper"), doc.div(class_="expand-content"):
                 _traceback_detail_chrono(doc, frinfo)
-                variable_inspector(doc, frinfo.get("variables", []))
+                variable_inspector(doc, frinfo["variables"])
 
         # Render parallel branches (subexceptions) before the exception banner
         if parallel_branches:
@@ -224,8 +224,8 @@ def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
     Em parts (typically function arguments) longer than 20 chars are
     collapsed to show only first and last char with ellipsis.
     """
-    fragments = frinfo.get("fragments", [])
-    relevance = frinfo.get("relevance", "call")
+    fragments = frinfo["fragments"]
+    relevance = frinfo["relevance"]
     symbol = symbols.get(relevance, symbols["call"])
     # Use highlight styling (yellow bg, red caret) for error/stop frames
     use_highlight = relevance in ("error", "stop")
@@ -291,7 +291,7 @@ def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
 
 def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
     """Render frame detail in chronological mode."""
-    fragments = frinfo.get("fragments", [])
+    fragments = frinfo["fragments"]
     exc_info = frinfo.get("exception")
 
     if not fragments:
@@ -303,7 +303,7 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
         return
 
     with doc.pre, doc.code:
-        start = frinfo.get("linenostart", 1)
+        start = frinfo["linenostart"]
         for line_info in fragments:
             line_num = line_info["line"]
             abs_line = start + line_num - 1
@@ -311,17 +311,11 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
 
             # Prepare tooltip attributes for tooltip span on final line
             tooltip_attrs = {}
-            frame_range = frinfo.get("range")
+            frame_range = frinfo["range"]
             if frame_range and abs_line == frame_range.lfinal:
-                relevance = frinfo.get("relevance", "call")
+                relevance = frinfo["relevance"]
                 symbol = symbols.get(relevance, relevance)
-                exc_info = frinfo.get("exception")
                 text = symdesc.get(relevance, relevance)
-                # Only suppress text when there's an exception AND symdesc is empty
-                # (error/stop have empty symdesc, but warning should still show)
-                if exc_info and not text:
-                    text = ""
-                text = text.replace("\n", " ")
                 tooltip_attrs = {
                     "class": "tracerite-tooltip",
                     "data-symbol": symbol,
@@ -394,40 +388,50 @@ def _frame_label(
     if notebook_cell:
         lineno = None
     else:
-        frame_range = frinfo.get("range")
+        # Use cursor_line for display (preferred error position)
+        cursor_line = frinfo.get("cursor_line") or frinfo.get("linenostart", 1)
         lineno = E.span(
-            f":{frame_range.lfinal if frame_range and frame_range.lfinal else frinfo['linenostart']}",
+            f":{cursor_line}",
             class_="frame-lineno",
         )
 
     # Colon after function name, or after location if no function
     colon = E.span(":", class_="frame-colon")
 
-    # Build location content (with or without line number)
-    location_content = (frinfo["location"], lineno) if lineno else (frinfo["location"],)
+    # Get VS Code URL if local_urls enabled
+    urls = frinfo.get("urls", {})
+    vscode_url = urls.get("VS Code") if local_urls else None
+
+    # Build location element - wrap in <a> if we have a VS Code URL
+    def render_location(with_colon: bool = False):
+        location_parts = (
+            (frinfo["location"], lineno) if lineno else (frinfo["location"],)
+        )
+        if with_colon:
+            location_parts = (*location_parts, colon)
+        if vscode_url:
+            doc.a(*location_parts, href=vscode_url, class_="frame-location")
+        else:
+            doc.span(*location_parts, class_="frame-location")
 
     if toggle_id:
         # Wrap both location and function in a label for click-to-toggle
         with doc.label(for_=toggle_id, class_="frame-label-wrapper"):
             if function_display:
-                doc.span(*location_content, class_="frame-location")
+                render_location()
                 doc.span(function_display, colon, class_="frame-function")
             else:
                 # No function: colon goes with location, empty span for grid column 2
-                doc.span(*location_content, colon, class_="frame-location")
+                render_location(with_colon=True)
                 doc.span(class_="frame-function")
     else:
         if function_display:
-            doc.span(*location_content, class_="frame-location")
+            render_location()
             doc.span(function_display, colon, class_="frame-function")
         else:
             # No function: colon goes with location, empty span for grid column 2
-            doc.span(*location_content, colon, class_="frame-location")
+            render_location(with_colon=True)
             doc.span(class_="frame-function")
-    urls = frinfo.get("urls", {})
-    if local_urls and urls:
-        for name, href in urls.items():
-            doc.a(name, href=href, class_="frame-link")
 
 
 def _render_fragment(doc: Any, fragment: dict[str, Any]) -> None:

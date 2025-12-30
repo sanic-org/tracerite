@@ -19,6 +19,7 @@ from tracerite.trace import Range, extract_chain
 
 from .errorcases import (
     chained_from_and_without,
+    deeply_nested_chain_with_calls,
     error_via_call_in_except,
     reraise_context,
     unrelated_error_in_except,
@@ -535,6 +536,121 @@ class TestBuildChronologicalFrames:
         assert exc_frames[1]["exception"]["from"] == "cause"
         # Third was implicit context
         assert exc_frames[2]["exception"]["from"] == "context"
+
+    def test_deeply_nested_chain_with_calls_chronological_order(self):
+        """Test three-level chain with function calls has correct chronological order.
+
+        This verifies the full call chain processing where function calls from
+        try and except blocks create additional frames in the correct order.
+        """
+        try:
+            deeply_nested_chain_with_calls()
+        except Exception as e:
+            chain = extract_chain(e)
+
+        chrono = build_chronological_frames(chain)
+
+        # Verify all three exceptions are present in chronological order
+        exc_frames = [f for f in chrono if f.get("exception")]
+        assert len(exc_frames) == 3, (
+            f"Expected 3 exception frames, got {len(exc_frames)}"
+        )
+
+        # Check exception types in order
+        exc_types = [f["exception"]["type"] for f in exc_frames]
+        assert exc_types == ["ValueError", "TypeError", "ZeroDivisionError"], (
+            f"Expected ['ValueError', 'TypeError', 'ZeroDivisionError'], got {exc_types}"
+        )
+
+        # Check exc_idx values are in chronological order
+        exc_indices = [f["exception"]["exc_idx"] for f in exc_frames]
+        assert exc_indices == [0, 1, 2], (
+            f"Expected chronological order [0, 1, 2], got {exc_indices}"
+        )
+
+        # Verify frame order: helper functions should appear in chronological order
+        frame_functions = [f.get("function", "") for f in chrono]
+
+        level1_idx = next(
+            (i for i, fn in enumerate(frame_functions) if "_raise_level1" in fn), -1
+        )
+        level2_idx = next(
+            (
+                i
+                for i, fn in enumerate(frame_functions)
+                if "_handle_and_raise_level2" in fn
+            ),
+            -1,
+        )
+        level3_idx = next(
+            (
+                i
+                for i, fn in enumerate(frame_functions)
+                if "_handle_and_divide_by_zero" in fn
+            ),
+            -1,
+        )
+
+        # All helper functions should be found
+        assert level1_idx >= 0, "_raise_level1 frame not found"
+        assert level2_idx >= 0, "_handle_and_raise_level2 frame not found"
+        assert level3_idx >= 0, "_handle_and_divide_by_zero frame not found"
+
+        # Helper functions should appear in chronological order
+        assert level1_idx < level2_idx < level3_idx, (
+            f"Functions not in chronological order: "
+            f"level1={level1_idx}, level2={level2_idx}, level3={level3_idx}"
+        )
+
+        # Verify 'from' fields are correct
+        assert exc_frames[0]["exception"]["from"] == "none"  # ValueError - original
+        assert (
+            exc_frames[1]["exception"]["from"] == "cause"
+        )  # TypeError - explicit from
+        assert (
+            exc_frames[2]["exception"]["from"] == "context"
+        )  # ZeroDivisionError - implicit
+
+    def test_inner_exception_without_frames(self):
+        """Test chronological frames when inner exception has no frames.
+
+        This covers the branch at line 646 where inner_frames is empty.
+        """
+        # Create a synthetic chain where inner exception has no frames
+        chain = [
+            {
+                "type": "ValueError",
+                "message": "inner error",
+                "summary": "inner error",
+                "from": "none",
+                "frames": [],  # No frames for inner exception
+            },
+            {
+                "type": "RuntimeError",
+                "message": "outer error",
+                "summary": "outer error",
+                "from": "context",
+                "frames": [
+                    {
+                        "id": "frame-1",
+                        "relevance": "error",
+                        "hidden": False,
+                        "filename": "test.py",
+                        "lineno": 10,
+                        "function": "test_func",
+                    }
+                ],
+            },
+        ]
+
+        chrono = build_chronological_frames(chain)
+
+        # Should still produce output for the outer exception
+        assert len(chrono) >= 1
+        exc_frames = [f for f in chrono if f.get("exception")]
+        # Only the outer exception should have a frame (inner has no frames)
+        assert len(exc_frames) == 1
+        assert exc_frames[0]["exception"]["type"] == "RuntimeError"
 
 
 class TestParseSourceStringForTryExcept:

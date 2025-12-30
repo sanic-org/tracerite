@@ -411,15 +411,14 @@ class TestHtmlCornercases:
             if exc_info["frames"]:
                 frame = exc_info["frames"][-1]
                 frame["urls"] = {
-                    "GitHub": "https://github.com/example/repo",
-                    "Local": "file:///path/to/file",
+                    "VS Code": "vscode://file/test.py:10",
                 }
 
             html = html_traceback(chain=[exc_info], local_urls=True)
             html_str = str(html)
 
-            # Should include the URLs
-            assert "GitHub" in html_str or "Local" in html_str
+            # Should include the VS Code URL as a link
+            assert "vscode://" in html_str
 
     def test_tooltip_with_newlines(self):
         """Test tooltip text with newlines that need to be replaced (line 130-131)."""

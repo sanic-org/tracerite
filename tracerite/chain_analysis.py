@@ -606,29 +606,10 @@ def _build_backbone_frames(
             chronological.append(chrono_frame)
 
         # Recursively handle the inner exception
-        # Check if the inner exception itself has an even more inner exception
-        inner_inner_link = links[inner_exc_idx] if inner_exc_idx > 0 else None
-        if inner_inner_link and inner_inner_link.matched and inner_exc_idx > 0:
-            # Recursively build inner exception's frames
-            _build_backbone_frames(
-                chronological, inner_exc, inner_exc_idx, inner_frames, links, chain
-            )
-        else:  # pragma: no cover
-            # No deeper nesting - just output inner exception's frames
-            for frame_idx, frame in enumerate(inner_frames):
-                chrono_frame = _copy_frame(frame)
-                is_last = frame_idx == len(inner_frames) - 1
-                if is_last:
-                    chrono_frame["exception"] = {
-                        "type": inner_exc.get("type"),
-                        "message": inner_exc.get("message"),
-                        "summary": inner_exc.get("summary"),
-                        "from": inner_exc.get("from"),
-                        "exc_idx": inner_exc_idx,
-                    }
-                    # Handle subexceptions for inner ExceptionGroups
-                    _add_subexceptions_to_frame(chrono_frame, inner_exc)
-                chronological.append(chrono_frame)
+        # Always recurse to handle even more inner exceptions (best effort)
+        _build_backbone_frames(
+            chronological, inner_exc, inner_exc_idx, inner_frames, links, chain
+        )
 
         # Now output the except handler frame and frames after it
         for frame_idx in range(except_frame_idx, len(frames)):
@@ -657,7 +638,22 @@ def _build_backbone_frames(
 
             chronological.append(chrono_frame)
     else:
-        # No inner exception link - just output all frames
+        # No matched inner exception link - but still include inner exceptions (best effort)
+        # First, recursively process any inner exceptions
+        if exc_idx > 0:
+            inner_exc = chain[exc_idx - 1]
+            inner_frames = inner_exc.get("frames", [])
+            if inner_frames:
+                _build_backbone_frames(
+                    chronological,
+                    inner_exc,
+                    exc_idx - 1,
+                    inner_frames,
+                    links,
+                    chain,
+                )
+
+        # Then output all frames for this exception
         for frame_idx, frame in enumerate(frames):
             chrono_frame = _copy_frame(frame)
             is_last = frame_idx == len(frames) - 1

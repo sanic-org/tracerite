@@ -283,3 +283,41 @@ def long_args_with_suffix():
     # Call max with long arg, then access something on result
     result = max("this_is_a_very_long_string_argument", 123)
     return result + 1  # This line won't execute but shows pattern
+
+
+# Helper functions for deeply nested exception chain testing
+def _raise_level1():
+    """Helper: raises the innermost ValueError."""
+    raise ValueError("level 1")
+
+
+def _handle_and_raise_level2(e):
+    """Helper: handles ValueError and raises TypeError from it."""
+    raise TypeError("level 2") from e
+
+
+def _handle_and_divide_by_zero():
+    """Helper: handles TypeError and raises ZeroDivisionError."""
+    0 / 0
+
+
+def deeply_nested_chain_with_calls():
+    """Create a three-level exception chain with function calls.
+
+    This exercises full call chain processing where function calls from try
+    and except blocks create additional frames. The expected chronological
+    order is:
+    1. Call to _raise_level1 -> ValueError
+    2. except handler calling _handle_and_raise_level2 -> TypeError
+    3. except handler calling _handle_and_divide_by_zero -> ZeroDivisionError
+    """
+    try:
+        try:
+            try:
+                _raise_level1()
+            except ValueError as e:
+                _handle_and_raise_level2(e)
+        except TypeError:
+            _handle_and_divide_by_zero()
+    except ZeroDivisionError:
+        raise  # Re-raise so caller can catch it

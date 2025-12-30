@@ -6,7 +6,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.hidden_module import internal_helper_function
-from tracerite.trace import extract_exception, extract_frames
+from tracerite.trace import (
+    Range,
+    compute_cursor_position,
+    extract_exception,
+    extract_frames,
+    format_location,
+)
 
 
 def _trigger_error_no_source():
@@ -448,8 +454,8 @@ hidden_frame()
                     # In the new API, we also have a range field
                     range_obj = error_frame.get("range")
 
-                    # The error is raised on line 14 in _trigger_error_no_source
-                    expected_lineno = 14
+                    # The error is raised on line 20 in _trigger_error_no_source
+                    expected_lineno = 20
 
                     # Verify the range contains the correct line number
                     if range_obj:
@@ -1338,3 +1344,82 @@ class TestHiddenFramesWithNoSource:
 
                 # Should have extracted frames
                 assert len(frames) > 0
+
+
+class TestComputeCursorPosition:
+    """Tests for compute_cursor_position function to cover edge cases."""
+
+    def test_single_range_not_list(self):
+        """Test line 56: em_ranges as a single Range (not a list).
+
+        This tests the elif isinstance(em_ranges, Range) branch when
+        em_ranges is passed as a single Range object rather than a list.
+        """
+        # Single Range, not wrapped in a list
+        em_range = Range(lfirst=5, lfinal=5, cbeg=10, cend=20)
+        linenostart = 1
+        common_indent = "    "  # 4 spaces
+
+        line, col = compute_cursor_position(
+            mark_range=None,
+            em_ranges=em_range,  # Single Range, not a list
+            linenostart=linenostart,
+            common_indent=common_indent,
+        )
+
+        # Expected: line = linenostart + lfinal - 1 = 1 + 5 - 1 = 5
+        # Expected: col = cend + indent_len = 20 + 4 = 24
+        assert line == 5, f"Expected line 5, got {line}"
+        assert col == 24, f"Expected col 24, got {col}"
+
+    def test_em_ranges_truthy_but_not_range_or_list(self):
+        """Test line 56->62: em_ranges is truthy but not Range or list.
+
+        This tests the branch where em_ranges passes the truthiness check
+        but fails both isinstance checks, falling through to mark_range.
+        """
+        # Pass a tuple (truthy, but not a Range or list)
+        # This exercises the elif False branch at line 56
+        mark_range = Range(lfirst=3, lfinal=3, cbeg=5, cend=15)
+        linenostart = 10
+
+        line, col = compute_cursor_position(
+            mark_range=mark_range,
+            em_ranges=(1, 2, 3, 4),  # Tuple - truthy but not Range or list
+            linenostart=linenostart,
+            common_indent="",
+        )
+
+        # Should fall through to mark_range handling
+        # Expected: line = linenostart + lfinal - 1 = 10 + 3 - 1 = 12
+        # Expected: col = cend + indent_len = 15 + 0 = 15
+        assert line == 12, f"Expected line 12, got {line}"
+        assert col == 15, f"Expected col 15, got {col}"
+
+
+class TestFormatLocation:
+    """Tests for format_location function to cover edge cases."""
+
+    def test_empty_filename_returns_unknown(self):
+        """Test line 881: when location is empty and filename is falsy.
+
+        This tests the fallback to '<unknown>' when no location can be
+        determined (filename is empty/None and no IPython mapping).
+        """
+        # Empty filename should result in '<unknown>' location
+        filename, location, urls = format_location("", lineno=1, col=1)
+
+        assert location == "<unknown>", f"Expected '<unknown>', got '{location}'"
+        assert filename == "", "Filename should remain empty"
+        assert urls == {}, "URLs should be empty dict"
+
+    def test_none_filename_returns_unknown(self):
+        """Test line 881: when location is empty and filename is None.
+
+        Another test for the '<unknown>' fallback path.
+        """
+        filename, location, urls = format_location(None, lineno=1, col=1)
+
+        assert location == "<unknown>", f"Expected '<unknown>', got '{location}'"
+        assert filename is None, "Filename should remain None"
+        assert urls == {}, "URLs should be empty dict"

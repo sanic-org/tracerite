@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 
 from tests.errorcases import (
     binomial_operator,
+    deeply_nested_chain_with_calls,
     exception_group_with_frames,
     max_type_error_case,
     multiline_marking,
@@ -291,6 +292,41 @@ def test_unrelated_error_finally_html_traceback():
     assert found_division, "No division operation found in mark elements"
 
 
+def test_deeply_nested_chain_with_calls_html_traceback():
+    """Test HTML output for three-level exception chain with function calls.
+
+    Chronological order is tested in test_chain_analysis.py. This test
+    verifies the HTML formatting doesn't crash and shows expected content.
+    """
+    try:
+        deeply_nested_chain_with_calls()
+    except Exception as e:
+        html_output = str(html_traceback(e))
+
+    soup = BeautifulSoup(html_output, "html.parser")
+
+    # Verify all three exception types appear in the HTML
+    assert "ValueError" in html_output
+    assert "TypeError" in html_output
+    assert "ZeroDivisionError" in html_output
+
+    # Verify exception messages appear
+    assert "level 1" in html_output
+    assert "level 2" in html_output
+    assert "division by zero" in html_output
+
+    # Verify helper function names appear (extra frames from calls)
+    assert "_raise_level1" in html_output
+    assert "_handle_and_raise_level2" in html_output
+    assert "_handle_and_divide_by_zero" in html_output
+
+    # Verify we have multiple traceback-details divs (one per exception frame)
+    traceback_details_list = soup.find_all("div", class_="traceback-details")
+    assert len(traceback_details_list) >= 3, (
+        f"Expected at least 3 traceback details divs, got {len(traceback_details_list)}"
+    )
+
+
 def test_html_traceback_comprehensive():
     """Test that HTML traceback works for all error cases."""
     test_functions = [
@@ -423,6 +459,8 @@ def test_html_frame_function_suffix_only():
         "function": "",  # Empty function name
         "function_suffix": "⚡except",  # But has suffix
         "relevance": "except",
+        "cursor_line": 10,
+        "notebook_cell": False,
     }
 
     import html5tagger
@@ -447,6 +485,8 @@ def test_html_frame_notebook_cell():
         "function": "test_func",
         "relevance": "call",
         "notebook_cell": True,
+        "cursor_line": 10,
+        "function_suffix": "",
     }
 
     import html5tagger
@@ -472,6 +512,8 @@ def test_html_frame_notebook_cell_no_function():
         "function": "",
         "relevance": "call",
         "notebook_cell": True,
+        "cursor_line": 10,
+        "function_suffix": "",
     }
 
     import html5tagger

@@ -17,6 +17,57 @@ from .syntaxerror import clean_syntax_error_message, extract_enhanced_positions
 # Position range: lines are 1-based inclusive, columns are 0-based exclusive
 Range = namedtuple("Range", ["lfirst", "lfinal", "cbeg", "cend"])
 
+
+def compute_cursor_position(
+    mark_range: Range | None,
+    em_ranges: Range | list[Range] | None,
+    linenostart: int,
+    common_indent: str = "",
+) -> tuple[int, int]:
+    """Compute the preferred cursor position from mark and emphasis ranges.
+
+    Prefers the end of emphasis (em) ranges if available, as these mark the
+    error position more precisely. Falls back to end of mark range, then
+    to line 1, column 0.
+
+    Args:
+        mark_range: The marked region Range, or None
+        em_ranges: The emphasis Range, list of Ranges, or None
+        linenostart: The starting line number of the displayed code (for conversion)
+        common_indent: The common indent string that was stripped (to restore original columns)
+
+    Returns:
+        Tuple of (line, column) where line is 1-based absolute line number
+        and column is 0-based.
+    """
+    indent_len = len(common_indent)
+
+    # Try emphasis ranges first (more precise error position)
+    if em_ranges:
+        if isinstance(em_ranges, list) and em_ranges:
+            # Use the last em range's end position
+            last_em = em_ranges[-1]
+            # Convert from context-relative to absolute line number
+            # lfinal is 1-based relative to displayed code, linenostart is absolute
+            line = linenostart + last_em.lfinal - 1
+            # cend is 0-based exclusive in dedented code, add indent for original
+            col = last_em.cend + indent_len
+            return (line, col)
+        elif isinstance(em_ranges, Range):
+            line = linenostart + em_ranges.lfinal - 1
+            col = em_ranges.cend + indent_len
+            return (line, col)
+
+    # Fall back to mark range
+    if mark_range:
+        line = linenostart + mark_range.lfinal - 1
+        col = mark_range.cend + indent_len
+        return (line, col)
+
+    # No range information available
+    return (linenostart, 0)
+
+
 # Will be set to an instance if loaded as an IPython extension by %load_ext
 ipython = None
 
@@ -784,7 +835,20 @@ def _libdir_match(path):
     return None
 
 
-def format_location(filename, lineno):
+def format_location(filename, lineno, col=1):
+    """Format location information for a frame.
+
+    Args:
+        filename: The source file path
+        lineno: Line number (1-based)
+        col: Column number (1-based, default 1)
+
+    Returns:
+        Tuple of (filename, location, urls) where:
+        - filename: Possibly shortened file path
+        - location: Display string for the location
+        - urls: Dict of URL schemes to URLs (e.g., VS Code, Jupyter)
+    """
     urls = {}
     location = None
     try:
@@ -795,7 +859,8 @@ def format_location(filename, lineno):
         pass
     if filename and Path(filename).is_file():
         fn = Path(filename).resolve()
-        urls["VS Code"] = f"vscode://file/{quote(fn.as_posix())}:{lineno}"
+        # vscode:// URLs use format vscode://file/path:line:col
+        urls["VS Code"] = f"vscode://file{quote(fn.as_posix())}:{lineno}:{col}"
         cwd = Path.cwd()
         if cwd in fn.parents:
             fn = fn.relative_to(cwd)
@@ -812,6 +877,9 @@ def format_location(filename, lineno):
                 else 0
             )
             location = filename[split:]
+    # Ensure location is never None (fallback for edge cases)
+    if not location:
+        location = "<unknown>"
     return filename, location, urls
 
 
@@ -1200,8 +1268,13 @@ def _extract_syntax_error_frame(e):
 
     fragments = _parse_lines_to_fragments(lines, mark_range, em_ranges)
 
+    # Compute cursor position (prefer em end, fall back to mark end)
+    cursor_line, cursor_col = compute_cursor_position(
+        mark_range, em_ranges, start, common_indent
+    )
+
     # Format location info (after enhanced positions may have updated lineno)
-    fmt_filename, location, urls = format_location(filename, lineno)
+    fmt_filename, location, urls = format_location(filename, cursor_line, cursor_col)
 
     # Get the code line for display
     codeline = lines_list[error_line_in_context - 1].strip() if lines_list else None
@@ -1216,10 +1289,13 @@ def _extract_syntax_error_frame(e):
         "range": Range(lineno, end_lineno or lineno, start_col, end_col)
         if start_col is not None
         else None,
+        "cursor_line": cursor_line,
+        "cursor_col": cursor_col,
         "linenostart": start,
         "lines": lines,
         "fragments": fragments,
         "function": None,
+        "function_suffix": "",
         "urls": urls,
         "variables": [],
     }
@@ -1296,7 +1372,6 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
 
         # Preserve original filename for chain analysis (needed for AST parsing)
         original_filename = filename
-        filename, location, urls = format_location(filename, lineno)
         function = _get_qualified_function_name(frame, function)
 
         error_line_in_context = lineno - start + 1
@@ -1330,6 +1405,17 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
         )
         fragments = _parse_lines_to_fragments(lines, mark_range, em_range)
 
+        # Compute cursor position (prefer em end, fall back to mark end)
+        # original_common_indent + extra_indent = total common indent removed
+        cursor_line, cursor_col = compute_cursor_position(
+            mark_range, em_range, start, original_common_indent + extra_indent
+        )
+
+        # Format location with cursor position for precise navigation
+        filename, location, urls = format_location(
+            original_filename, cursor_line, cursor_col
+        )
+
         # Extract variable source: use marked region + comprehension expansion if inside one
         variable_source = _get_variable_source_for_comprehension(
             lines, lineno, start, mark_range
@@ -1349,10 +1435,13 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
                 if start_col is not None
                 else None,
                 "lineno": lineno,  # Actual error line from traceback (always available)
+                "cursor_line": cursor_line,
+                "cursor_col": cursor_col,
                 "linenostart": start,
                 "lines": lines,
                 "fragments": fragments,
                 "function": function,
+                "function_suffix": "",
                 "urls": urls,
                 "variables": extract_variables(frame.f_locals, variable_source)
                 if not hidden

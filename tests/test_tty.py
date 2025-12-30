@@ -290,9 +290,12 @@ class TestTtyTraceback:
         import os
 
         output = io.StringIO()
-        # Mock get_terminal_size to return a size
+        # Mock get_terminal_size to return a size with both columns and lines
+        # (lines is needed by pytest's terminal reporter)
         monkeypatch.setattr(
-            os, "get_terminal_size", lambda fd: type("Size", (), {"columns": 100})()
+            os,
+            "get_terminal_size",
+            lambda fd: type("Size", (), {"columns": 100, "lines": 24})(),
         )
         # Mock file.fileno to return 1
         output.fileno = lambda: 1
@@ -383,15 +386,45 @@ class TestChainedExceptions:
                     raise ValueError("level 1")
                 except ValueError as e:
                     raise TypeError("level 2") from e
-            except TypeError as e:
-                raise RuntimeError("level 3") from e
+            except TypeError:
+                0 / 0  # noqa: B018
         except Exception as e:
             tty_traceback(exc=e, file=output)
 
         result = output.getvalue()
-        assert "ValueError" in result
-        assert "TypeError" in result
-        assert "RuntimeError" in result
+        assert "ZeroDivisionError while handling TypeError from ValueError" in result
+        assert "ValueError: level 1" in result
+        assert "TypeError from previous: level 2" in result
+        assert "ZeroDivisionError in except: division by zero" in result
+
+    def test_deeply_nested_chain_with_calls(self):
+        """Test TTY formatting of three-level exception chain with function calls.
+
+        Chronological order is tested in test_chain_analysis.py. This test
+        verifies the TTY formatting doesn't crash and shows expected content.
+        """
+        from .errorcases import deeply_nested_chain_with_calls
+
+        output = io.StringIO()
+        try:
+            deeply_nested_chain_with_calls()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+
+        # Verify title shows full chain
+        assert "ZeroDivisionError while handling TypeError from ValueError" in result
+
+        # Verify all three exceptions appear in output
+        assert "ValueError: level 1" in result
+        assert "TypeError from previous: level 2" in result
+        assert "ZeroDivisionError in except: division by zero" in result
+
+        # Verify helper function names appear (extra frames from calls)
+        assert "_raise_level1" in result
+        assert "_handle_and_raise_level2" in result
+        assert "_handle_and_divide_by_zero" in result
 
 
 class TestLoadUnload:
@@ -1582,8 +1615,11 @@ class TestFrameLabelEdgeCases:
         """Test frame label when filename is None."""
         frinfo = {
             "filename": None,
-            "location": "unknown_location",
+            "location": "In [1]",
             "function": "test_func",
+            "function_suffix": "",
+            "cursor_line": 5,
+            "notebook_cell": True,
             "range": None,
             "relevance": "error",
         }
@@ -1591,8 +1627,8 @@ class TestFrameLabelEdgeCases:
         label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
 
         assert "test_func" in label_plain
-        assert "unknown_location" in label_plain
-        assert "?" in label_plain  # No range means "?" for line number
+        assert "In [1]" in label_plain
+        # Notebook cells don't show line numbers in the location part
 
     def test_frame_with_non_relative_path(self):
         """Test frame label when file is not under CWD."""
@@ -1600,6 +1636,9 @@ class TestFrameLabelEdgeCases:
             "filename": "/some/other/path/file.py",
             "location": "other/path/file.py",
             "function": "external_func",
+            "function_suffix": "",
+            "cursor_line": 42,
+            "notebook_cell": False,
             "range": None,
             "relevance": "error",
         }
@@ -1628,6 +1667,9 @@ class TestFrameLabelEdgeCases:
             "filename": "/some/path/file.py",
             "location": "some/path/file.py",
             "function": "func",
+            "function_suffix": "",
+            "cursor_line": 10,
+            "notebook_cell": False,
             "range": None,
             "relevance": "error",
         }
@@ -1706,16 +1748,20 @@ class TestTtyTracebackEdgeCases:
     """Tests for edge cases in tty_traceback to achieve full coverage."""
 
     def test_msg_starting_with_two_spaces(self):
-        """Test that msg starting with '  ' gets trimmed (line 208)."""
+        """Test that msg starting with '  ' gets processed without error."""
         output = io.StringIO()
         try:
             raise ValueError("test")
         except Exception as e:
-            # Pass a message that starts with two spaces
-            tty_traceback(exc=e, file=output, msg="  indented message")
+            # Pass a message that starts with two spaces - should not crash
+            tty_traceback(exc=e, file=output, msg="  indented message", tag="MYTAG")
 
         result = output.getvalue()
-        # The "  " prefix should be stripped
+        # Should produce valid output with the exception
+        assert "ValueError" in result
+        assert "test" in result
+        # Both tag and msg should appear on initial line
+        assert "MYTAG" in result
         assert "indented message" in result
 
     def test_msg_with_newlines(self):
@@ -1724,12 +1770,14 @@ class TestTtyTracebackEdgeCases:
         try:
             raise ValueError("test")
         except Exception as e:
-            tty_traceback(exc=e, file=output, msg="line1\nline2\nline3\n")
+            tty_traceback(exc=e, file=output, msg="line1\nline2\nline3\n", tag="ERRTAG")
 
         result = output.getvalue()
         assert "line1" in result
         assert "line2" in result
         assert "line3" in result
+        # Tag should appear on the initial line
+        assert "ERRTAG" in result
 
     def test_empty_chain(self):
         """Test tty_traceback with empty chain."""
@@ -1921,6 +1969,9 @@ class TestTtyTracebackEdgeCases:
             "filename": "/some/other/path/file.py",
             "location": "other/path/file.py",
             "function": "test_func",
+            "function_suffix": "",
+            "cursor_line": 10,
+            "notebook_cell": False,
             "relevance": "call",
             "range": type("Range", (), {"lfirst": 10})(),
         }
@@ -2166,6 +2217,9 @@ class TestGetFrameLabelBranches:
             "filename": str(fake_file),  # Absolute path inside cwd
             "location": "subdir/file.py",
             "function": "test_func",
+            "function_suffix": "",
+            "cursor_line": 10,
+            "notebook_cell": False,
             "relevance": "call",
             "range": type("Range", (), {"lfirst": 10})(),
         }
@@ -2187,6 +2241,8 @@ class TestNotebookCellDisplay:
             "filename": "/path/to/notebook.ipynb",
             "location": "Cell [5]",
             "function": "test_func",
+            "function_suffix": "",
+            "cursor_line": 10,
             "relevance": "call",
             "range": type("Range", (), {"lfirst": 10})(),
             "notebook_cell": True,
@@ -2206,6 +2262,8 @@ class TestNotebookCellDisplay:
             "filename": "/path/to/notebook.ipynb",
             "location": "Cell [5]",
             "function": "",
+            "function_suffix": "",
+            "cursor_line": 10,
             "relevance": "call",
             "range": type("Range", (), {"lfirst": 10})(),
             "notebook_cell": True,
@@ -2228,6 +2286,8 @@ class TestFunctionSuffixDisplay:
             "location": "file.py",
             "function": "",  # Empty function name
             "function_suffix": "⚡except",  # But has suffix
+            "cursor_line": 10,
+            "notebook_cell": False,
             "relevance": "except",
             "range": type("Range", (), {"lfirst": 10})(),
         }
@@ -2250,6 +2310,8 @@ class TestSubexceptionSummaries:
                     "filename": "/path/file1.py",
                     "location": "file1.py",
                     "function": "func1",
+                    "cursor_line": 10,
+                    "notebook_cell": False,
                     "range": type("Range", (), {"lfirst": 10})(),
                     "exception": {"type": "ValueError", "summary": "value error"},
                 }
@@ -2259,6 +2321,8 @@ class TestSubexceptionSummaries:
                     "filename": "/path/file2.py",
                     "location": "file2.py",
                     "function": "func2",
+                    "cursor_line": 20,
+                    "notebook_cell": False,
                     "range": type("Range", (), {"lfirst": 20})(),
                     "exception": {"type": "TypeError", "summary": "type error"},
                 }
@@ -2296,6 +2360,8 @@ class TestSubexceptionSummaries:
                 "filename": "/path/file.py",
                 "location": "file.py",
                 "function": "func",
+                "cursor_line": 10,
+                "notebook_cell": False,
                 "range": type("Range", (), {"lfirst": 10})(),
                 "exception": {"type": "ValueError", "summary": "test error message"},
             }
@@ -2313,6 +2379,8 @@ class TestSubexceptionSummaries:
                 "filename": "/path/file.py",
                 "location": "file.py",
                 "function": "func",
+                "cursor_line": 10,
+                "notebook_cell": False,
                 "range": type("Range", (), {"lfirst": 10})(),
                 "exception": {"type": "ValueError", "summary": long_message},
             }
@@ -2332,16 +2400,26 @@ class TestSubexceptionSummaries:
                 "filename": "/path/file.py",
                 "location": "file.py",
                 "function": "outer",
+                "cursor_line": 10,
+                "notebook_cell": False,
                 "range": type("Range", (), {"lfirst": 10})(),
                 "exception": {"type": "ExceptionGroup", "summary": "nested"},
                 "parallel": [
                     [
                         {
+                            "location": "file1.py",
+                            "function": "inner1",
+                            "cursor_line": 11,
+                            "notebook_cell": False,
                             "exception": {"type": "ValueError", "summary": "inner1"},
                         }
                     ],
                     [
                         {
+                            "location": "file2.py",
+                            "function": "inner2",
+                            "cursor_line": 12,
+                            "notebook_cell": False,
                             "exception": {"type": "TypeError", "summary": "inner2"},
                         }
                     ],
@@ -2362,6 +2440,7 @@ class TestSubexceptionSummaries:
                 "filename": "/path/notebook.ipynb",
                 "location": "Cell [5]",
                 "function": "func",
+                "cursor_line": 10,
                 "range": type("Range", (), {"lfirst": 10})(),
                 "notebook_cell": True,
                 "exception": {"type": "ValueError", "summary": "test"},
@@ -2379,6 +2458,8 @@ class TestSubexceptionSummaries:
                 "filename": "",
                 "location": "",
                 "function": "test_func",
+                "cursor_line": 10,
+                "notebook_cell": False,
                 "range": type("Range", (), {"lfirst": 10})(),
                 "exception": {"type": "ValueError", "summary": "test"},
             }

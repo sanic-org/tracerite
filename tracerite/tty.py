@@ -182,6 +182,7 @@ def tty_traceback(
     *,
     file: TextIO | None = None,
     msg: str | None = None,
+    tag: str = "",
     term_width: int | None = None,
     **extract_args: Any,
 ) -> None:
@@ -192,9 +193,15 @@ def tty_traceback(
     oldest exception first (order they occurred).
 
     Args:
+        exc: The exception to format. If None, uses the current exception.
+        chain: Pre-extracted exception chain. If provided, exc is ignored.
+        file: Output file. Defaults to sys.stderr.
+        msg: Header message. If None, builds from exception chain.
+        tag: Optional tag to display after the message (e.g., "#TR1").
+        term_width: Terminal width. Auto-detected if None.
+        **extract_args: Additional arguments passed to extract_chain().
     """
     chain = chain or extract_chain(exc=exc, **extract_args)
-    # Chain is already oldest-first from extract_chain
 
     # Build header message if not provided
     if msg is None and chain:
@@ -210,13 +217,18 @@ def tty_traceback(
     # Start with rounded top corner
     output = LINE_PREFIX_TOP
 
-    # Print the original log message if provided
+    # Print the original log message if provided, with optional tag at the end
     if msg:
         # Strip trailing newlines and left-trim two spaces if present (to align with prefix)
         msg = msg.rstrip("\n")
         if msg.startswith("  "):
             msg = msg[2:]
-        output += msg.replace("\n", EOL) + EOL
+
+        # Append tag (dim color) if provided
+        if tag:
+            msg = f"{msg} {DIM}{tag}{RESET}"
+
+        output += msg + EOL
 
     if term_width is None:
         try:
@@ -576,14 +588,12 @@ def _get_branch_summary(branch: list[dict[str, Any]], max_width: int) -> str:
         return f"{EXC}(no exception){RESET}"
 
     # Build location:lineno function prefix
-    # Note: Some branch combinations are hard to test (e.g., notebook cells)
     loc_prefix = ""
     if last_frame:  # pragma: no cover
-        location = last_frame.get("location", "")
-        frame_range = last_frame.get("range")
-        lineno = frame_range.lfirst if frame_range else ""
-        function = last_frame.get("function", "")
-        notebook_cell = last_frame.get("notebook_cell", False)
+        location = last_frame["location"]
+        lineno = last_frame["cursor_line"]
+        function = last_frame["function"]
+        notebook_cell = last_frame["notebook_cell"]
 
         # Notebook cells (In [N]) don't need line numbers displayed
         if location and lineno and not notebook_cell:
@@ -615,15 +625,12 @@ def _get_branch_summary(branch: list[dict[str, Any]], max_width: int) -> str:
 
 def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     """Get the label for a frame (path:lineno function)."""
-    frame_range = frinfo.get("range")
-    lineno = frame_range.lfirst if frame_range else "?"
-
-    # Notebook cells (In [N]) don't need line numbers displayed
-    notebook_cell = frinfo.get("notebook_cell", False)
+    cursor_line = frinfo["cursor_line"]
+    notebook_cell = frinfo["notebook_cell"]
 
     # Use relative path if file is within CWD, otherwise use prettified location
-    filename = frinfo.get("filename")
-    location = frinfo["location"]
+    filename = frinfo["filename"]  # Full path (may be None for notebook cells)
+    location = frinfo["location"]  # Display path (always set)
     if filename:
         try:
             fn = Path(filename)
@@ -637,7 +644,7 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     # Location comes first, then function (if present)
     # Colon goes after function if present, otherwise after location
     function_name = frinfo["function"]
-    function_suffix = frinfo.get("function_suffix", "")
+    function_suffix = frinfo["function_suffix"]
     if function_name:
         function_display = f"{function_name}{function_suffix}"
     elif function_suffix:
@@ -645,20 +652,17 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     else:
         function_display = None
 
+    # Build the location text with colors
     if notebook_cell:
-        if function_display:
-            location_part = f"{LOCFN}{location}{RESET}"
-            function_part = f"{FUNC}{function_display}{RESET}:"
-        else:
-            location_part = f"{LOCFN}{location}{RESET}:"
-            function_part = ""
+        location_text = location
+        location_suffix = "" if function_display else ":"
+        location_part = f"{LOCFN}{location_text}{location_suffix}{RESET}"
     else:
-        if function_display:
-            location_part = f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}"
-            function_part = f"{FUNC}{function_display}{RESET}:"
-        else:
-            location_part = f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}:"
-            function_part = ""
+        location_text = f"{location}{LOC_LINENO}:{cursor_line}{RESET}"
+        location_suffix = "" if function_display else ":"
+        location_part = f"{LOCFN}{location_text}{location_suffix}{RESET}"
+
+    function_part = f"{FUNC}{function_display}{RESET}:" if function_display else ""
 
     return location_part, function_part
 
@@ -666,9 +670,9 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
 def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
     """Gather info needed to print a chronological frame."""
     location_part, function_part = _get_frame_label(frinfo)
-    fragments = frinfo.get("fragments", [])
-    frame_range = frinfo.get("range")
-    relevance = frinfo.get("relevance", "call")
+    fragments = frinfo["fragments"]
+    frame_range = frinfo["range"]
+    relevance = frinfo["relevance"]
     exc_info = frinfo.get("exception")
 
     # Get marked lines
@@ -717,7 +721,7 @@ def _build_chrono_frame_lines(
         lines.append((line, _display_width(line), False))
         return lines
 
-    start = frinfo.get("linenostart", 1)
+    start = frinfo["linenostart"]
     symbol = symbols.get(relevance, "")
     symbol_colored = f"{EM_CALL}{symbol}{RESET}" if symbol else ""
 
