@@ -31,4 +31,8 @@ jobs:
         run: uv publish
 
       - name: Purge GitHub Camo cache for badges
-        uses: kevincobain2000/action-camo-purge@v1
+        uses: b3b00/refreshBadgesAction@v1
+        with:
+          user: sanic-org
+          repo: tracerite
+          branch: main
