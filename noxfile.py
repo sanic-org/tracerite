@@ -26,7 +26,6 @@ nox.options.sessions = [
     "cov-clean",
     "test",
     "cov-combine",
-    "badges",
 ]
 
 # Python versions to test against
@@ -101,10 +100,6 @@ def cov_clean(session):
     tests_results_xml = Path("tests-results.xml")
     if tests_results_xml.exists():
         tests_results_xml.unlink()
-
-    # Clean badge files
-    for badge in Path("docs/img").glob("*-badge.svg"):
-        badge.unlink()
 
 
 @nox.session(python=TOOLS_PYTHON, name="cov-combine")
@@ -199,11 +194,20 @@ def ty(session):
 
 @nox.session(python=False)
 def coverage(session):
-    """Run format, lint, cov-clean, test-3.14, test-3.9, cov-combine, badges."""
-    session.notify("format")
-    session.notify("lint")
-    session.notify("cov-clean")
-    session.notify("test-3.14")
-    session.notify("test-3.9")
-    session.notify("cov-combine")
-    session.notify("badges")
+    """Faster coverage checks. Does not abort on lint or test failures."""
+    # Run nox as subprocess with --no-stop-on-first-error to ensure
+    # coverage reports are generated even if lint or tests fail
+    session.run(
+        "uv",
+        "run",
+        "nox",
+        "--no-stop-on-first-error",
+        "-s",
+        "lint",
+        "cov-clean",
+        "test-3.14",
+        "test-3.9",
+        "cov-combine",
+        external=True,
+        success_codes=[0, 1],
+    )
