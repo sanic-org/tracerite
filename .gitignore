@@ -5,6 +5,7 @@
 !/.github/workflows/
 !/.github/workflows/*.yml
 !/.github/workflows/*.yaml
+/tests-results.xml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
