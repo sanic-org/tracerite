@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import contextlib
 import dataclasses
 import math
@@ -130,10 +131,72 @@ blacklist_types = (
 no_str_conv = re.compile(r"<.* object at 0x[0-9a-fA-F]{5,}>")
 
 
-def extract_variables(variables: dict[str, Any], sourcecode: str) -> list[VarInfo]:
-    identifiers = {
+def _extract_identifiers_ast(sourcecode: str) -> set[str] | None:
+    """
+    Extract variable identifiers from source code using AST.
+
+    Returns a set of variable names (including attribute access like "obj.attr"),
+    or None if AST parsing fails.
+    """
+    # Try to parse as an expression first (most common case for error lines)
+    for wrapper in ("({})", "{}"):
+        try:
+            code = wrapper.format(sourcecode)
+            tree = ast.parse(code, mode="eval")
+            break
+        except SyntaxError:
+            continue
+    else:
+        # Try parsing as statements
+        try:
+            tree = ast.parse(sourcecode, mode="exec")
+        except SyntaxError:
+            return None
+
+    identifiers: set[str] = set()
+
+    class IdentifierVisitor(ast.NodeVisitor):
+        def visit_Name(self, node: ast.Name) -> None:
+            identifiers.add(node.id)
+            self.generic_visit(node)
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            # Build the full dotted name for attribute access
+            parts = [node.attr]
+            current = node.value
+            while isinstance(current, ast.Attribute):
+                parts.append(current.attr)
+                current = current.value
+            if isinstance(current, ast.Name):
+                parts.append(current.id)
+                # Add the full dotted name (e.g., "obj.attr")
+                identifiers.add(".".join(reversed(parts)))
+                # Also add intermediate names (e.g., "obj" for "obj.attr.sub")
+                for i in range(len(parts)):
+                    identifiers.add(".".join(reversed(parts[i:])))
+            self.generic_visit(node)
+
+    IdentifierVisitor().visit(tree)
+    return identifiers
+
+
+def _extract_identifiers_regex(sourcecode: str) -> set[str]:
+    """
+    Extract variable identifiers from source code using regex (fallback).
+
+    This is less accurate than AST as it can match names in strings/comments,
+    but works when AST parsing fails.
+    """
+    return {
         m.group(0) for p in (r"\w+", r"\w+\.\w+") for m in re.finditer(p, sourcecode)
     }
+
+
+def extract_variables(variables: dict[str, Any], sourcecode: str) -> list[VarInfo]:
+    # Try AST-based extraction first, fall back to regex
+    identifiers = _extract_identifiers_ast(sourcecode)
+    if identifiers is None:
+        identifiers = _extract_identifiers_regex(sourcecode)
     rows = []
     for name, value in variables.items():
         if name in blacklist_names or isinstance(value, blacklist_types):
@@ -361,7 +424,10 @@ def prettyvalue(val: Any) -> tuple[Any, str]:
     # Determine format hint based on content
     format_hint = "inline"
 
-    if isinstance(val, str):
+    # Format exceptions using str() for cleaner display
+    if isinstance(val, BaseException):
+        ret = str(val)
+    elif isinstance(val, str):
         ret = str(val)
         # Multi-line strings should be displayed as blocks
         if "\n" in ret.rstrip():

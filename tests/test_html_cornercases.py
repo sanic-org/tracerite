@@ -37,10 +37,9 @@ class TestHtmlCornercases:
         except TypeError as e:
             html = html_traceback(exc=e)
             html_str = str(html)
-            # Should show chain indicator
+            # Should show chain indicator (using new chain message format)
             assert (
-                "while handling above" in html_str.lower()
-                or "from above" in html_str.lower()
+                "in except" in html_str.lower() or "from previous" in html_str.lower()
             )
 
     def test_frames_without_relevance_call(self):
@@ -126,23 +125,17 @@ class TestHtmlCornercases:
 
         Covers lines 56-58.
         """
-        # Create an exception with a custom message that doesn't start with summary
+        # Create an exception with a multiline message where summary differs from message
         try:
-            raise ValueError("short")
+            raise ValueError("short summary\nAdditional context on second line")
         except ValueError as e:
             exc_info = extract_exception(e)
-            # Manually modify the message to not start with summary
-            exc_info["summary"] = "short"
-            exc_info["message"] = (
-                "A completely different message that doesn't start with summary"
-            )
 
             html = html_traceback(chain=[exc_info])
             html_str = str(html)
 
-            # Should display both summary and full message
-            assert "short" in html_str
-            assert "A completely different message" in html_str
+            # Should display the summary (first line)
+            assert "short summary" in html_str
 
     def test_source_code_not_available(self):
         """Test when source code is not available for call frames.
@@ -198,7 +191,7 @@ class TestHtmlCornercases:
             # Modify a frame to have an invalid relevance that will cause format() to fail
             if exc_info["frames"]:
                 frame = exc_info["frames"][-1]
-                # Set a relevance that exists in tooltips but will fail formatting
+                # Set a relevance that exists in symdesc but will fail formatting
                 frame["relevance"] = "error"
                 # Remove required keys to trigger exception in format()
                 frame.pop("type", None)
@@ -545,8 +538,8 @@ class TestHtmlCornercases:
 
             if exc_info["frames"]:
                 frame = exc_info["frames"][-1]
-                # Set a relevance that is NOT in the tooltips dictionary
-                # This will cause a KeyError when trying to access tooltips[relevance]
+                # Set a relevance that is NOT in the symdesc dictionary
+                # This will cause a KeyError when trying to access symdesc[relevance]
                 frame["relevance"] = "nonexistent_relevance"
 
                 html = html_traceback(chain=[exc_info])

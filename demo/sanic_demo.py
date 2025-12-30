@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from sanic import Request, Sanic, response
 
-app = Sanic("TraceriteDemo")
+app = Sanic("TraceRiteDemo")
 
 
 # Deep call chain example - each function in a different frame
@@ -176,8 +176,12 @@ def outer_operation():
     try:
         return middle_operation()
     except ValueError as e:
-        # Catch and re-raise with context
-        raise RuntimeError("Failed in outer operation") from e
+        outer_handle(e)
+
+
+def outer_handle(e: Exception):
+    # Trying to access e.message which doesn't exist
+    raise RuntimeError(f"Outer operation failed {e.message}")
 
 
 def middle_operation():
@@ -236,6 +240,10 @@ async def index(request: Request):
             <strong>Chained Exceptions</strong> - Multiple exceptions with __cause__ chain
         </a>
 
+        <a href="/exception-group" class="error-link">
+            <strong>Exception Group</strong> - Multiple concurrent failures in asyncio TaskGroup
+        </a>
+
         <a href="/string-concat" class="error-link">
             <strong>String Concatenation</strong> - TypeError in multi-line string concat
         </a>
@@ -268,6 +276,35 @@ async def chained_exceptions(request: Request):
     """Trigger chained exceptions across multiple functions."""
     result = outer_operation()
     return response.json({"result": result})
+
+
+# ExceptionGroup demo with asyncio TaskGroup
+import asyncio
+
+
+async def fail_soon(text):
+    await asyncio.sleep(0.1)
+    raise ValueError(text)
+
+
+async def failure_too():
+    await asyncio.sleep(0.1)
+    xxx  # noqa: F821
+
+
+async def exception_group_main():
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(fail_soon("Task A"))
+        tg.create_task(fail_soon("Task B"))
+        tg.create_task(failure_too())
+        tg.create_task(asyncio.sleep(1))
+
+
+@app.get("/exception-group")
+async def exception_group(request: Request):
+    """Trigger ExceptionGroup with multiple concurrent failures."""
+    await exception_group_main()
+    return response.json({"result": "ok"})
 
 
 if __name__ == "__main__":

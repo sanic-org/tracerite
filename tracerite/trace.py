@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 import re
 import sys
@@ -29,10 +31,84 @@ libdir = re.compile(
 # Messages for exception chaining (oldest-first order)
 # Suffix added to exception type when chained from a previous exception
 chainmsg = {
-    "cause": " from above",
-    "context": " while handling above",
+    "cause": " from previous",
+    "context": " in except",
     "none": "",
 }
+
+# Symbol descriptions for display in HTML and TTY outputs
+symdesc = {
+    "call": "Call",
+    "warning": "Call from your code",
+    "except": "Call from except",
+    "error": "",
+    "stop": "",
+}
+
+# Symbols for each frame relevance type
+symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑", "except": "⚠️"}
+
+
+def build_chain_header(chain: list[dict]) -> str:
+    """Build a header message describing the exception chain."""
+    if not chain:
+        return ""
+
+    # Chain is oldest-first: chain[0] is first exception, chain[-1] is last (uncaught)
+    last_exc = chain[-1]
+
+    # For ExceptionGroups, show the final exception types from subexceptions
+    subexceptions = last_exc.get("subexceptions")
+    if subexceptions:
+        leaf_types = _collect_leaf_exception_types(subexceptions)
+        if leaf_types:
+            exc_type = " | ".join(leaf_types)
+            # Don't say "Uncaught" for ExceptionGroups, just show the leaf types
+            if len(chain) == 1:
+                return f"⚠️  {exc_type}"
+        else:
+            exc_type = last_exc.get("type", "Exception")
+    else:
+        exc_type = last_exc.get("type", "Exception")
+
+    if len(chain) == 1:
+        return f"⚠️  Uncaught {exc_type}"
+
+    # Build from last to first
+    parts = [f"⚠️  {exc_type}"]
+
+    # Add each previous exception with appropriate joiner
+    for i in range(len(chain) - 2, -1, -1):
+        exc = chain[i]
+        next_exc = chain[i + 1]
+        from_type = next_exc.get("from", "none")
+        joiner = "from" if from_type == "cause" else "while handling"
+        parts.append(f"{joiner} {exc.get('type', 'Exception')}")
+
+    return " ".join(parts)
+
+
+def _collect_leaf_exception_types(subexceptions: list[list[dict]]) -> list[str]:
+    """Collect the final exception types from all subexception chains.
+
+    For nested ExceptionGroups, recursively collects leaf exception types.
+    Returns a flat list of exception type names.
+    """
+    leaf_types = []
+    for sub_chain in subexceptions:
+        if not sub_chain:
+            continue
+        # Get the last exception in this chain (the one that was raised)
+        last_exc = sub_chain[-1]
+        # Check if this is itself an ExceptionGroup with subexceptions
+        nested_subs = last_exc.get("subexceptions")
+        if nested_subs:
+            # Recursively collect from nested ExceptionGroup
+            leaf_types.extend(_collect_leaf_exception_types(nested_subs))
+        else:
+            # This is a leaf exception
+            leaf_types.append(last_exc.get("type", "Exception"))
+    return leaf_types
 
 
 def extract_chain(exc=None, **kwargs) -> list:
@@ -49,20 +125,128 @@ def extract_chain(exc=None, **kwargs) -> list:
         exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
     # Reverse to get oldest first (chain is built newest-first)
     chain = list(reversed(chain))
-    return [extract_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
+    result = [extract_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
+    # Deduplicate variable inspectors: only keep variables for the last occurrence
+    # of each (filename, function) pair across the entire chain
+    _deduplicate_variables(result)
+    return result
+
+
+def _deduplicate_variables(chain: list) -> None:
+    """Remove duplicate variables from inspectors, showing each only once.
+
+    Variables are only shown if they appear in the frame's highlighted code
+    (the lines indicated by the error range, expanded to include full
+    comprehensions). If a variable appears in multiple frames' highlighted
+    code (same filename/function), it's only shown in the last frame where
+    it appears.
+    """
+
+    def _get_highlighted_lines(frame: dict) -> str:
+        """Extract the highlighted lines from a frame based on its range.
+
+        Expands to include full comprehension if error is inside one.
+        """
+        lines = frame.get("lines", "")
+        range_obj = frame.get("range")
+        if not range_obj or not lines:
+            return lines  # Fall back to all lines if no range
+
+        start = frame.get("linenostart", 1)
+        lfirst, lfinal = range_obj.lfirst, range_obj.lfinal
+
+        # Check if error is inside a comprehension - if so, return full comprehension
+        comp_range = _find_comprehension_range(lines, lfirst, start)
+        if comp_range is not None:
+            # Error is inside a comprehension - return full lines (already trimmed to comprehension)
+            return lines
+
+        # No comprehension, return just the highlighted lines
+        lines_list = lines.splitlines()
+
+        # Convert to 0-based indices relative to displayed lines
+        first_idx = lfirst - start
+        final_idx = lfinal - start + 1
+
+        if first_idx < 0 or first_idx >= len(lines_list):
+            return lines  # Fall back if range is invalid
+
+        return "\n".join(lines_list[first_idx:final_idx])
+
+    def _variable_in_code(name: str, lines: str) -> bool:
+        """Check if a variable name appears in the code as a word."""
+        return bool(re.search(rf"\b{re.escape(name)}\b", lines))
+
+    # First pass: collect frames by (filename, function) key
+    # Maps key -> list of (exception_idx, frame_idx)
+    frame_groups: dict[tuple, list[tuple[int, int]]] = {}
+    for ei, exc in enumerate(chain):
+        for fi, frame in enumerate(exc.get("frames", [])):
+            if frame.get("relevance") == "call":
+                continue
+            key = (frame.get("filename"), frame.get("function"))
+            if key not in frame_groups:
+                frame_groups[key] = []
+            frame_groups[key].append((ei, fi))
+
+    # Second pass: for each group, determine which variables to show in each frame
+    for _key, occurrences in frame_groups.items():
+        # For each variable, find the LAST frame where it appears in highlighted code
+        # variable_name -> (exception_idx, frame_idx) of last appearance in highlighted code
+        last_appearance: dict[str, tuple[int, int]] = {}
+
+        for ei, fi in occurrences:
+            frame = chain[ei]["frames"][fi]
+            highlighted = _get_highlighted_lines(frame)
+            for v in frame.get("variables", []):  # pragma: no cover
+                if v.name and _variable_in_code(v.name, highlighted):
+                    # Update to this frame (later frames overwrite earlier)
+                    last_appearance[v.name] = (ei, fi)
+
+        # Now filter each frame's variables: keep only if this is the last appearance
+        for ei, fi in occurrences:
+            frame = chain[ei]["frames"][fi]
+            frame["variables"] = [
+                v
+                for v in frame.get("variables", [])
+                if v.name and last_appearance.get(v.name) == (ei, fi)
+            ]
 
 
 def _create_summary(message):
-    """Create a truncated summary of the exception message."""
-    summary = message.split("\n", 1)[0]
-    if len(summary) <= 100:
-        return summary
+    """Extract the first line of the exception message as summary."""
+    return message.split("\n", 1)[0]
 
-    if len(message) > 1000:
-        # Sometimes the useful bit is at the end of a very long message
-        return f"{message[:40]} ··· {message[-40:]}"
-    else:
-        return f"{summary[:60]} ···"
+
+def _set_relevances(frames: list, e: BaseException) -> None:
+    """Set relevance for frames after extraction.
+
+    - The last frame gets "error" (regular Exception) or "stop" (BaseException like KeyboardInterrupt)
+    - ExceptionGroups also get "stop" since the interesting parts are in subexceptions
+    - If the last frame is in library code, the last user code frame gets "warning"
+    - All other frames remain "call"
+    """
+    if not frames:
+        return
+
+    # Last frame is where the exception occurred
+    # ExceptionGroups get "stop" like BaseExceptions - the real errors are in subexceptions
+    is_regular_exception = isinstance(e, Exception) and not _is_exception_group(e)
+    frames[-1]["relevance"] = "error" if is_regular_exception else "stop"
+
+    # Check if the last frame (error frame) is in user code
+    last_filename = (
+        frames[-1].get("original_filename") or frames[-1].get("filename") or ""
+    )
+    if _libdir_match(Path(last_filename).as_posix()) is None:
+        return
+    # Error is in library code - find the last user code frame to mark as warning
+    for frame in reversed(frames[:-1]):  # Exclude the last frame  # pragma: no cover
+        filename = frame.get("original_filename") or frame.get("filename") or ""
+        if _libdir_match(Path(filename).as_posix()) is None:
+            # This is user code - mark as warning (bug origin)
+            frame["relevance"] = "warning"
+            break
 
 
 def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
@@ -105,10 +289,16 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     if isinstance(e, SyntaxError):
         message = clean_syntax_error_message(message)
     summary = _create_summary(message)
+    # Check if context is suppressed (raise X from None) - affects source trimming
+    f = (
+        "cause"
+        if e.__cause__
+        else "context"
+        if e.__context__ and not e.__suppress_context__
+        else "none"
+    )
     try:
-        # KeyboardErrors and such need not be reported all the way
-        suppress = not isinstance(e, Exception)
-        frames = extract_frames(tb, raw_tb, suppress_inner=suppress)
+        frames = extract_frames(tb, raw_tb, except_block=(f != "none"), exc=e)
         # For SyntaxError, add the synthetic frame showing the problematic code
         if syntax_frame:
             # Demote the previous frame (compile, exec, etc.) to call only
@@ -118,18 +308,109 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     except Exception:
         logger.exception("Error extracting traceback")
         frames = None
-    return {
+
+    # Determine if this is a "stop" type exception (BaseException or ExceptionGroup)
+    # These suppress inner library frames, showing only up to the last user code frame.
+    # ExceptionGroups suppress because the interesting parts are in subexceptions.
+    is_stop_type = not isinstance(e, Exception) or _is_exception_group(e)
+
+    result = {
         "type": type(e).__name__,
         "message": message,
         "summary": summary,
-        # "from" describes how this exception relates to its cause:
-        # - "cause": explicitly raised from another (raise X from Y)
-        # - "context": occurred while handling another
-        # - "none": root exception (no prior cause)
-        "from": ("cause" if e.__cause__ else "context" if e.__context__ else "none"),
+        "from": f,
         "repr": repr(e),
         "frames": frames or [],
+        "suppress_inner": is_stop_type,
     }
+
+    # Extract subexceptions for ExceptionGroups (Python 3.11+)
+    # These form parallel timelines within the group's traceback
+    subexceptions = _extract_subexceptions(
+        e, skip_outmost=skip_outmost, skip_until=skip_until
+    )
+    if subexceptions:
+        result["subexceptions"] = subexceptions
+
+    return result
+
+
+def _extract_subexceptions(
+    e, *, skip_outmost=0, skip_until=None
+) -> list[list[dict]] | None:
+    """Extract subexceptions from an ExceptionGroup.
+
+    ExceptionGroups (Python 3.11+) contain multiple exceptions that occurred
+    in parallel (e.g., in concurrent tasks). Each subexception forms its own
+    traceback chain that ran in parallel with others.
+
+    Args:
+        e: The exception to check for subexceptions
+        skip_outmost: Number of outermost frames to skip
+        skip_until: Skip frames until this string is found in filename
+
+    Returns:
+        List of exception chains (each chain is a list of exception info dicts),
+        or None if not an ExceptionGroup or has no subexceptions.
+        Each chain represents a parallel timeline of exceptions.
+    """
+    # Check if this is an ExceptionGroup (Python 3.11+)
+    # BaseExceptionGroup is the base class for both ExceptionGroup and BaseExceptionGroup
+    if not hasattr(e, "exceptions") or not isinstance(
+        getattr(e, "exceptions", None), (tuple, list)
+    ):
+        return None
+
+    subexceptions = e.exceptions
+    if not subexceptions:
+        return None
+
+    # Extract each subexception as its own chain
+    # Each subexception may itself be an ExceptionGroup with nested subexceptions
+    parallel_chains = []
+    for sub_exc in subexceptions:
+        # Recursively extract the chain for this subexception
+        # This handles nested ExceptionGroups and exception chaining within each sub
+        sub_chain = _extract_subexception_chain(
+            sub_exc, skip_outmost=skip_outmost, skip_until=skip_until
+        )
+        if sub_chain:  # pragma: no cover
+            parallel_chains.append(sub_chain)
+
+    return parallel_chains if parallel_chains else None
+
+
+def _extract_subexception_chain(exc, *, skip_outmost=0, skip_until=None) -> list[dict]:
+    """Extract the full exception chain for a single subexception.
+
+    Similar to extract_chain but for a subexception that may have its own
+    __cause__ or __context__ chain.
+
+    Args:
+        exc: The subexception to extract
+        skip_outmost: Number of outermost frames to skip
+        skip_until: Skip frames until this string is found in filename
+
+    Returns:
+        List of exception info dicts, ordered from oldest to newest
+    """
+    chain = []
+    current = exc
+    while current:
+        chain.append(current)
+        current = (
+            current.__cause__ or None
+            if current.__suppress_context__
+            else current.__context__
+        )
+    # Reverse to get oldest first
+    chain = list(reversed(chain))
+
+    # Extract info for each exception in the chain
+    # Pass skip args only to the last one (the actual subexception)
+    kwargs = {"skip_outmost": skip_outmost, "skip_until": skip_until}
+    result = [extract_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
+    return result
 
 
 def _is_notebook_cell(filename):
@@ -140,37 +421,359 @@ def _is_notebook_cell(filename):
         return False
 
 
-def extract_source_lines(frame, lineno, end_lineno=None, *, notebook_cell=False):
+def _is_exception_group(e: BaseException) -> bool:
+    """Check if exception is an ExceptionGroup (Python 3.11+)."""
+    # Check for BaseExceptionGroup which is the base class for both
+    # ExceptionGroup and BaseExceptionGroup
+    return hasattr(e, "exceptions") and isinstance(
+        getattr(e, "exceptions", None), (tuple, list)
+    )
+
+
+def _find_except_start_for_line(frame, lineno: int) -> int | None:
+    """If lineno is inside an except handler, return the except line number.
+
+    Uses AST analysis to find if the given line is within an except block.
+    Returns the line number of the 'except' keyword for the innermost matching
+    except handler, or None if not in an except block.
+    """
+    from .chain_analysis import (
+        find_try_block_for_except_line,
+        parse_source_for_try_except,
+    )
+
+    try:
+        filename = frame.f_code.co_filename
+        blocks = parse_source_for_try_except(filename)
+        # Find the innermost except block containing this line
+        block = find_try_block_for_except_line(blocks, lineno)
+        if block:
+            return block.except_start
+    except Exception:  # pragma: no cover
+        pass
+    return None
+
+
+def extract_source_lines(
+    frame, lineno, end_lineno=None, *, notebook_cell=False, except_block=False
+):
     try:
         lines, start = inspect.getsourcelines(frame)
         if start == 0:
             start = 1
+
+        # Check if lineno is inside an except handler BEFORE trimming
+        # This ensures we include the except line even for notebook cells
+        # Skip this detection if context was suppressed (raise X from None)
+        except_start = (
+            _find_except_start_for_line(frame, lineno) if except_block else None
+        )
+
         # For notebook cells, show only the error lines (no context)
         # For regular files, show 10 lines before and 2 lines after
+        # Exception: if we're in an except block, ensure except line is included
         if notebook_cell:
-            lines_before = 0
+            if except_start is not None and except_start >= start:
+                # In except block: include from except line to lineno
+                lines_before = lineno - except_start  # pragma: no cover
+            else:
+                lines_before = 0
             lines_after = (end_lineno - lineno) if end_lineno else 0
         else:
             lines_before = 10
             lines_after = (end_lineno - lineno + 2) if end_lineno else 2
-        lines = lines[
-            max(0, lineno - start - lines_before) : max(
-                0, lineno - start + lines_after + 1
-            )
-        ]
-        start += max(0, lineno - start - lines_before)
+        # Calculate slice bounds
+        slice_start = max(0, lineno - start - lines_before)
+        slice_end = max(0, lineno - start + lines_after + 1)
 
-        # Calculate common indentation and dedent
-        common_indent = _calculate_common_indent(lines)
-        lines = [ln.removeprefix(common_indent) for ln in lines]
-        # Start with the first minimal indent line (trim prior lines)
-        while lines and lines[0].strip() and lines[0][0] in " \t":
+        # Skip forward if the slice would start inside a string or unclosed parens
+        # Analyze all lines before slice_start to determine context state
+        skip_to = _find_clean_start_line(lines, slice_start)
+        if skip_to > slice_start:
+            slice_start = skip_to
+
+        lines = lines[slice_start:slice_end]
+        start += slice_start
+
+        # If lineno is inside an except handler, trim to start from the except line
+        # (For non-notebook cells, this may still trim if lines_before > distance to except)
+        if except_start is not None and except_start > start:
+            skip = except_start - start
+            if skip < len(lines):  # pragma: no branch
+                lines = lines[skip:]
+                start = except_start
+
+        # Calculate error line position
+        error_idx = lineno - start
+        end_idx = (end_lineno - start) if end_lineno else error_idx
+
+        # Safety check: ensure error_idx is valid
+        if not lines or error_idx < 0 or error_idx >= len(lines):
+            return "", lineno, ""
+
+        # Get the indentation of the first marked line (error line) before any dedenting
+        error_indent = 0
+        error_line = lines[error_idx]
+        error_indent = len(error_line) - len(error_line.lstrip(" \t"))
+
+        # Trim leading lines that have more indentation than error line
+        while lines and error_idx > 0:
+            first_line = lines[0]
+            if first_line.strip():
+                first_indent = len(first_line) - len(first_line.lstrip(" \t"))
+                if first_indent <= error_indent:
+                    break  # This line has same or less indent, keep it
             start += 1
             lines.pop(0)
+            error_idx -= 1
+            end_idx -= 1
+
+        # Trim trailing lines with less indentation than the error line
+        # (hides external structures like else/except that aren't relevant)
+        # But don't trim if we're inside unclosed brackets (e.g., list comprehension)
+        trim_after = end_idx + 1
+        bracket_depth = _count_bracket_depth("".join(lines[: end_idx + 1]))
+        while trim_after < len(lines):
+            line = lines[trim_after]
+            # Keep lines if brackets are still open
+            if bracket_depth > 0:
+                bracket_depth += _count_bracket_depth(line)
+                trim_after += 1
+                continue
+            # Keep empty lines, but check non-empty lines for indentation
+            if line.strip():
+                line_indent = len(line) - len(line.lstrip(" \t"))
+                if line_indent < error_indent:
+                    break  # Found a line with less indent, trim from here
+            trim_after += 1
+        lines = lines[:trim_after]
+
+        # Calculate common indentation and dedent AFTER pruning
+        common_indent = _calculate_common_indent(lines)
+        lines = [ln.removeprefix(common_indent) for ln in lines]
 
         return "".join(lines), start, common_indent
     except OSError:
         return "", lineno, ""  # Source not available (non-Python module)
+
+
+def _count_bracket_depth(text: str) -> int:
+    """Count net bracket depth change in text, ignoring brackets in strings/comments.
+
+    Returns positive for more opens than closes, negative for more closes.
+    """
+    depth = 0
+    in_string = False
+    string_char = None
+    escape_next = False
+    i = 0
+
+    while i < len(text):
+        char = text[i]
+
+        if escape_next:
+            escape_next = False
+            i += 1
+            continue
+
+        if char == "\\":
+            escape_next = True
+            i += 1
+            continue
+
+        # Handle comments (outside strings)
+        if not in_string and char == "#":
+            break  # Rest of line is comment
+
+        # Handle string boundaries
+        if not in_string:
+            # Check for triple-quoted strings
+            if char in ('"', "'") and text[i : i + 3] in ('"""', "'''"):
+                in_string = True
+                string_char = text[i : i + 3]
+                i += 3
+                continue
+            elif char in ('"', "'"):
+                in_string = True
+                string_char = char
+        else:
+            # Check for end of string
+            if string_char in ('"""', "'''") and text[i : i + 3] == string_char:
+                in_string = False
+                string_char = None
+                i += 3
+                continue
+            elif len(string_char) == 1 and char == string_char:
+                in_string = False
+                string_char = None
+
+        # Count brackets only outside strings
+        if not in_string:
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+
+        i += 1
+
+    return depth
+
+
+def _find_clean_start_line(lines: list[str], target_idx: int) -> int:
+    """Find the first line at or after target_idx that isn't inside an unclosed context.
+
+    Analyzes lines[0:target_idx] to determine if target_idx would start inside:
+    - A multi-line string (triple-quoted docstring, etc.)
+    - An unclosed parenthesis/bracket/brace expression
+
+    If so, scans forward from target_idx to find where that context closes,
+    returning the index of the first "clean" line.
+
+    Args:
+        lines: List of source lines (with newlines)
+        target_idx: The 0-based index we want to start displaying from
+
+    Returns:
+        Index >= target_idx of the first line not inside an unclosed context
+    """
+    if target_idx <= 0 or target_idx >= len(lines):
+        return target_idx
+
+    # Parse all lines before target to determine state at target_idx
+    in_string = False
+    string_char = None  # The quote char(s) that opened the string
+    bracket_depth = 0
+
+    for line in lines[:target_idx]:
+        i = 0
+        text = line
+        escape_next = False
+
+        while i < len(text):
+            char = text[i]
+
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+
+            if char == "\\" and in_string:
+                escape_next = True
+                i += 1
+                continue
+
+            # Handle comments (outside strings)
+            if not in_string and char == "#":
+                break  # Rest of line is comment
+
+            # Handle string boundaries
+            if not in_string:
+                # Check for triple-quoted strings first
+                if char in ('"', "'") and text[i : i + 3] in ('"""', "'''"):
+                    in_string = True
+                    string_char = text[i : i + 3]
+                    i += 3
+                    continue
+                elif char in ('"', "'"):
+                    in_string = True
+                    string_char = char
+            else:
+                # Check for end of string
+                if string_char in ('"""', "'''") and text[i : i + 3] == string_char:
+                    in_string = False
+                    string_char = None
+                    i += 3
+                    continue
+                elif len(string_char) == 1 and char == string_char:
+                    in_string = False
+                    string_char = None
+
+            # Count brackets only outside strings
+            if not in_string:
+                if char in "([{":
+                    bracket_depth += 1
+                elif char in ")]}":
+                    bracket_depth -= 1
+
+            i += 1
+
+    # If we're not in a bad context, target_idx is fine
+    if not in_string and bracket_depth <= 0:
+        return target_idx
+
+    # Scan forward from target_idx until context closes
+    # This is defensive code for rare edge cases (multiline strings/brackets at slice boundary)
+    for idx in range(target_idx, len(lines)):  # pragma: no cover
+        text = lines[idx]
+        i = 0
+        escape_next = False
+
+        while i < len(text):
+            char = text[i]
+
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+
+            if char == "\\" and in_string:
+                escape_next = True
+                i += 1
+                continue
+
+            # Handle comments (outside strings)
+            if not in_string and char == "#":
+                break
+
+            # Handle string boundaries
+            if not in_string:
+                if char in ('"', "'") and text[i : i + 3] in ('"""', "'''"):
+                    in_string = True
+                    string_char = text[i : i + 3]
+                    i += 3
+                    continue
+                elif char in ('"', "'"):
+                    in_string = True
+                    string_char = char
+            else:
+                if string_char in ('"""', "'''") and text[i : i + 3] == string_char:
+                    in_string = False
+                    string_char = None
+                    i += 3
+                    continue
+                elif string_char and len(string_char) == 1 and char == string_char:
+                    in_string = False
+                    string_char = None
+
+            if not in_string:
+                if char in "([{":
+                    bracket_depth += 1
+                elif char in ")]}":
+                    bracket_depth -= 1
+
+            i += 1
+
+        # After processing this line, check if we've exited the bad context
+        if not in_string and bracket_depth <= 0:
+            return idx + 1  # Start from the line AFTER the context closes
+
+    # Couldn't find clean exit, fall back to target
+    return target_idx  # pragma: no cover
+
+
+def _get_full_source(frame):
+    """Get the full source code for a frame using inspect.
+
+    Returns (source, start_line) tuple. This works with any source Python
+    knows about, including notebook cells and exec'd strings.
+    """
+    try:
+        lines, start = inspect.getsourcelines(frame)
+        if start == 0:
+            start = 1
+        return "".join(lines), start
+    except OSError:
+        return None, None
 
 
 def _libdir_match(path):
@@ -228,13 +831,165 @@ def _get_qualified_function_name(frame, function):
     return ".".join(function.split(".")[-2:])
 
 
-def _get_frame_relevance(is_last_frame, is_bug_frame, suppress_inner):
-    """Determine frame relevance: error, warning, call, or stop."""
-    if is_last_frame:
-        return "stop" if suppress_inner else "error"
-    elif is_bug_frame:
-        return "warning"
-    return "call"
+def _extract_text_from_range(lines: str, mark_range) -> str | None:
+    """Extract the text covered by a Range from source lines.
+
+    Args:
+        lines: The source code (may contain multiple lines)
+        mark_range: Range object with lfirst, lfinal (1-based inclusive lines),
+                   cbeg, cend (0-based exclusive columns), or None
+
+    Returns:
+        The extracted text, or None if mark_range is None.
+    """
+    if mark_range is None:
+        return None
+
+    lines_list = lines.splitlines(keepends=True)
+
+    # Convert to 0-based line indices
+    start_line_idx = mark_range.lfirst - 1
+    end_line_idx = mark_range.lfinal - 1
+
+    # Bounds check
+    if start_line_idx < 0 or end_line_idx >= len(lines_list):
+        return None
+
+    extracted_parts = []
+    for line_idx in range(start_line_idx, end_line_idx + 1):
+        line = lines_list[line_idx].rstrip("\r\n")
+
+        if line_idx == start_line_idx == end_line_idx:
+            # Single line case
+            extracted_parts.append(line[mark_range.cbeg : mark_range.cend])
+        elif line_idx == start_line_idx:
+            # First line of multi-line
+            extracted_parts.append(line[mark_range.cbeg :])
+        elif line_idx == end_line_idx:
+            # Last line of multi-line
+            extracted_parts.append(line[: mark_range.cend])
+        else:
+            # Middle lines of multi-line
+            extracted_parts.append(line)
+
+    return " ".join(extracted_parts)
+
+
+def _expand_source_for_comprehension(
+    lines: str, lineno: int, start: int
+) -> str:  # pragma: no cover
+    """Expand source to include full comprehension/generator expression if error is inside one.
+
+    This helps show relevant variables like the iterator source (e.g., `data` in `for item in data`).
+    Note: Currently unused but kept for future use.
+
+    Args:
+        lines: The source code snippet
+        lineno: The 1-based line number where the error occurred
+        start: The 1-based starting line number of the snippet
+
+    Returns:
+        Source code that includes the full comprehension, or original lines if not in one.
+    """
+    result = _find_comprehension_range(lines, lineno, start)
+    if result:
+        lines_list = lines.splitlines(keepends=True)
+        comp_start, comp_end = result
+        return "".join(lines_list[comp_start:comp_end])
+    return lines
+
+
+def _find_comprehension_range(lines: str, lineno: int, start: int):
+    """Find the line range of a comprehension containing the error line.
+
+    Args:
+        lines: The source code snippet
+        lineno: The 1-based line number where the error occurred
+        start: The 1-based starting line number of the snippet
+
+    Returns:
+        Tuple of (start_idx, end_idx) as 0-based indices into lines_list,
+        or None if error is not inside a comprehension.
+    """
+    import ast
+
+    # Try to parse the source and find comprehensions containing the error line
+    try:
+        tree = ast.parse(lines)
+    except SyntaxError:
+        return None
+
+    error_line_in_source = lineno - start + 1
+
+    # Find comprehension nodes that contain the error line
+    comprehension_types = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+    for node in ast.walk(tree):
+        if isinstance(
+            node, comprehension_types
+        ) and node.lineno <= error_line_in_source <= (node.end_lineno or node.lineno):
+            comp_start = node.lineno - 1  # 0-based
+            comp_end = node.end_lineno or node.lineno  # 1-based, inclusive
+            return (comp_start, comp_end)
+
+    return None
+
+
+def _trim_source_to_comprehension(lines: str, lineno: int, start: int):
+    """Trim source context to just the comprehension if error is inside one.
+
+    Args:
+        lines: The source code snippet
+        lineno: The 1-based line number where the error occurred
+        start: The 1-based starting line number of the snippet
+
+    Returns:
+        Tuple of (trimmed_lines, new_start) where new_start is adjusted line number,
+        or (lines, start) if not inside a comprehension.
+    """
+    result = _find_comprehension_range(lines, lineno, start)
+    if result:
+        lines_list = lines.splitlines(keepends=True)
+        comp_start_idx, comp_end_idx = result
+        trimmed = "".join(lines_list[comp_start_idx:comp_end_idx])
+        new_start = start + comp_start_idx
+        return trimmed, new_start
+    return lines, start
+
+
+def _get_variable_source_for_comprehension(
+    lines: str, lineno: int, start: int, mark_range
+) -> str:
+    """Get the source code to use for variable extraction, handling comprehensions.
+
+    For comprehensions, includes the entire comprehension plus the marked region.
+    This ensures external variables used anywhere in the comprehension are visible,
+    even when the error occurs in a specific part (e.g., the filter clause).
+
+    Comprehension loop variables (like 'x' in 'for x in data') won't be accessible
+    in frame.f_locals anyway, so including them doesn't hurt - they'll just be
+    filtered out during variable extraction.
+
+    Args:
+        lines: The source code snippet
+        lineno: The 1-based line number where the error occurred
+        start: The 1-based starting line number of the snippet
+        mark_range: Range object with the marked region, or None
+
+    Returns:
+        Source code string for variable extraction.
+    """
+    # Check if we're inside a comprehension
+    comp_range = _find_comprehension_range(lines, lineno, start)
+
+    if comp_range is not None:
+        # Inside a comprehension: use full comprehension text
+        lines_list = lines.splitlines(keepends=True)
+        comp_start_idx, comp_end_idx = comp_range
+        return "".join(lines_list[comp_start_idx:comp_end_idx])
+
+    # Not in a comprehension: use marked text or fall back to full lines
+    marked_text = _extract_text_from_range(lines, mark_range)
+    return marked_text or lines
 
 
 def _extract_emphasis_columns(
@@ -304,18 +1059,6 @@ def _build_position_map(raw_tb):
     except Exception:
         logger.exception("Error extracting position information")
     return position_map
-
-
-def _find_bug_frame(tb):
-    """Find the most relevant user code frame in the traceback."""
-    return next(
-        (
-            f
-            for f in reversed(tb)
-            if f.code_context and _libdir_match(Path(f.filename).as_posix()) is None
-        ),
-        tb[-1],
-    ).frame
 
 
 def _extract_syntax_error_frame(e):
@@ -468,6 +1211,7 @@ def _extract_syntax_error_frame(e):
         "relevance": "error",
         "filename": fmt_filename,
         "location": location,
+        "notebook_cell": notebook_cell,
         "codeline": codeline,
         "range": Range(lineno, end_lineno or lineno, start_col, end_col)
         if start_col is not None
@@ -481,12 +1225,11 @@ def _extract_syntax_error_frame(e):
     }
 
 
-def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
+def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
     if not tb:
         return []
 
     position_map = _build_position_map(raw_tb)
-    bug_in_frame = _find_bug_frame(tb)
 
     frames = []
     for frame, filename, lineno, function, codeline, _ in tb:
@@ -497,11 +1240,15 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
             if hide == "until":
                 # Hide this frame and all previous frames
                 frames = []
-            continue
+                continue
+            # Mark frame as hidden but keep it for chain analysis
+            # (will be filtered out after chronological ordering is built)
+            hidden = True
+        else:
+            hidden = False
 
-        is_last_frame = frame is tb[-1][0]
-        is_bug_frame = frame is bug_in_frame
-        relevance = _get_frame_relevance(is_last_frame, is_bug_frame, suppress_inner)
+        # Relevance is set later in extract_exception via _set_frame_relevance
+        relevance = "call"
 
         # Extract position information first so we can use it for source extraction
         pos = position_map.get(frame, [None] * 4)
@@ -511,28 +1258,55 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         notebook_cell = _is_notebook_cell(filename)
 
         lines, start, original_common_indent = extract_source_lines(
-            frame, lineno, pos_end_lineno, notebook_cell=notebook_cell
+            frame,
+            lineno,
+            pos_end_lineno,
+            notebook_cell=notebook_cell,
+            except_block=except_block,
         )
-        if not lines and relevance == "call":
+        is_last_frame = frame is tb[-1][0]
+        if not lines and not is_last_frame:
+            if hidden:
+                # Still include hidden frames with minimal info for chain analysis
+                full_source, full_source_start = _get_full_source(frame)
+                frames.append(
+                    {
+                        "id": f"tb-{token_urlsafe(12)}",
+                        "relevance": relevance,
+                        "hidden": True,
+                        "lineno": lineno,
+                        "full_source": full_source,
+                        "full_source_start": full_source_start,
+                    }
+                )
             continue
 
+        # Get full source for chain analysis (AST parsing for try-except matching)
+        # This uses inspect which works with any source Python knows about
+        full_source, full_source_start = _get_full_source(frame)
+
+        # For comprehensions/generators, trim context to just the expression
+        lines, start = _trim_source_to_comprehension(lines, lineno, start)
+        # Recalculate common indent after trimming and dedent again if needed
+        lines_list = lines.splitlines(keepends=True)
+        extra_indent = _calculate_common_indent(lines_list)
+        lines = "".join(ln.removeprefix(extra_indent) for ln in lines_list)
+        # Total indent removed is original + any extra from trimming
+        total_indent = len(original_common_indent) + len(extra_indent)
+
+        # Preserve original filename for chain analysis (needed for AST parsing)
+        original_filename = filename
         filename, location, urls = format_location(filename, lineno)
         function = _get_qualified_function_name(frame, function)
 
         error_line_in_context = lineno - start + 1
         end_line = pos_end_lineno - start + 1 if pos_end_lineno else None
 
-        # Calculate common indentation that will be removed for display
-        # (we already have this from extract_source_lines, no need to recalculate)
-        common_indent = original_common_indent
-
         # Adjust column positions to account for dedenting
         # Python's column numbers are based on the original indented code,
-        # but we display dedented code, so we need to subtract the common indentation
-        adjusted_start_col = (
-            start_col - len(common_indent) if start_col is not None else None
-        )
-        adjusted_end_col = end_col - len(common_indent) if end_col is not None else None
+        # but we display dedented code, so we need to subtract total indentation removed
+        adjusted_start_col = start_col - total_indent if start_col is not None else None
+        adjusted_end_col = end_col - total_indent if end_col is not None else None
 
         # Create mark range (1-based inclusive lines, 0-based exclusive columns)
         mark_range = None
@@ -556,28 +1330,41 @@ def extract_frames(tb, raw_tb=None, suppress_inner=False) -> list:
         )
         fragments = _parse_lines_to_fragments(lines, mark_range, em_range)
 
+        # Extract variable source: use marked region + comprehension expansion if inside one
+        variable_source = _get_variable_source_for_comprehension(
+            lines, lineno, start, mark_range
+        )
+
         frames.append(
             {
                 "id": f"tb-{token_urlsafe(12)}",
                 "relevance": relevance,
+                "hidden": hidden,  # For chain analysis; filtered out after ordering
                 "filename": filename,
+                "original_filename": original_filename,  # For chain analysis AST parsing
                 "location": location,
+                "notebook_cell": notebook_cell,
                 "codeline": codeline[0].strip() if codeline else None,
                 "range": Range(lineno, pos_end_lineno or lineno, start_col, end_col)
                 if start_col is not None
                 else None,
+                "lineno": lineno,  # Actual error line from traceback (always available)
                 "linenostart": start,
                 "lines": lines,
                 "fragments": fragments,
                 "function": function,
                 "urls": urls,
-                "variables": extract_variables(frame.f_locals, lines),
+                "variables": extract_variables(frame.f_locals, variable_source)
+                if not hidden
+                else [],
+                # Full source for chain analysis (try-except matching via AST)
+                "full_source": full_source,
+                "full_source_start": full_source_start,
             }
         )
 
-        if suppress_inner and is_bug_frame:
-            break
-
+    if exc is not None:
+        _set_relevances(frames, exc)
     return frames
 
 

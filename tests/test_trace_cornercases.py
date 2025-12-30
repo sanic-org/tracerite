@@ -44,7 +44,9 @@ class TestTraceCornercases:
         # Verify frames were extracted
         assert len(frames) > 0, "Should have extracted some frames"
 
-        function_names = [f["function"] for f in frames]
+        # Filter out hidden frames (they're kept for chain analysis but not shown)
+        visible_frames = [f for f in frames if not f.get("hidden")]
+        function_names = [f["function"] for f in visible_frames]
 
         # internal_helper_function should be excluded (has __tracebackhide__ in f_globals)
         assert "internal_helper_function" not in function_names, (
@@ -95,7 +97,9 @@ class TestTraceCornercases:
         # Verify frames were extracted
         assert len(frames) > 0, "Should have extracted some frames"
 
-        function_names = [f["function"] for f in frames]
+        # Filter out hidden frames (they're kept for chain analysis but not shown)
+        visible_frames = [f for f in frames if not f.get("hidden")]
+        function_names = [f["function"] for f in visible_frames]
 
         # internal_implementation_wrapper should be excluded (has __tracebackhide__ in f_locals)
         assert "internal_implementation_wrapper" not in function_names, (
@@ -460,27 +464,28 @@ hidden_frame()
                     )
 
     def test_create_summary_long_message(self):
-        """Test _create_summary with message > 1000 chars (lines 42-46)."""
+        """Test _create_summary returns first line regardless of length."""
         from tracerite.trace import _create_summary
 
-        # Test with message > 1000 chars
+        # Single-line message - summary is the whole message
         long_message = "A" * 1500
         summary = _create_summary(long_message)
-        # Should use the pattern with beginning and end
-        assert "···" in summary
-        assert summary.startswith("A" * 40)
-        assert summary.endswith("A" * 40)
+        assert summary == long_message
 
-        # Test with message > 100 but < 1000 chars
+        # Single-line medium message
         medium_message = "B" * 200
         summary = _create_summary(medium_message)
-        assert "···" in summary
-        assert len(summary) < len(medium_message)
+        assert summary == medium_message
 
         # Test with short message
         short_message = "Short"
         summary = _create_summary(short_message)
         assert summary == short_message
+
+        # Multiline - only first line
+        multiline = "First\nSecond\nThird"
+        summary = _create_summary(multiline)
+        assert summary == "First"
 
     def test_skip_until_found(self):
         """Test skip_until when pattern IS found in frame (lines 60-61)."""
@@ -1242,3 +1247,94 @@ class TestMissingCoverageBranches:
 
         frame = _extract_syntax_error_frame(e)
         assert frame is not None
+
+
+class TestExtractSourceLinesEdgeCases:
+    """Tests for extract_source_lines edge cases (lines 478, 506)."""
+
+    def test_extract_source_lines_invalid_lineno_negative(self):
+        """Test extract_source_lines returns empty when error_idx < 0 (line 506)."""
+        from unittest.mock import MagicMock, patch
+
+        from tracerite.trace import extract_source_lines
+
+        # Create a mock frame
+        frame = MagicMock()
+        frame.f_code.co_filename = "test.py"
+
+        # Patch getsourcelines to return source starting at line 100
+        with patch(
+            "inspect.getsourcelines", return_value=(["line1\n", "line2\n"], 100)
+        ):
+            # lineno 1 is before start (100), so error_idx will be negative
+            lines, start, marks = extract_source_lines(frame, lineno=1)
+            # Should return empty on invalid error_idx
+            assert lines == ""
+            assert marks == ""
+
+    def test_extract_source_lines_lineno_beyond_source(self):
+        """Test extract_source_lines when lineno >= len(lines) (line 506)."""
+        from unittest.mock import MagicMock, patch
+
+        from tracerite.trace import extract_source_lines
+
+        frame = MagicMock()
+        frame.f_code.co_filename = "test.py"
+
+        # Patch getsourcelines to return small source with high start
+        with patch("inspect.getsourcelines", return_value=(["line1\n"], 1)):
+            # lineno 1000 is way beyond the source
+            lines, start, marks = extract_source_lines(frame, lineno=1000)
+            # Should return empty for invalid error_idx
+            assert lines == ""
+            assert marks == ""
+
+
+class TestHiddenFramesWithNoSource:
+    """Tests for hidden frames with no source (lines 1040-1041)."""
+
+    def test_hidden_frame_no_source_not_last(self):
+        """Test that hidden frames without source are still tracked (lines 1040-1041)."""
+        from unittest.mock import patch
+
+        from tracerite.trace import extract_frames
+
+        # This tests the case where a hidden frame (from tracebackhide)
+        # has no source lines but is not the last frame
+
+        def outer_func():
+            __tracebackhide__ = True  # noqa: F841
+            inner_func()
+
+        def inner_func():
+            raise ValueError("test error")
+
+        try:
+            outer_func()
+        except ValueError as e:
+            tb = e.__traceback__
+            if tb:
+                import inspect
+
+                tb_frames = inspect.getinnerframes(tb)
+
+                # Patch getsourcelines to return empty for outer_func but not inner_func
+                original_getsourcelines = inspect.getsourcelines
+
+                def patched_getsourcelines(frame_or_tb):
+                    if hasattr(frame_or_tb, "f_code"):
+                        code = frame_or_tb.f_code
+                    else:
+                        code = frame_or_tb.tb_frame.f_code
+                    # Return empty for outer_func to trigger hidden frame path
+                    if code.co_name == "outer_func":
+                        return ([], 1)
+                    return original_getsourcelines(frame_or_tb)
+
+                with patch(
+                    "inspect.getsourcelines", side_effect=patched_getsourcelines
+                ):
+                    frames = extract_frames(tb_frames)
+
+                # Should have extracted frames
+                assert len(frames) > 0

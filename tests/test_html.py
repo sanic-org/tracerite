@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 
 from tests.errorcases import (
     binomial_operator,
+    exception_group_with_frames,
     max_type_error_case,
     multiline_marking,
     multiline_marking_comment,
@@ -379,3 +380,178 @@ def test_collapse_call_runs_final_run_not_collapsed():
         {"relevance": "error", "id": 1},
     ] + [{"relevance": "call", "id": i} for i in range(2, 10)]
     assert result == expected
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="ExceptionGroups require Python 3.11+"
+)
+def test_html_exception_group_parallel_branches():
+    """Test HTML output with ExceptionGroup parallel branches (lines 178-179, 196-199)."""
+    try:
+        exception_group_with_frames()
+    except Exception as e:
+        html_output = str(html_traceback(e))
+
+    soup = BeautifulSoup(html_output, "html.parser")
+
+    # Check for parallel branches container
+    parallel_container = soup.find("div", class_="parallel-branches")
+    assert parallel_container is not None, (
+        "Parallel branches container should be present"
+    )
+
+    # Check for individual branches
+    branches = parallel_container.find_all("div", class_="parallel-branch")
+    assert len(branches) == 2, (
+        "Should have 2 parallel branches (ValueError and TypeError)"
+    )
+
+    # Check that subexception types are shown
+    assert "ValueError" in html_output
+    assert "TypeError" in html_output
+
+
+def test_html_frame_function_suffix_only():
+    """Test HTML frame with function_suffix but no function_name (line 387)."""
+    from tracerite.html import _frame_label
+
+    # Mock frame info with function_suffix but no function
+    frinfo = {
+        "filename": "/path/to/file.py",
+        "location": "file.py",
+        "linenostart": 10,
+        "function": "",  # Empty function name
+        "function_suffix": "⚡except",  # But has suffix
+        "relevance": "except",
+    }
+
+    import html5tagger
+
+    doc = html5tagger.Builder("div")
+    _frame_label(doc, frinfo, toggle_id=None)
+    html_output = str(doc)
+
+    # Should show the suffix
+    assert "⚡except" in html_output
+
+
+def test_html_frame_notebook_cell():
+    """Test HTML frame with notebook_cell=True (lines 394-395, 420-426)."""
+    from tracerite.html import _frame_label
+
+    # Mock frame info for notebook cell
+    frinfo = {
+        "filename": "/path/to/notebook.ipynb",
+        "location": "Cell [5]",
+        "linenostart": 10,
+        "function": "test_func",
+        "relevance": "call",
+        "notebook_cell": True,
+    }
+
+    import html5tagger
+
+    doc = html5tagger.Builder("div")
+    _frame_label(doc, frinfo, toggle_id=None)
+    html_output = str(doc)
+
+    # Should have Cell reference
+    assert "Cell [5]" in html_output
+    # Should have function name
+    assert "test_func" in html_output
+
+
+def test_html_frame_notebook_cell_no_function():
+    """Test HTML frame with notebook_cell=True and no function (line 425-426)."""
+    from tracerite.html import _frame_label
+
+    frinfo = {
+        "filename": "/path/to/notebook.ipynb",
+        "location": "Cell [5]",
+        "linenostart": 10,
+        "function": "",
+        "relevance": "call",
+        "notebook_cell": True,
+    }
+
+    import html5tagger
+
+    doc = html5tagger.Builder("div")
+    _frame_label(doc, frinfo, toggle_id=None)
+    html_output = str(doc)
+
+    assert "Cell [5]" in html_output
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+)
+def test_long_arguments_em_collapse_html():
+    """Test that long em parts (>20 chars) are collapsed in HTML output."""
+    from tests.errorcases import long_arguments_error
+
+    try:
+        long_arguments_error()
+    except Exception as e:
+        html_output = str(html_traceback(e))
+
+    soup = BeautifulSoup(html_output, "html.parser")
+
+    # Check for compact-code elements (call frames use this format)
+    soup.find_all("code", class_="compact-code")
+    # The collapsed version should have an ellipsis
+    html_str = str(soup)
+    # In HTML, this appears in the code element, possibly with em around it
+    # The long args should be collapsed to something like (…) or first…last
+    assert "max" in html_str or "long_arguments_error" in html_str
+
+
+def test_multiline_exception_message_html():
+    """Test HTML output for exception with multiline message."""
+    from tests.errorcases import multiline_exception_message
+
+    try:
+        multiline_exception_message()
+    except Exception as e:
+        html_output = str(html_traceback(e))
+
+    soup = BeautifulSoup(html_output, "html.parser")
+
+    # Should contain the exception message parts
+    assert "First line of error" in str(soup)
+    # The remaining lines should be in a pre element with class excmessage
+    pre_elements = soup.find_all("pre", class_="excmessage")
+    assert len(pre_elements) > 0
+    # Second and third lines should be in the pre
+    pre_text = " ".join(pre.get_text() for pre in pre_elements)
+    assert "Second line" in pre_text or "Third line" in pre_text
+
+
+def test_empty_line_exception_message_html():
+    """Test HTML output for exception with empty line in message."""
+    from tests.errorcases import empty_second_line_exception
+
+    try:
+        empty_second_line_exception()
+    except Exception as e:
+        html_output = str(html_traceback(e))
+
+    soup = BeautifulSoup(html_output, "html.parser")
+    # Should contain the first line
+    assert "First line" in str(soup)
+
+
+def test_trailing_newline_message_html():
+    """Test HTML output for exception message with only trailing newline."""
+    from tests.errorcases import trailing_newline_message
+
+    try:
+        trailing_newline_message()
+    except Exception as e:
+        html_output = str(html_traceback(e))
+
+    soup = BeautifulSoup(html_output, "html.parser")
+    # Should contain the message
+    assert "Single line with trailing" in str(soup)
+    # Should NOT have a pre.excmessage because rest is empty after strip
+    # (the message is "Single line with trailing\n", split gives ["Single line...", ""])

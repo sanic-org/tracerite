@@ -20,7 +20,13 @@ nox.options.error_on_external_run = True
 
 # Default sessions to run (in order) when no session is specified
 # Format first for convenience (incl. lint), clean coverage, run tests, then report
-nox.options.sessions = ["format", "lint", "clean-coverage", "test", "coverage"]
+nox.options.sessions = [
+    "format",
+    "lint",
+    "cov-clean",
+    "test",
+    "cov-combine",
+]
 
 # Python versions to test against
 PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
@@ -70,8 +76,8 @@ def format(session):
     session.run("ruff", "format", ".")
 
 
-@nox.session(python=TOOLS_PYTHON, name="clean-coverage")
-def clean_coverage(session):
+@nox.session(python=TOOLS_PYTHON, name="cov-clean")
+def cov_clean(session):
     """Clean all coverage data and reports."""
     for path in Path(".").glob(".coverage*"):
         if path.is_file():
@@ -86,8 +92,8 @@ def clean_coverage(session):
         coverage_xml.unlink()
 
 
-@nox.session(python=TOOLS_PYTHON)
-def coverage(session):
+@nox.session(python=TOOLS_PYTHON, name="cov-combine")
+def cov_combine(session):
     """Generate all coverage reports (HTML, XML, terminal) from previously collected data."""
     session.install("coverage")
     # Combine all parallel coverage data files, keeping them for future runs
@@ -103,7 +109,7 @@ def coverage(session):
 def clean(session):
     """Clean build artifacts and caches."""
     # First clean coverage data and reports
-    session.notify("clean-coverage")
+    session.notify("cov-clean")
 
     patterns = [
         "**/*.pyc",
@@ -136,3 +142,14 @@ def clean(session):
 def ty(session):
     """Run type checking with ty."""
     session.run("uvx", "ty", "check", "tracerite")
+
+
+@nox.session(python=False)
+def coverage(session):
+    """Run format, lint, cov-clean, test-3.14, test-3.9, cov-combine."""
+    session.notify("format")
+    session.notify("lint")
+    session.notify("cov-clean")
+    session.notify("test-3.14")
+    session.notify("test-3.9")
+    session.notify("cov-combine")

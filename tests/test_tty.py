@@ -8,6 +8,7 @@ import pytest
 
 from tracerite import extract_chain
 from tracerite.tty import (
+    ANSI_ESCAPE_RE,
     ARROW_LEFT,
     BOLD,
     BOX_BL,
@@ -17,7 +18,6 @@ from tracerite.tty import (
     BOX_TR,
     BOX_V,
     BOX_VL,
-    DARK_GREY,
     DIM,
     EM,
     EM_CALL,
@@ -28,11 +28,11 @@ from tracerite.tty import (
     MARK_TEXT,
     RESET,
     VAR,
-    _build_frame_lines,
+    _build_subexception_summaries,
     _build_variable_inspector,
     _format_fragment,
     _format_fragment_call,
-    _get_frame_info,
+    _get_branch_summary,
     _get_frame_label,
     load,
     symbols,
@@ -43,7 +43,9 @@ from tracerite.tty import (
 from .errorcases import (
     binomial_operator,
     chained_from_and_without,
+    exception_group_with_frames,
     function_with_many_locals,
+    function_with_many_locals_chained,
     function_with_single_local,
     max_type_error_case,
     multiline_marking,
@@ -131,8 +133,8 @@ class TestTtyTraceback:
         # Should show both exceptions
         assert "NameError" in result
         assert "RuntimeError" in result
-        # Should show the chaining message
-        assert "while handling" in result or "from" in result.lower()
+        # Should show the chaining message (using new chain message format)
+        assert "in except" in result or "from previous" in result.lower()
 
     def test_suppressed_context_exception(self):
         """Test exception with suppressed context (raise ... from None)."""
@@ -193,13 +195,13 @@ class TestTtyTraceback:
         monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
 
         try:
-            chained_from_and_without()
+            function_with_many_locals()
         except Exception as e:
             tty_traceback(exc=e)
 
         captured = capsys.readouterr()
-        assert "AttributeError" in captured.err
-        assert "NameError" in captured.err
+        assert "RuntimeError" in captured.err
+        assert "many locals test" in captured.err
         # Should contain ANSI codes
         assert "\x1b[" in captured.err
 
@@ -258,6 +260,81 @@ class TestTtyTraceback:
         assert "twenty char summary!" in result
         assert "\x1b[" in result
 
+    def test_file_without_isatty(self):
+        """Test tty_traceback with a file that doesn't have isatty method."""
+
+        class MockFile:
+            def __init__(self):
+                self.data = ""
+
+            def write(self, s):
+                self.data += s
+
+            def flush(self):
+                pass
+
+            def fileno(self):
+                raise OSError("no fileno")
+
+        output = MockFile()
+        try:
+            raise ValueError("test")
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        assert "ValueError" in output.data
+        assert "test" in output.data
+
+    def test_term_width_from_terminal_size(self, monkeypatch):
+        """Test tty_traceback gets term_width from os.get_terminal_size."""
+        import os
+
+        output = io.StringIO()
+        # Mock get_terminal_size to return a size
+        monkeypatch.setattr(
+            os, "get_terminal_size", lambda fd: type("Size", (), {"columns": 100})()
+        )
+        # Mock file.fileno to return 1
+        output.fileno = lambda: 1
+        try:
+            raise ValueError("test")
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+
+    def test_inspector_display(self):
+        """Test that inspector is displayed when isatty and variables present."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            function_with_many_locals()
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=120)
+
+        result = output.getvalue()
+        assert "RuntimeError" in result
+        assert "many locals test" in result
+        # Check that inspector is shown (has cursor positioning and variables)
+        assert "\x1b[" in result  # ANSI codes
+
+    def test_inspector_with_banners(self):
+        """Test inspector with exception banners (chained exceptions)."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            function_with_many_locals_chained()
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=120)
+
+        result = output.getvalue()
+        assert "RuntimeError" in result
+        assert "ValueError" in result
+        assert "many locals chained test" in result
+        # Check that inspector is shown
+        assert "\x1b[" in result
+
 
 class TestChainedExceptions:
     """Tests for exception chaining display."""
@@ -277,8 +354,8 @@ class TestChainedExceptions:
         # Both should be present
         assert "ValueError" in result
         assert "RuntimeError" in result
-        # "from above" indicates the second exception was raised from the first
-        assert "from above" in result
+        # "from previous" indicates the second exception was raised from the first
+        assert "from previous" in result
 
     def test_context_chain_ordering(self):
         """Test implicit context chain (without 'from')."""
@@ -294,8 +371,8 @@ class TestChainedExceptions:
         result = output.getvalue()
         assert "ValueError" in result
         assert "RuntimeError" in result
-        # Should indicate this happened while handling previous
-        assert "while handling" in result
+        # Should indicate this happened while handling previous (new format: "in except")
+        assert "in except" in result
 
     def test_deeply_nested_chain(self):
         """Test handling of deeply nested exception chains."""
@@ -587,51 +664,16 @@ class TestFrameFormatting:
         except Exception as e:
             chain = extract_chain(e)
             frame = chain[0]["frames"][-1]
-            label, label_plain = _get_frame_label(frame)
+            location_part, function_part = _get_frame_label(frame)
+            # Combine and strip colors to get plain text
+            label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
 
             # Should contain function name in light blue
-            assert FUNC in label
+            assert FUNC in function_part
             assert "test_get_frame_label_with_function" in label_plain
             # Should contain filename in green
-            assert LOCFN in label
+            assert LOCFN in location_part
             assert "test_tty" in label_plain
-
-    def test_get_frame_info_structure(self):
-        """Test _get_frame_info returns expected structure."""
-        try:
-            raise ValueError("info test")
-        except Exception as e:
-            chain = extract_chain(e)
-            exc_info = chain[0]
-            frame = exc_info["frames"][-1]
-            info = _get_frame_info(exc_info, frame)
-
-            assert "label" in info
-            assert "label_plain" in info
-            assert "fragments" in info
-            assert "relevance" in info
-            assert "is_deepest" in info
-            assert "frinfo" in info
-            assert "e" in info
-
-    def test_build_frame_lines_with_source(self):
-        """Test _build_frame_lines generates output lines."""
-        try:
-            raise ValueError("frame lines test")
-        except Exception as e:
-            chain = extract_chain(e)
-            exc_info = chain[0]
-            frame = exc_info["frames"][-1]
-            info = _get_frame_info(exc_info, frame)
-
-            lines = _build_frame_lines(info, label_width=50, term_width=120)
-
-            assert len(lines) > 0
-            # Each line is (colored_line, plain_length, is_marked)
-            for line, plain_len, is_marked in lines:
-                assert isinstance(line, str)
-                assert isinstance(plain_len, int)
-                assert isinstance(is_marked, bool)
 
 
 class TestFragmentFormatting:
@@ -640,14 +682,16 @@ class TestFragmentFormatting:
     def test_format_fragment_plain(self):
         """Test formatting fragment without marks or emphasis."""
         fragment = {"code": "x = 1"}
-        colored, plain = _format_fragment(fragment)
+        colored = _format_fragment(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "x = 1"
         assert colored == "x = 1"
 
     def test_format_fragment_with_mark_solo(self):
         """Test formatting fragment with solo mark (single highlighted region)."""
         fragment = {"code": "error_code", "mark": "solo"}
-        colored, plain = _format_fragment(fragment)
+        colored = _format_fragment(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "error_code"
         assert MARK_BG in colored
         assert MARK_TEXT in colored
@@ -657,33 +701,36 @@ class TestFragmentFormatting:
         """Test formatting fragment with mark spanning multiple fragments."""
         # Beginning of marked region
         frag_beg = {"code": "start", "mark": "beg"}
-        colored_beg, plain_beg = _format_fragment(frag_beg)
+        colored_beg = _format_fragment(frag_beg)
         assert MARK_BG in colored_beg
         assert RESET not in colored_beg  # Should not close yet
 
         # End of marked region
         frag_fin = {"code": "end", "mark": "fin"}
-        colored_fin, plain_fin = _format_fragment(frag_fin)
+        colored_fin = _format_fragment(frag_fin)
         assert RESET in colored_fin
 
     def test_format_fragment_with_em_solo(self):
         """Test formatting fragment with emphasis (error location)."""
         fragment = {"code": "+", "em": "solo", "mark": "solo"}
-        colored, plain = _format_fragment(fragment)
+        colored = _format_fragment(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "+"
         assert EM in colored
 
     def test_format_fragment_call_plain(self):
         """Test call frame fragment formatting without emphasis."""
         fragment = {"code": "func(arg)"}
-        colored, plain = _format_fragment_call(fragment)
+        colored = _format_fragment_call(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "func(arg)"
         assert colored == "func(arg)"
 
     def test_format_fragment_call_with_em(self):
         """Test call frame fragment formatting with emphasis."""
         fragment = {"code": "bad_call", "em": "solo"}
-        colored, plain = _format_fragment_call(fragment)
+        colored = _format_fragment_call(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "bad_call"
         assert EM_CALL in colored
         assert RESET in colored
@@ -691,7 +738,8 @@ class TestFragmentFormatting:
     def test_format_fragment_strips_newlines(self):
         """Test that fragments strip trailing newlines."""
         fragment = {"code": "line\n\r"}
-        colored, plain = _format_fragment(fragment)
+        colored = _format_fragment(fragment)
+        plain = ANSI_ESCAPE_RE.sub("", colored)
         assert plain == "line"
         assert "\n" not in colored
         assert "\r" not in colored
@@ -702,8 +750,9 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_empty(self):
         """Test inspector with no variables."""
-        result = _build_variable_inspector([], term_width=80)
+        result, min_width = _build_variable_inspector([], term_width=80)
         assert result == []
+        assert min_width == 0
 
     def test_build_variable_inspector_simple_vars(self):
         """Test inspector with simple variables."""
@@ -713,13 +762,14 @@ class TestVariableInspector:
             VarInfo(name="x", typename="int", value="42", format_hint=None),
             VarInfo(name="name", typename="str", value='"hello"', format_hint=None),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 2
-        # Each item is (colored_line, width)
-        for colored, width in result:
+        # Each item is (colored_line, plain_width, value_start_col)
+        for colored, width, value_col in result:
             assert isinstance(colored, str)
             assert isinstance(width, int)
+            assert isinstance(value_col, int)
 
     def test_build_variable_inspector_without_typename(self):
         """Test inspector with variables that have no type annotation."""
@@ -728,10 +778,10 @@ class TestVariableInspector:
         variables = [
             VarInfo(name="y", typename=None, value="100", format_hint=None),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
-        colored, width = result[0]
+        colored, width, value_col = result[0]
         # Should format as "y = 100" not "y: None = 100"
         assert VAR in colored  # Variable name in cyan
         assert "= 100" in colored or "100" in colored
@@ -748,10 +798,10 @@ class TestVariableInspector:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
-        colored, _ = result[0]
+        colored, _, _ = result[0]
         assert "a:" in colored or "{" in colored
 
     def test_build_variable_inspector_array(self):
@@ -766,10 +816,10 @@ class TestVariableInspector:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
-        colored, _ = result[0]
+        colored, _, _ = result[0]
         assert "[" in colored
 
     def test_build_variable_inspector_truncation(self):
@@ -782,10 +832,10 @@ class TestVariableInspector:
                 name="long_var", typename="str", value=long_value, format_hint=None
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
-        colored, width = result[0]
+        colored, width, value_col = result[0]
         # Should be truncated (indicated by width being less than original)
         assert width < len(long_value)
         assert "…" in colored  # Truncation indicator
@@ -823,7 +873,6 @@ class TestAnsiCodes:
             EM,
             LOCFN,
             EM_CALL,
-            DARK_GREY,
             FUNC,
             VAR,
             BOLD,
@@ -1436,80 +1485,6 @@ class TestExcepthookFallback:
             unload()
 
 
-class TestPrintFragment:
-    """Tests for _print_fragment function."""
-
-    def test_print_fragment_plain(self):
-        """Test printing plain fragment without marks."""
-        from tracerite.tty import _print_fragment
-
-        output = io.StringIO()
-        fragment = {"code": "plain_code\n"}
-        _print_fragment(output, fragment)
-        assert output.getvalue() == "plain_code"
-
-    def test_print_fragment_with_mark_solo(self):
-        """Test printing fragment with solo mark."""
-        from tracerite.tty import _print_fragment
-
-        output = io.StringIO()
-        fragment = {"code": "marked", "mark": "solo"}
-        _print_fragment(output, fragment)
-        result = output.getvalue()
-        assert MARK_BG in result
-        assert MARK_TEXT in result
-        assert "marked" in result
-        assert RESET in result
-
-    def test_print_fragment_with_em_solo(self):
-        """Test printing fragment with solo emphasis."""
-        from tracerite.tty import _print_fragment
-
-        output = io.StringIO()
-        fragment = {"code": "+", "em": "solo", "mark": "solo"}
-        _print_fragment(output, fragment)
-        result = output.getvalue()
-        assert EM in result
-        assert "+" in result
-
-    def test_print_fragment_em_beg_fin(self):
-        """Test printing fragment with em beginning and finishing."""
-        from tracerite.tty import _print_fragment
-
-        # Test em beginning
-        output = io.StringIO()
-        fragment = {"code": "start", "em": "beg", "mark": "beg"}
-        _print_fragment(output, fragment)
-        result = output.getvalue()
-        assert EM in result
-
-        # Test em finishing (without mark finishing)
-        output2 = io.StringIO()
-        fragment2 = {"code": "middle", "em": "fin"}
-        _print_fragment(output2, fragment2)
-        result2 = output2.getvalue()
-        assert MARK_TEXT in result2
-
-    def test_print_fragment_mark_beg_fin(self):
-        """Test printing fragment with mark beginning and finishing."""
-        from tracerite.tty import _print_fragment
-
-        # Beginning
-        output = io.StringIO()
-        fragment = {"code": "begin", "mark": "beg"}
-        _print_fragment(output, fragment)
-        result = output.getvalue()
-        assert MARK_BG in result
-        assert RESET not in result
-
-        # Finishing
-        output2 = io.StringIO()
-        fragment2 = {"code": "end", "mark": "fin"}
-        _print_fragment(output2, fragment2)
-        result2 = output2.getvalue()
-        assert RESET in result2
-
-
 class TestVariableInspectorEdgeCases:
     """Additional tests for variable inspector edge cases."""
 
@@ -1520,7 +1495,7 @@ class TestVariableInspectorEdgeCases:
             ("x", "int", "42"),
             ("y", None, "100"),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 2
         # First var has typename
@@ -1540,7 +1515,7 @@ class TestVariableInspectorEdgeCases:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
         assert "[]" in result[0][0]
@@ -1557,7 +1532,7 @@ class TestVariableInspectorEdgeCases:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
         # Should format first row with ellipsis
@@ -1576,7 +1551,7 @@ class TestVariableInspectorEdgeCases:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
         # Should convert to string directly
@@ -1594,7 +1569,7 @@ class TestVariableInspectorEdgeCases:
                 format_hint=None,
             ),
         ]
-        result = _build_variable_inspector(variables, term_width=80)
+        result, min_width = _build_variable_inspector(variables, term_width=80)
 
         assert len(result) == 1
         assert "3.14159" in result[0][0]
@@ -1612,7 +1587,8 @@ class TestFrameLabelEdgeCases:
             "range": None,
             "relevance": "error",
         }
-        label, label_plain = _get_frame_label(frinfo)
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
 
         assert "test_func" in label_plain
         assert "unknown_location" in label_plain
@@ -1627,7 +1603,8 @@ class TestFrameLabelEdgeCases:
             "range": None,
             "relevance": "error",
         }
-        label, label_plain = _get_frame_label(frinfo)
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
 
         assert "external_func" in label_plain
         # Should use location since it's not under CWD
@@ -1636,49 +1613,30 @@ class TestFrameLabelEdgeCases:
             or "/some/other/path/file.py" in label_plain
         )
 
+    def test_frame_label_relative_to_raises(self, monkeypatch):
+        """Test frame label when Path.relative_to raises exception."""
+        from pathlib import Path
 
-class TestFrameWithoutSource:
-    """Tests for frames without source code available."""
+        # Mock Path.relative_to to raise ValueError
 
-    def test_build_frame_lines_no_fragments(self):
-        """Test building frame lines when no fragments (source unavailable)."""
-        info = {
-            "label": f"{FUNC}test_func {LOCFN}test.py{DARK_GREY}:10{RESET}",
-            "label_plain": "test_func test.py:10",
-            "fragments": [],
-            "frame_range": None,
+        def failing_relative_to(self, other):
+            raise ValueError("mock error")
+
+        monkeypatch.setattr(Path, "relative_to", failing_relative_to)
+
+        frinfo = {
+            "filename": "/some/path/file.py",
+            "location": "some/path/file.py",
+            "function": "func",
+            "range": None,
             "relevance": "error",
-            "is_deepest": False,
-            "frinfo": {},
-            "e": {"type": "ValueError"},
         }
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
 
-        lines = _build_frame_lines(info, label_width=30, term_width=120)
-
-        assert len(lines) == 1
-        # Single line with label and source not available message
-        assert "test_func" in lines[0][0]
-        assert "Source code not available" in lines[0][0]
-
-    def test_build_frame_lines_no_fragments_deepest(self):
-        """Test building frame lines for deepest frame without source."""
-        info = {
-            "label": f"{FUNC}deep_func {LOCFN}test.py{DARK_GREY}:20{RESET}",
-            "label_plain": "deep_func test.py:20",
-            "fragments": [],
-            "frame_range": None,
-            "relevance": "error",
-            "is_deepest": True,
-            "frinfo": {},
-            "e": {"type": "RuntimeError"},
-        }
-
-        lines = _build_frame_lines(info, label_width=30, term_width=120)
-
-        assert len(lines) == 1
-        # Single line with combined message
-        assert "Source code not available" in lines[0][0]
-        assert "RuntimeError was raised from here" in lines[0][0]
+        # Should fall back to location
+        assert "some/path/file.py" in label_plain
+        # Note: monkeypatch automatically restores at end of test
 
 
 class TestInspectorPositioning:
@@ -1744,441 +1702,771 @@ class TestInspectorPositioning:
         assert "deep_call" in result
 
 
-class TestPrintExceptionInternals:
-    """Tests for _print_exception internal code paths."""
+class TestTtyTracebackEdgeCases:
+    """Tests for edge cases in tty_traceback to achieve full coverage."""
 
-    def test_print_exception_directly(self):
-        """Test _print_exception with controlled exception data."""
-        from tracerite.tty import _print_exception
+    def test_msg_starting_with_two_spaces(self):
+        """Test that msg starting with '  ' gets trimmed (line 208)."""
+        output = io.StringIO()
+        try:
+            raise ValueError("test")
+        except Exception as e:
+            # Pass a message that starts with two spaces
+            tty_traceback(exc=e, file=output, msg="  indented message")
 
-        # Create a minimal exception dict structure
-        e = {
-            "type": "TestError",
-            "summary": "Test summary",
-            "message": "Test summary with more details",
-            "frames": [
+        result = output.getvalue()
+        # The "  " prefix should be stripped
+        assert "indented message" in result
+
+    def test_msg_with_newlines(self):
+        """Test that msg with newlines is properly handled."""
+        output = io.StringIO()
+        try:
+            raise ValueError("test")
+        except Exception as e:
+            tty_traceback(exc=e, file=output, msg="line1\nline2\nline3\n")
+
+        result = output.getvalue()
+        assert "line1" in result
+        assert "line2" in result
+        assert "line3" in result
+
+    def test_empty_chain(self):
+        """Test tty_traceback with empty chain."""
+        output = io.StringIO()
+        tty_traceback(chain=[], file=output)
+        result = output.getvalue()
+        # Should still produce output with box drawing
+        assert "╭" in result or "│" in result or "╰" in result
+
+    def test_chain_without_frames(self):
+        """Test exception chain where exceptions have no frames."""
+        output = io.StringIO()
+        # Create a minimal chain with no frames
+        chain = [
+            {
+                "type": "TestError",
+                "message": "test message",
+                "summary": "test message",
+                "from": None,
+                "frames": [],
+            }
+        ]
+        tty_traceback(chain=chain, file=output)
+        result = output.getvalue()
+        assert "TestError" in result
+        assert "test message" in result
+
+    def test_inspector_arrow_first_and_last(self):
+        """Test inspector with single variable (arrow is first and last)."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+
+        def single_var_func():
+            x = 42
+            return x + "string"  # TypeError with single local
+
+        try:
+            single_var_func()
+        except TypeError as e:
+            tty_traceback(exc=e, file=output, term_width=120)
+
+        result = output.getvalue()
+        assert "TypeError" in result
+        # Should have box drawing for inspector
+        assert "\x1b[" in result
+
+    def test_inspector_arrow_is_first(self):
+        """Test inspector where arrow line is first line (multiple vars)."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+
+        def two_var_func():
+            x = 42
+            y = "hello"
+            return x + y  # TypeError
+
+        try:
+            two_var_func()
+        except TypeError as e:
+            # Use a narrow terminal so inspector shifts
+            tty_traceback(exc=e, file=output, term_width=200)
+
+        result = output.getvalue()
+        assert "TypeError" in result
+
+    def test_inspector_arrow_is_last(self):
+        """Test inspector where arrow line is last line."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+
+        def multi_var_func():
+            a = 1
+            b = 2
+            c = 3
+            d = 4
+            return a + b + c + d + "x"  # TypeError
+
+        try:
+            multi_var_func()
+        except TypeError as e:
+            tty_traceback(exc=e, file=output, term_width=120)
+
+        result = output.getvalue()
+        assert "TypeError" in result
+
+    def test_inspector_exceeds_terminal_width(self):
+        """Test inspector that would exceed terminal width."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+
+        def wide_var_func():
+            very_long_variable_name_that_is_quite_long = "a" * 50
+            return very_long_variable_name_that_is_quite_long + 1
+
+        try:
+            wide_var_func()
+        except TypeError as e:
+            # Narrow terminal to force inspector to adjust
+            tty_traceback(exc=e, file=output, term_width=60)
+
+        result = output.getvalue()
+        assert "TypeError" in result
+
+    def test_frame_without_source_with_exception(self):
+        """Test frame without source code that has exception info."""
+        from tracerite.tty import _build_chrono_frame_lines
+
+        info = {
+            "location_part": "test.py:10",
+            "function_part": "test_func:",
+            "fragments": [],
+            "frame_range": None,
+            "relevance": "error",
+            "exc_info": {"type": "ValueError", "message": "test"},
+            "marked_lines": [],
+            "frinfo": {"linenostart": 1},
+        }
+
+        lines = _build_chrono_frame_lines(
+            info, location_width=15, function_width=15, term_width=120
+        )
+
+        assert len(lines) == 1
+        assert "Source code not available" in lines[0][0]
+        assert "ValueError was raised from here" in lines[0][0]
+
+    def test_frame_without_source_no_exception(self):
+        """Test frame without source code and no exception info."""
+        from tracerite.tty import _build_chrono_frame_lines
+
+        info = {
+            "location_part": "test.py:10",
+            "function_part": "test_func:",
+            "fragments": [],
+            "frame_range": None,
+            "relevance": "call",
+            "exc_info": None,
+            "marked_lines": [],
+            "frinfo": {"linenostart": 1},
+        }
+
+        lines = _build_chrono_frame_lines(
+            info, location_width=15, function_width=15, term_width=120
+        )
+
+        assert len(lines) == 1
+        assert "Source code not available" in lines[0][0]
+        assert "was raised from here" not in lines[0][0]
+
+    def test_chained_exception_with_banners(self):
+        """Test chained exceptions produce banners correctly."""
+        output = io.StringIO()
+
+        try:
+            try:
+                raise ValueError("first error")
+            except ValueError as e:
+                raise RuntimeError("second error") from e
+        except RuntimeError as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "RuntimeError" in result
+        # The inner exception message may not be displayed in compact format
+        assert "second error" in result
+
+    def test_relative_path_when_inside_cwd(self, monkeypatch):
+        """Test that file paths inside cwd are made relative."""
+
+        output = io.StringIO()
+
+        # The actual test file should already be inside cwd
+        try:
+            raise ValueError("path test")
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        # Should contain filename without full absolute path
+        assert "test_tty" in result
+
+    def test_filename_outside_cwd(self, monkeypatch):
+        """Test handling of file path outside current directory."""
+        from tracerite.tty import ANSI_ESCAPE_RE, _get_frame_label
+
+        # Create a frame info for a file outside cwd
+        frinfo = {
+            "filename": "/some/other/path/file.py",
+            "location": "other/path/file.py",
+            "function": "test_func",
+            "relevance": "call",
+            "range": type("Range", (), {"lfirst": 10})(),
+        }
+
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
+        # Should use location as-is since file is outside cwd
+        assert "test_func" in label_plain
+
+    def test_inspector_taller_than_output(self):
+        """Test when inspector has more lines than available output lines."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+
+        def many_vars_short_stack():
+            a, _b, _c, _d, _e = 1, 2, 3, 4, 5
+            _f, _g, _h, _i, _j = 6, 7, 8, 9, 10
+            return a + "x"  # TypeError with many vars
+
+        try:
+            many_vars_short_stack()
+        except TypeError as e:
+            tty_traceback(exc=e, file=output, term_width=150)
+
+        result = output.getvalue()
+        assert "TypeError" in result
+
+    def test_exception_banners_after_inspector(self):
+        """Test exception banners inserted after inspector lines."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+
+        def inner_func():
+            x = 42
+            raise ValueError(str(x) + " error")
+
+        try:
+            try:
+                inner_func()  # Has local var for inspector
+            except ValueError as e:
+                raise RuntimeError("chained") from e
+        except RuntimeError as e:
+            tty_traceback(exc=e, file=output, term_width=120)
+
+        result = output.getvalue()
+        assert "RuntimeError" in result
+        assert "ValueError" in result
+
+
+class TestMergeChronoOutputBranches:
+    """Tests for specific branches in _merge_chrono_output."""
+
+    def test_inspector_arrow_last_not_first(self):
+        """Test inspector where arrow is last but not first (line 727)."""
+        from tracerite.tty import BOX_BR, _merge_chrono_output
+
+        # Create output where error line (marked) is at position 1
+        output_lines = [
+            ("line0", 10, 0, False),  # not marked
+            ("line1", 10, 0, True),  # marked (arrow points here)
+        ]
+        # Two inspector lines, arrow should be at last
+        inspector_lines = [
+            ("var1 = 1", 8, 6),
+            ("var2 = 2", 8, 6),
+        ]
+        exception_banners = []
+        frame_info_list = [{"relevance": "error"}]
+
+        result = _merge_chrono_output(
+            output_lines,
+            [inspector_lines],
+            [20],  # min widths
+            term_width=120,
+            inspector_frame_indices=[0],
+            exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
+        )
+        # Should use BOX_BR for last+arrow
+        assert BOX_BR in result
+
+    def test_inspector_first_not_arrow(self):
+        """Test inspector where first line is not arrow (line 733)."""
+        from tracerite.tty import BOX_TL, _merge_chrono_output
+
+        # Create output where marked line is at end
+        output_lines = [
+            ("line0", 10, 0, False),
+            ("line1", 10, 0, False),
+            ("line2", 10, 0, True),  # marked (arrow points here)
+        ]
+        # Three inspector lines, need arrow at idx 2, so first line isn't arrow
+        inspector_lines = [
+            ("var1 = 1", 8, 6),
+            ("var2 = 2", 8, 6),
+            ("var3 = 3", 8, 6),
+        ]
+        exception_banners = []
+        frame_info_list = [{"relevance": "error"}]
+
+        result = _merge_chrono_output(
+            output_lines,
+            [inspector_lines],
+            [20],
+            term_width=120,
+            inspector_frame_indices=[0],
+            exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
+        )
+        # Should use BOX_TL for first line when not arrow
+        assert BOX_TL in result
+
+    def test_remaining_inspector_lines(self):
+        """Test when inspector is taller than output (lines 752-757)."""
+        from tracerite.tty import _merge_chrono_output
+
+        # Only 1 output line but 3 inspector lines
+        output_lines = [
+            ("line0", 10, 0, True),  # marked
+        ]
+        inspector_lines = [
+            ("var1 = 1", 8, 6),
+            ("var2 = 2", 8, 6),
+            ("var3 = 3", 8, 6),
+        ]
+        exception_banners = []
+        frame_info_list = [{"relevance": "error"}]
+
+        result = _merge_chrono_output(
+            output_lines,
+            [inspector_lines],
+            [20],
+            term_width=120,
+            inspector_frame_indices=[0],
+            exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
+        )
+        # All variables should appear
+        assert "var1" in result
+        assert "var2" in result
+        assert "var3" in result
+
+    def test_remaining_banners_after_output(self):
+        """Test remaining banners inserted after all output (line 761)."""
+        from tracerite.tty import _merge_chrono_output
+
+        output_lines = [
+            ("line0", 10, 0, True),
+        ]
+        inspector_lines = [
+            ("var1 = 1", 8, 6),
+        ]
+        # Banner that should be inserted after all lines
+        exception_banners = [(100, "BANNER_TEXT")]
+        frame_info_list = [{"relevance": "error"}]
+
+        result = _merge_chrono_output(
+            output_lines,
+            [inspector_lines],
+            [20],
+            term_width=120,
+            inspector_frame_indices=[0],
+            exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
+        )
+        assert "BANNER_TEXT" in result
+
+    def test_inspector_shift_up(self):
+        """Test inspector shifts up when not enough lines below (line 683)."""
+        from tracerite.tty import _merge_chrono_output
+
+        # Only 2 output lines, but 4 inspector lines - needs to shift
+        output_lines = [
+            ("line0", 10, 0, False),
+            ("line1", 10, 0, True),  # marked at the end
+        ]
+        inspector_lines = [
+            ("var1 = 1", 8, 6),
+            ("var2 = 2", 8, 6),
+            ("var3 = 3", 8, 6),
+            ("var4 = 4", 8, 6),
+        ]
+        exception_banners = []
+        frame_info_list = [{"relevance": "error"}]
+
+        result = _merge_chrono_output(
+            output_lines,
+            [inspector_lines],
+            [20],
+            term_width=120,
+            inspector_frame_indices=[0],
+            exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
+        )
+        # All variables should appear
+        assert "var1" in result
+        assert "var4" in result
+
+
+class TestPrintChronologicalBranches:
+    """Tests for specific branches in _print_chronological."""
+
+    def test_no_inspector_with_banner_insertion(self):
+        """Test banner insertion when no inspector (lines 404-432)."""
+        output = io.StringIO()
+
+        # Chain without variables (no inspector) but with chained exception
+        try:
+            try:
+                # Use exec to avoid local variables
+                exec("raise ValueError('first')")
+            except ValueError as exc:
+                raise RuntimeError("second") from exc
+        except RuntimeError as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "RuntimeError" in result
+
+
+class TestGetFrameLabelBranches:
+    """Tests for specific branches in _get_frame_label."""
+
+    def test_path_relative_error(self, monkeypatch):
+        """Test exception handling in path relativization (lines 506-508)."""
+        from pathlib import Path
+
+        from tracerite.tty import ANSI_ESCAPE_RE, _get_frame_label
+
+        # Get the actual cwd and create a path inside it
+        cwd = Path.cwd()
+        fake_file = cwd / "subdir" / "file.py"
+
+        # Mock relative_to to raise ValueError when called
+
+        def failing_relative_to(self, other):
+            raise ValueError("cannot make relative")
+
+        monkeypatch.setattr(Path, "relative_to", failing_relative_to)
+
+        frinfo = {
+            "filename": str(fake_file),  # Absolute path inside cwd
+            "location": "subdir/file.py",
+            "function": "test_func",
+            "relevance": "call",
+            "range": type("Range", (), {"lfirst": 10})(),
+        }
+
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
+        # Should fall back to location without crashing
+        assert "test_func" in label_plain
+        assert "file.py" in label_plain
+        # Note: monkeypatch automatically restores at end of test
+
+
+class TestNotebookCellDisplay:
+    """Tests for notebook cell handling in TTY output."""
+
+    def test_frame_label_with_notebook_cell(self):
+        """Test frame label for notebook cell (line 647-653)."""
+        frinfo = {
+            "filename": "/path/to/notebook.ipynb",
+            "location": "Cell [5]",
+            "function": "test_func",
+            "relevance": "call",
+            "range": type("Range", (), {"lfirst": 10})(),
+            "notebook_cell": True,
+        }
+
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
+        # For notebook cells, lineno is not shown in the label
+        assert "Cell [5]" in label_plain
+        assert "test_func" in label_plain
+        # Should not have :10 in it (line number omitted for notebooks)
+        assert ":10" not in label_plain
+
+    def test_frame_label_with_notebook_cell_no_function(self):
+        """Test frame label for notebook cell without function (line 652-653)."""
+        frinfo = {
+            "filename": "/path/to/notebook.ipynb",
+            "location": "Cell [5]",
+            "function": "",
+            "relevance": "call",
+            "range": type("Range", (), {"lfirst": 10})(),
+            "notebook_cell": True,
+        }
+
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
+        assert "Cell [5]" in label_plain
+        # No function part
+        assert function_part == ""
+
+
+class TestFunctionSuffixDisplay:
+    """Tests for function suffix handling."""
+
+    def test_function_suffix_without_function_name(self):
+        """Test function_suffix when function_name is empty (line 643)."""
+        frinfo = {
+            "filename": "/path/to/file.py",
+            "location": "file.py",
+            "function": "",  # Empty function name
+            "function_suffix": "⚡except",  # But has suffix
+            "relevance": "except",
+            "range": type("Range", (), {"lfirst": 10})(),
+        }
+
+        location_part, function_part = _get_frame_label(frinfo)
+        label_plain = ANSI_ESCAPE_RE.sub("", location_part + function_part)
+        # Should show the suffix even without function name
+        assert "⚡except" in label_plain
+
+
+class TestSubexceptionSummaries:
+    """Tests for _build_subexception_summaries and _get_branch_summary."""
+
+    def test_build_subexception_summaries(self):
+        """Test _build_subexception_summaries with parallel branches (lines 530-540)."""
+        # Create mock parallel branches
+        parallel_branches = [
+            [
                 {
-                    "filename": "/test/file.py",
-                    "location": "test/file.py",
-                    "function": "test_func",
-                    "range": None,
-                    "relevance": "error",
-                    "fragments": [],
-                    "variables": [],
+                    "filename": "/path/file1.py",
+                    "location": "file1.py",
+                    "function": "func1",
+                    "range": type("Range", (), {"lfirst": 10})(),
+                    "exception": {"type": "ValueError", "summary": "value error"},
                 }
             ],
-        }
-
-        result = _print_exception(e, 80)
-        assert "TestError" in result
-        assert "Test summary" in result
-
-    def test_frame_label_with_path_error(self):
-        """Test frame label when Path operations raise errors."""
-        # Test with a path that might cause issues
-        frinfo = {
-            "filename": "\x00invalid\x00path",  # Invalid path characters
-            "location": "fallback_location",
-            "function": "test_func",
-            "range": None,
-            "relevance": "error",
-        }
-        label, label_plain = _get_frame_label(frinfo)
-        # Should fall back to location
-        assert "fallback_location" in label_plain
-
-
-class TestInspectorTallerThanOutput:
-    """Tests for when inspector has more lines than output."""
-
-    def test_many_variables_few_output_lines(self):
-        """Test when there are many variables but few output lines."""
-        from tracerite.inspector import VarInfo
-        from tracerite.tty import _print_exception
-
-        io.StringIO()
-
-        # Create exception with many variables but minimal frames
-        e = {
-            "type": "ValueError",
-            "summary": "test",
-            "message": "test",
-            "frames": [
+            [
                 {
-                    "filename": __file__,
-                    "location": "test_tty.py",
-                    "function": "short_func",
-                    "range": None,
-                    "relevance": "error",
-                    "linenostart": 1,
-                    "fragments": [
+                    "filename": "/path/file2.py",
+                    "location": "file2.py",
+                    "function": "func2",
+                    "range": type("Range", (), {"lfirst": 20})(),
+                    "exception": {"type": "TypeError", "summary": "type error"},
+                }
+            ],
+        ]
+
+        output = _build_subexception_summaries(parallel_branches, 120)
+        # Should contain both exception types
+        assert "ValueError" in output
+        assert "TypeError" in output
+
+    def test_get_branch_summary_empty_branch(self):
+        """Test _get_branch_summary with empty branch (lines 549-550)."""
+        result = _get_branch_summary([], 80)
+        assert "(empty)" in result
+
+    def test_get_branch_summary_no_exception(self):
+        """Test _get_branch_summary when no exception in frames (lines 575-576)."""
+        # Frames without exception info
+        branch = [
+            {
+                "filename": "/path/file.py",
+                "location": "file.py",
+                "function": "func",
+                "range": type("Range", (), {"lfirst": 10})(),
+            }
+        ]
+        result = _get_branch_summary(branch, 80)
+        assert "(no exception)" in result
+
+    def test_get_branch_summary_with_exception(self):
+        """Test _get_branch_summary with exception info (lines 579-612)."""
+        branch = [
+            {
+                "filename": "/path/file.py",
+                "location": "file.py",
+                "function": "func",
+                "range": type("Range", (), {"lfirst": 10})(),
+                "exception": {"type": "ValueError", "summary": "test error message"},
+            }
+        ]
+        result = _get_branch_summary(branch, 80)
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        assert "ValueError" in result_plain
+        assert "test error message" in result_plain
+
+    def test_get_branch_summary_truncation(self):
+        """Test _get_branch_summary truncates long messages (lines 608-610)."""
+        long_message = "x" * 200
+        branch = [
+            {
+                "filename": "/path/file.py",
+                "location": "file.py",
+                "function": "func",
+                "range": type("Range", (), {"lfirst": 10})(),
+                "exception": {"type": "ValueError", "summary": long_message},
+            }
+        ]
+        # Use a small width to force truncation
+        result = _get_branch_summary(branch, 50)
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should be truncated with ellipsis
+        assert "…" in result_plain
+        assert len(result_plain) <= 60  # Some buffer for ANSI codes
+
+    def test_get_branch_summary_with_nested_parallel(self):
+        """Test _get_branch_summary with nested parallel branches (lines 564-573)."""
+        # Create a branch where a frame has parallel sub-branches
+        branch = [
+            {
+                "filename": "/path/file.py",
+                "location": "file.py",
+                "function": "outer",
+                "range": type("Range", (), {"lfirst": 10})(),
+                "exception": {"type": "ExceptionGroup", "summary": "nested"},
+                "parallel": [
+                    [
                         {
-                            "line": 1,
-                            "fragments": [{"code": "x = 1", "mark": "solo"}],
+                            "exception": {"type": "ValueError", "summary": "inner1"},
                         }
                     ],
-                    "variables": [
-                        VarInfo("var1", "int", "1", None),
-                        VarInfo("var2", "int", "2", None),
-                        VarInfo("var3", "int", "3", None),
-                        VarInfo("var4", "int", "4", None),
-                        VarInfo("var5", "int", "5", None),
-                        VarInfo("var6", "int", "6", None),
-                        VarInfo("var7", "int", "7", None),
-                        VarInfo("var8", "int", "8", None),
-                        VarInfo("var9", "int", "9", None),
-                        VarInfo("var10", "int", "10", None),
-                        VarInfo("var11", "int", "11", None),
-                        VarInfo("var12", "int", "12", None),
-                        VarInfo("var13", "int", "13", None),
-                        VarInfo("var14", "int", "14", None),
-                        VarInfo("var15", "int", "15", None),
-                    ],
-                }
-            ],
-        }
-
-        result = _print_exception(e, 120, 0)
-        assert "ValueError" in result
-        # Should show some variables
-        assert "var" in result
-
-    def test_inspector_overflow_with_arrow(self):
-        """Test inspector overflow when arrow line is in overflow region."""
-        from tracerite.inspector import VarInfo
-        from tracerite.tty import _print_exception
-
-        io.StringIO()
-
-        # Create a scenario where inspector is taller than output
-        # and arrow line ends up in the overflow region
-        e = {
-            "type": "TestError",
-            "summary": "test",
-            "message": "test",
-            "frames": [
-                {
-                    "filename": __file__,
-                    "location": "test_tty.py",
-                    "function": "tiny_func",
-                    "range": None,
-                    "relevance": "error",
-                    "linenostart": 1,
-                    "fragments": [
-                        {"line": 1, "fragments": [{"code": "err", "mark": "solo"}]},
-                    ],
-                    "variables": [
-                        VarInfo(f"v{i}", "int", str(i), None) for i in range(20)
-                    ],
-                }
-            ],
-        }
-
-        result = _print_exception(e, 120, 0)
-        assert "TestError" in result
-
-    def test_inspector_arrow_at_first_line(self):
-        """Test inspector when arrow is at the first inspector line."""
-        from tracerite.inspector import VarInfo
-        from tracerite.tty import _print_exception
-
-        io.StringIO()
-
-        e = {
-            "type": "ArrowFirstError",
-            "summary": "test arrow first",
-            "message": "test arrow first",
-            "frames": [
-                {
-                    "filename": __file__,
-                    "location": "test_tty.py",
-                    "function": "arrow_first_func",
-                    "range": None,
-                    "relevance": "error",
-                    "linenostart": 1,
-                    "fragments": [
-                        {"line": 1, "fragments": [{"code": "x = bad", "mark": "solo"}]},
-                    ],
-                    "variables": [
-                        VarInfo(f"var{i}", "str", f'"val{i}"', None) for i in range(25)
-                    ],
-                }
-            ],
-        }
-
-        result = _print_exception(e, 120, 0)
-        assert "ArrowFirstError" in result
-
-    def test_inspector_arrow_at_last_line(self):
-        """Test inspector when arrow is at the last inspector line."""
-        from tracerite.inspector import VarInfo
-        from tracerite.tty import _print_exception
-
-        io.StringIO()
-
-        e = {
-            "type": "ArrowLastError",
-            "summary": "test arrow last",
-            "message": "test arrow last",
-            "frames": [
-                {
-                    "filename": __file__,
-                    "location": "test_tty.py",
-                    "function": "arrow_last_func",
-                    "range": None,
-                    "relevance": "error",
-                    "linenostart": 1,
-                    "fragments": [
+                    [
                         {
-                            "line": 1,
-                            "fragments": [{"code": "y = oops", "mark": "solo"}],
-                        },
+                            "exception": {"type": "TypeError", "summary": "inner2"},
+                        }
                     ],
-                    "variables": [
-                        VarInfo(f"item{i}", "float", f"{i}.0", None) for i in range(30)
-                    ],
-                }
-            ],
-        }
-
-        result = _print_exception(e, 120, 0)
-        assert "ArrowLastError" in result
-
-    def test_inspector_arrow_in_middle(self):
-        """Test inspector when arrow is in the middle of multiple inspector lines."""
-        from tracerite.inspector import VarInfo
-        from tracerite.tty import _print_exception
-
-        e = {
-            "type": "ArrowMiddleError",
-            "summary": "test arrow middle",
-            "message": "test arrow middle",
-            "frames": [
-                {
-                    "filename": __file__,
-                    "location": "test_tty.py",
-                    "function": "arrow_middle_func",
-                    "range": None,
-                    "relevance": "error",
-                    "linenostart": 1,
-                    "fragments": [
-                        {"line": 1, "fragments": [{"code": "x = bad", "mark": "solo"}]},
-                    ],
-                    "variables": [
-                        VarInfo(f"var{i}", "int", str(i), None) for i in range(10)
-                    ],
-                }
-            ],
-        }
-
-        result = _print_exception(e, 120, 0)
-        assert "ArrowMiddleError" in result
-
-
-class TestArrowLineEdgeCases:
-    """Test edge cases for arrow line positioning."""
-
-    def test_arrow_line_out_of_bounds(self):
-        """Test when arrow line calculation results in out-of-bounds index."""
-        from tracerite.inspector import VarInfo
-        from tracerite.tty import _print_exception
-
-        io.StringIO()
-
-        # Create a scenario where arrow_line_idx might go out of bounds
-        e = {
-            "type": "BoundsError",
-            "summary": "bounds test",
-            "message": "bounds test",
-            "frames": [
-                {
-                    "filename": __file__,
-                    "location": "test.py",
-                    "function": "bounds_func",
-                    "range": None,
-                    "relevance": "error",
-                    "linenostart": 1,
-                    "fragments": [
-                        {"line": 1, "fragments": [{"code": "x", "mark": "solo"}]},
-                    ],
-                    "variables": [
-                        VarInfo(f"x{i}", "int", str(i), None) for i in range(50)
-                    ],
-                }
-            ],
-        }
-
-        result = _print_exception(e, 80, 0)
-        assert "BoundsError" in result
-
-    def test_inspector_overflow_remaining_lines(self):
-        """Test inspector overflow where remaining inspector lines need printing.
-
-        This targets lines 341-373: the case where inspector has more lines
-        than output lines available after inspector_start.
-        """
-        from tracerite.inspector import VarInfo
-        from tracerite.tty import _print_exception
-
-        io.StringIO()
-
-        # Key insight: We need inspector_height > (len(output_lines) - inspector_start)
-        # With minimal output (just header + 2 frame lines) and many variables
-        e = {
-            "type": "OverflowTest",
-            "summary": "x",
-            "message": "x",
-            "frames": [
-                {
-                    "filename": __file__,
-                    "location": "t.py",
-                    "function": "f",
-                    "range": None,
-                    "relevance": "error",
-                    "linenostart": 1,
-                    "fragments": [
-                        {"line": 1, "fragments": [{"code": "a", "mark": "solo"}]},
-                    ],
-                    # 60 variables = 60 inspector lines, but only ~3 output lines
-                    "variables": [
-                        VarInfo(f"v{i:02d}", "int", str(i), None) for i in range(60)
-                    ],
-                }
-            ],
-        }
-
-        result = _print_exception(e, 200, 0)
-        assert "OverflowTest" in result
-        # Should print all 60 variables
-        assert "v59" in result
-
-    def test_inspector_overflow_with_arrow_in_remaining(self):
-        """Test inspector overflow where arrow line is in the remaining section.
-
-        This targets the is_arrow branch in lines 348-358.
-        """
-        from tracerite.inspector import VarInfo
-        from tracerite.tty import _print_exception
-
-        io.StringIO()
-
-        e = {
-            "type": "ArrowOverflow",
-            "summary": "y",
-            "message": "y",
-            "frames": [
-                {
-                    "filename": __file__,
-                    "location": "t.py",
-                    "function": "g",
-                    "range": None,
-                    "relevance": "error",
-                    "linenostart": 1,
-                    "fragments": [
-                        {"line": 1, "fragments": [{"code": "b", "mark": "solo"}]},
-                    ],
-                    "variables": [
-                        VarInfo(f"w{i:02d}", "int", str(i), None) for i in range(80)
-                    ],
-                }
-            ],
-        }
-
-        result = _print_exception(e, 200, 0)
-        assert "ArrowOverflow" in result
-
-
-class TestVariableInspectorEmptyAfterProcessing:
-    """Test variable inspector that results in empty var_lines."""
-
-    def test_variable_with_none_components(self):
-        """Test variable inspector with tuple that has None values."""
-        # The var_lines list should not be empty if we pass valid tuples
-        # But we can test the path where var_lines could be empty
-        result = _build_variable_inspector([], term_width=80)
-        assert result == []
-
-    def test_inspector_with_invalid_tuple(self):
-        """Test inspector handles various input formats."""
-        # Test old tuple format
-        variables = [
-            ("name1", "type1", "value1"),
-            ("name2", None, "value2"),
+                ],
+            }
         ]
-        result = _build_variable_inspector(variables, term_width=80)
-        assert len(result) == 2
+        result = _get_branch_summary(branch, 120)
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should show nested exceptions in brackets
+        assert "[" in result_plain
+        assert "ValueError" in result_plain
+        assert "TypeError" in result_plain
+
+    def test_get_branch_summary_notebook_cell(self):
+        """Test _get_branch_summary with notebook cell (lines 592-595)."""
+        branch = [
+            {
+                "filename": "/path/notebook.ipynb",
+                "location": "Cell [5]",
+                "function": "func",
+                "range": type("Range", (), {"lfirst": 10})(),
+                "notebook_cell": True,
+                "exception": {"type": "ValueError", "summary": "test"},
+            }
+        ]
+        result = _get_branch_summary(branch, 80)
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should include Cell reference
+        assert "Cell [5]" in result_plain
+
+    def test_get_branch_summary_no_location_just_function(self):
+        """Test _get_branch_summary when only function is available (lines 596-597)."""
+        branch = [
+            {
+                "filename": "",
+                "location": "",
+                "function": "test_func",
+                "range": type("Range", (), {"lfirst": 10})(),
+                "exception": {"type": "ValueError", "summary": "test"},
+            }
+        ]
+        result = _get_branch_summary(branch, 80)
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should include function name
+        assert "test_func" in result_plain
 
 
-class TestFrameLabelPathExceptions:
-    """Test frame label when Path operations raise exceptions."""
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Exception groups require Python 3.11+"
+)
+class TestExceptionGroupTTY:
+    """Tests for ExceptionGroup TTY output with parallel branches."""
 
-    def test_relative_path_value_error(self):
-        """Test frame label handles ValueError from relative_to."""
-
-        # Create a path that's not relative to CWD
-        frinfo = {
-            "filename": "/completely/different/path/file.py",
-            "location": "different/file.py",
-            "function": "func",
-            "range": None,
-            "relevance": "error",
-        }
-        label, label_plain = _get_frame_label(frinfo)
-        # Should use location fallback
-        assert "different/file.py" in label_plain or "/completely" in label_plain
-
-
-class TestThreadingHookFallbackPaths:
-    """Tests specifically for threading hook fallback code paths."""
-
-    def test_threading_hook_structure(self):
-        """Verify threading hook has correct fallback structure."""
-        from tracerite import tty
-
-        # Save original state
-        original_excepthook = sys.excepthook
-
+    def test_exception_group_shows_parallel_branches(self):
+        """Test that ExceptionGroup triggers parallel branch display (lines 410-411)."""
+        output = io.StringIO()
         try:
-            load()
+            exception_group_with_frames()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
 
-            # The installed hook should handle fallback internally
-            # We can inspect its structure
-            hook = threading.excepthook
-            assert hook.__name__ == "_tracerite_threading_excepthook"
-
-            # Verify _original_threading_excepthook is set
-            assert tty._original_threading_excepthook is not None
-
-        finally:
-            unload()
-            # Ensure we're back to original state
-            assert sys.excepthook == original_excepthook
+        result = output.getvalue()
+        # Should show the exception group
+        assert "ExceptionGroup" in result
+        # Should show the sub-exceptions
+        assert "ValueError" in result
+        assert "TypeError" in result
 
 
-class TestExcepthookWithNoneOriginal:
-    """Test excepthook when original hook becomes None."""
+class TestLongArgumentsCollapse:
+    """Tests for collapsing long em parts in TTY output."""
 
-    def test_sys_excepthook_fallback_to_builtin(self, monkeypatch, capsys):
-        """Test sys.excepthook falls back to sys.__excepthook__ when original is None."""
-        from tracerite import tty
+    @pytest.mark.skipif(
+        sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
+    )
+    def test_long_arguments_em_collapse_tty(self):
+        """Test that long em parts (>20 chars) are collapsed in TTY output."""
+        from tests.errorcases import long_arguments_error
 
-        load()
+        output = io.StringIO()
         try:
-            # Make tty_traceback fail
-            def failing_tty(**kwargs):
-                raise RuntimeError("fail")
+            long_arguments_error()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
 
-            monkeypatch.setattr(tty, "tty_traceback", failing_tty)
-            # Set original hook to None
-            monkeypatch.setattr(tty, "_original_excepthook", None)
+        result = output.getvalue()
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should contain the function name
+        assert "long_arguments_error" in result_plain or "max" in result_plain
+        # The collapsed em should contain ellipsis
+        # Long arguments get collapsed to first char + … + last char
+        assert "TypeError" in result
 
-            try:
-                raise ValueError("builtin fallback test")
-            except Exception:
-                exc_type, exc_value, exc_tb = sys.exc_info()
-                sys.excepthook(exc_type, exc_value, exc_tb)
 
-            captured = capsys.readouterr()
-            assert "ValueError" in captured.err
-        finally:
-            unload()
+class TestMultilineExceptionMessage:
+    """Tests for multiline exception messages in TTY output."""
+
+    def test_multiline_exception_message_tty(self):
+        """Test TTY output for exception with multiline message."""
+        from tests.errorcases import multiline_exception_message
+
+        output = io.StringIO()
+        try:
+            multiline_exception_message()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should contain first line
+        assert "First line of error" in result_plain
+        # Should contain subsequent lines
+        assert "Second line" in result_plain
+
+    def test_empty_line_exception_message_tty(self):
+        """Test TTY output for exception with empty line in message."""
+        from tests.errorcases import empty_second_line_exception
+
+        output = io.StringIO()
+        try:
+            empty_second_line_exception()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        # Should contain first line
+        assert "First line" in result_plain

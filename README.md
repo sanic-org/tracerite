@@ -1,8 +1,10 @@
 # TraceRite
 
-**Beautiful, readable error messages for Python, with terminal and HTML formatting.**
+**Beautiful, readable error messages for Python, with text and HTML formatting.**
 
-## Platforms
+![TraceRite features](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/features-composite.webp)
+
+## Installation
 
 ### Python scripts or REPL
 
@@ -39,23 +41,25 @@ This monkeypatches Starlette error handling and FastAPI routing to work with HTM
 
 Comes with TraceRite built in whenever running in debug mode.
 
-## What It Looks Like
+## Clarity in complex situations
 
-| | |
-|---|---|
-| ![NumPy error](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/numpy.webp) | ![Complex call chain](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/complex.webp) |
-| **NumPy error** — Variable inspector shows array shapes and values at a glance. | **Complex call chains** — Library internals collapsed, your code front and center. |
-| ![Exception chain](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/excchain.webp) | ![IPython](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/ipython.webp) |
-| **Exception chains** — Chained exceptions organized with the most relevant on top. | **Terminal** — Compact clean error messages in terminals. |
+![Exception chain comparison](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/chain-comparison.webp)
+*TraceRite shows even complex exception chains in chronological order, as opposed to the convoluted order of Python's own tracebacks where the entry point `func()` near bottom and the flow jumps back and forth.*
 
 ## Features
 
-- **Only relevant things shown** - Shows library internals but focuses on where the flow touched your code, and the variables used at the spot.
-- **Variable inspection** - See the values of your variables in a pretty printed HTML format (or JSON-compatible machine-readable dict)
-- **JSON output** - Intermediady dict format is JSON-compatible, useful for machine processing and used by our HTML module.
+- **Chronological order** - Single timeline with the program entry point is at top, and the finally uncaught exception bottom.
+- **Minimalistic output** - Smart pruning to show only relevant pieces of information, excluding library internals where not relevant and avoiding any repetition.
+- **ExceptionGroups** - Full tracebacks of the subexceptions from exceptions that occurred in parallel execution.
+- **Variable inspection** - See the values of your variables in a pretty printed HTML format, Terminal or JSON-compatible machine-readable dict.
+- **JSON output** - Intermediady dict format is JSON-compatible, useful for machine processing and used by our HTML and TTY modules.
 - **HTML output** - Works in Jupyter, Colab, and web frameworks such as FastAPI and Sanic as the debug mode error handler.
-- **TTY output** - Colorful, formatted tracebacks for terminal applications.
-- **Custom CSS** - Implement dark mode or custom look like that in the Sanic Framework with CSS variable overrides.
+- **TTY output** - Colorful, formatted tracebacks for terminal applications and Python REPL.
+- **Custom Styling** - Theme with your colors by defining CSS variables or tty.COLORS.
+- **Automatic dark mode** - Saves your eyes.
+
+![ExceptionGroup comparison](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/group-comparison.webp)
+*Python 3.11+ introduced `ExceptionGroup` for parallel execution errors (e.g., `asyncio.TaskGroup`). TraceRite displays these clearly.*
 
 ## Usage
 
