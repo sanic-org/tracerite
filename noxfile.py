@@ -26,6 +26,7 @@ nox.options.sessions = [
     "cov-clean",
     "test",
     "cov-combine",
+    "badges",
 ]
 
 # Python versions to test against
@@ -46,6 +47,11 @@ def test(session):
 
     # Run tests with coverage using parallel mode to avoid conflicts
     # Use --parallel-mode to write separate .coverage.* files
+    # Generate JUnit XML report for badge generation (only for latest Python)
+    junit_args = []
+    if session.python == PYTHON_VERSIONS[-1]:
+        junit_args = ["--junit-xml=tests-results.xml"]
+
     session.run(
         "coverage",
         "run",
@@ -55,6 +61,7 @@ def test(session):
         "-m",
         "pytest",
         "-qq",
+        *junit_args,
         *test_args,
     )
 
@@ -91,6 +98,14 @@ def cov_clean(session):
     if coverage_xml.exists():
         coverage_xml.unlink()
 
+    tests_results_xml = Path("tests-results.xml")
+    if tests_results_xml.exists():
+        tests_results_xml.unlink()
+
+    # Clean badge files
+    for badge in Path("docs/img").glob("*-badge.svg"):
+        badge.unlink()
+
 
 @nox.session(python=TOOLS_PYTHON, name="cov-combine")
 def cov_combine(session):
@@ -103,6 +118,44 @@ def cov_combine(session):
     session.run("coverage", "report", "-m")
     session.run("coverage", "html")
     session.run("coverage", "xml")
+
+
+@nox.session(python=TOOLS_PYTHON)
+def badges(session):
+    """Generate test and coverage badges using genbadge."""
+    session.install("genbadge[coverage,tests]")
+
+    # Ensure docs/img directory exists
+    img_dir = Path("docs/img")
+    img_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate coverage badge from coverage.xml
+    coverage_xml = Path("coverage.xml")
+    if coverage_xml.exists():
+        session.run(
+            "genbadge",
+            "coverage",
+            "-i",
+            "coverage.xml",
+            "-o",
+            "docs/img/coverage-badge.svg",
+        )
+    else:
+        session.warn("coverage.xml not found, skipping coverage badge")
+
+    # Generate tests badge from JUnit XML
+    tests_xml = Path("tests-results.xml")
+    if tests_xml.exists():
+        session.run(
+            "genbadge",
+            "tests",
+            "-i",
+            "tests-results.xml",
+            "-o",
+            "docs/img/tests-badge.svg",
+        )
+    else:
+        session.warn("tests-results.xml not found, skipping tests badge")
 
 
 @nox.session(python=TOOLS_PYTHON)
@@ -146,10 +199,11 @@ def ty(session):
 
 @nox.session(python=False)
 def coverage(session):
-    """Run format, lint, cov-clean, test-3.14, test-3.9, cov-combine."""
+    """Run format, lint, cov-clean, test-3.14, test-3.9, cov-combine, badges."""
     session.notify("format")
     session.notify("lint")
     session.notify("cov-clean")
     session.notify("test-3.14")
     session.notify("test-3.9")
     session.notify("cov-combine")
+    session.notify("badges")
