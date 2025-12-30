@@ -582,9 +582,15 @@ def _get_branch_summary(branch: list[dict[str, Any]], max_width: int) -> str:
         frame_range = last_frame.get("range")
         lineno = frame_range.lfirst if frame_range else ""
         function = last_frame.get("function", "")
+        notebook_cell = last_frame.get("notebook_cell", False)
 
-        if location and lineno:
+        # Notebook cells (In [N]) don't need line numbers displayed
+        if location and lineno and not notebook_cell:
             loc_prefix = f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET} "
+            if function:
+                loc_prefix += f"{FUNC}{function}{RESET}: "
+        elif location and notebook_cell:
+            loc_prefix = f"{LOCFN}{location}{RESET} "
             if function:
                 loc_prefix += f"{FUNC}{function}{RESET}: "
         elif function:
@@ -611,6 +617,9 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     frame_range = frinfo.get("range")
     lineno = frame_range.lfirst if frame_range else "?"
 
+    # Notebook cells (In [N]) don't need line numbers displayed
+    notebook_cell = frinfo.get("notebook_cell", False)
+
     # Use relative path if file is within CWD, otherwise use prettified location
     filename = frinfo.get("filename")
     location = frinfo["location"]
@@ -625,7 +634,7 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
 
     # Build label with colors: green filename, dark grey :lineno, light blue function
     # Location comes first, then function (if present)
-    # Colon always goes after whichever comes last
+    # Colon goes after function if present, otherwise after location
     function_name = frinfo["function"]
     function_suffix = frinfo.get("function_suffix", "")
     if function_name:
@@ -635,9 +644,20 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     else:
         function_display = None
 
-    location_part = f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}"
-
-    function_part = f"{FUNC}{function_display}{RESET}:" if function_display else ":"
+    if notebook_cell:
+        if function_display:
+            location_part = f"{LOCFN}{location}{RESET}"
+            function_part = f"{FUNC}{function_display}{RESET}:"
+        else:
+            location_part = f"{LOCFN}{location}{RESET}:"
+            function_part = ""
+    else:
+        if function_display:
+            location_part = f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}"
+            function_part = f"{FUNC}{function_display}{RESET}:"
+        else:
+            location_part = f"{LOCFN}{location}{LOC_LINENO}:{lineno}{RESET}:"
+            function_part = ""
 
     return location_part, function_part
 

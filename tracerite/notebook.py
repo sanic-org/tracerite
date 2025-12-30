@@ -79,7 +79,7 @@ def load_ipython_extension(ipython: Any) -> None:
         ipython.showtraceback = showtraceback
         ipython.showsyntaxerror = showsyntaxerror
     except Exception:
-        logger.error("Unable to load Tracerite (please report a bug!)")
+        logger.error("Unable to load TraceRite (please report a bug!)")
         raise
 
     # Register the %tracerite magic command

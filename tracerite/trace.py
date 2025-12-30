@@ -65,17 +65,17 @@ def build_chain_header(chain: list[dict]) -> str:
             exc_type = " | ".join(leaf_types)
             # Don't say "Uncaught" for ExceptionGroups, just show the leaf types
             if len(chain) == 1:
-                return f"⚠️ {exc_type}"
+                return f"⚠️  {exc_type}"
         else:
             exc_type = last_exc.get("type", "Exception")
     else:
         exc_type = last_exc.get("type", "Exception")
 
     if len(chain) == 1:
-        return f"⚠️ Uncaught {exc_type}"
+        return f"⚠️  Uncaught {exc_type}"
 
     # Build from last to first
-    parts = [f"⚠️ {exc_type}"]
+    parts = [f"⚠️  {exc_type}"]
 
     # Add each previous exception with appropriate joiner
     for i in range(len(chain) - 2, -1, -1):
