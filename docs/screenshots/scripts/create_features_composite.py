@@ -10,7 +10,7 @@ OUTPUT_FILE = Path(__file__).parent.parent / "features-composite.webp"
 
 # Target width to match chain-comparison.webp
 TARGET_WIDTH = 2884
-BACKGROUND_COLOR = "#1e1e1e"
+BACKGROUND_COLOR = (0, 0, 0, 0)  # Transparent
 LABEL_COLOR = "#ffffff"
 LABEL_BG_COLOR = "#000000"
 
@@ -104,8 +104,8 @@ def create_composite():
     print(f"  Gap between columns: {gap}")
     print(f"  Canvas: {TARGET_WIDTH}x{canvas_height}")
 
-    # Create canvas
-    canvas = Image.new("RGB", (TARGET_WIDTH, canvas_height), BACKGROUND_COLOR)
+    # Create canvas with transparent background
+    canvas = Image.new("RGBA", (TARGET_WIDTH, canvas_height), BACKGROUND_COLOR)
 
     # Place numpy on left
     canvas.paste(numpy_scaled, (0, 0))

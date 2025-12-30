@@ -10,7 +10,7 @@ OUTPUT_FILE = Path(__file__).parent.parent / "chain-comparison.webp"
 
 # Gap between images
 GAP = 0
-BACKGROUND_COLOR = "#1e1e1e"
+BACKGROUND_COLOR = (0, 0, 0, 0)  # Transparent
 LABEL_COLOR = "#ffffff"
 LABEL_BG_COLOR = "#000000"
 
@@ -90,8 +90,8 @@ def create_comparison():
     total_width = with_tr_labeled.width + GAP + without_labeled.width
     total_height = target_height
 
-    # Create canvas and paste images
-    canvas = Image.new("RGB", (total_width, total_height), BACKGROUND_COLOR)
+    # Create canvas with transparent background
+    canvas = Image.new("RGBA", (total_width, total_height), BACKGROUND_COLOR)
     canvas.paste(with_tr_labeled, (0, 0))
     canvas.paste(without_labeled, (with_tr_labeled.width + GAP, 0))
 

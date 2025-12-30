@@ -10,7 +10,7 @@ OUTPUT_FILE = Path(__file__).parent.parent / "group-comparison.webp"
 
 # Target width to match chain-comparison.webp
 TARGET_WIDTH = 2884
-BACKGROUND_COLOR = "#1e1e1e"
+BACKGROUND_COLOR = (0, 0, 0, 0)  # Transparent
 LABEL_COLOR = "#ffffff"
 LABEL_BG_COLOR = "#000000"
 
@@ -108,8 +108,8 @@ def create_comparison():
     total_width = html_labeled.width + tty_labeled.width
     total_height = target_height
 
-    # Create canvas and paste images
-    canvas = Image.new("RGB", (total_width, total_height), BACKGROUND_COLOR)
+    # Create canvas with transparent background
+    canvas = Image.new("RGBA", (total_width, total_height), BACKGROUND_COLOR)
     canvas.paste(html_labeled, (0, 0))
     canvas.paste(tty_labeled, (html_labeled.width, 0))
 
