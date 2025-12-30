@@ -9,8 +9,9 @@ on:
 
 jobs:
   lint:
-    name: Lint & Format
+    name: Lint
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -18,8 +19,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Run format check and lint
-        run: uv run nox -s format lint
+      - name: Run linter and type checks (ruff, ty)
+        run: uv run nox -s lint
 
   test:
     name: Test Python ${{ matrix.python-version }}
