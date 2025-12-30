@@ -48,7 +48,7 @@ Comes with TraceRite built in whenever running in debug mode.
 ## Clarity in complex situations
 
 ![Exception chain comparison](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/chain-comparison.webp)
-*TraceRite shows even complex exception chains in chronological order, as opposed to the convoluted order of Python's own tracebacks where the entry point `func()` near bottom and the flow jumps back and forth.*
+*TraceRite shows even complex exception chains in chronological order, as opposed to the convoluted order of Python's own tracebacks where the entry point `func()` is near bottom and the flow jumps back and forth.*
 
 ## Features
 
