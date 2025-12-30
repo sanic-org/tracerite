@@ -20,7 +20,7 @@ pip install tracerite
 import tracerite; tracerite.load()
 ```
 
-Any error message after that call will be prettified.
+Any error message after that call will be prettified. Handles any syntax errors and uncaught exceptions, even captures `logging.exception` (optionally).
 
 ### IPython or Jupyter Notebook
 
