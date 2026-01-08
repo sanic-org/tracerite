@@ -95,4 +95,4 @@ See the [API documentation](https://github.com/sanic-org/tracerite/blob/main/doc
 
 ## License
 
-Public Domain or equivalent.
+MIT License.
