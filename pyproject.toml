@@ -10,11 +10,10 @@ readme = "README.md"
 authors = [
     { name = "Sanic Community", email = "tronic@noreply.users.github.com" }
 ]
-license = { text = "Public Domain" }
+license = { file = "docs/LICENSE" }
 requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: Public Domain",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Development Status :: 5 - Production/Stable",
