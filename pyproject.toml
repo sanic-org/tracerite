@@ -10,7 +10,8 @@ readme = "README.md"
 authors = [
     { name = "Sanic Community", email = "tronic@noreply.users.github.com" }
 ]
-license = { file = "docs/LICENSE" }
+license = "MIT"
+license-files = ["docs/LICENSE"]
 requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
