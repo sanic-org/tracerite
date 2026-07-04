@@ -393,14 +393,14 @@ def enrich_chain_with_links(chain: list[dict]) -> list[dict]:
     """
     links = analyze_exception_chain_links(chain)
 
-    for _i, (exc, link) in enumerate(zip(chain, links)):
-        if link and link.matched:
+    for _i, (exc, link) in enumerate(zip(chain, links, strict=True)):
+        if link and link.matched and (try_block := link.try_block):
             exc["chain_link"] = {
                 "outer_frame_idx": link.outer_frame_idx,
-                "try_start": link.try_block.try_start,
-                "try_end": link.try_block.try_end,
-                "except_start": link.try_block.except_start,
-                "except_end": link.try_block.except_end,
+                "try_start": try_block.try_start,
+                "try_end": try_block.try_end,
+                "except_start": try_block.except_start,
+                "except_end": try_block.except_end,
             }
         else:
             exc["chain_link"] = None

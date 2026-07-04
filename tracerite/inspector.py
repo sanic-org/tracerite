@@ -7,8 +7,8 @@ import math
 import re
 import types
 from collections import namedtuple
-from functools import reduce
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .logging import logger
 
@@ -377,7 +377,7 @@ def prettyvalue(val: Any) -> tuple[Any, str]:
         # This only works for Numpy-like arrays, and should cause exceptions otherwise
         shape = object.__getattribute__(val, "shape")
         if isinstance(shape, tuple) and val.shape:
-            numelem = reduce(lambda x, y: x * y, shape)
+            numelem = math.prod(shape)
             if numelem <= 1:
                 flat = _get_flat(val)
                 return (_format_scalar(flat[0]), "inline")

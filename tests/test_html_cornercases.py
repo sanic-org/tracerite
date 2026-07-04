@@ -573,3 +573,52 @@ class TestHtmlCornercases:
                 assert "ValueError" in html_str
                 # The fallback text should be repr(relevance) = "'nonexistent_relevance'"
                 assert "nonexistent_relevance" in html_str
+
+    def test_variable_inspector_keyvalue(self):
+        """Test variable_inspector with keyvalue dict value (lines 491, 503-506)."""
+        from html5tagger import E
+
+        from tracerite.html import variable_inspector
+        from tracerite.inspector import VarInfo
+
+        doc = E.div()
+        variable_inspector(
+            doc,
+            [
+                VarInfo(
+                    name="d",
+                    typename="dict",
+                    value={"type": "keyvalue", "rows": [("a", "1"), ("b", "2")]},
+                    format_hint="inline",
+                ),
+            ],
+        )
+        html_str = str(doc)
+        assert "<dt>a<dd>1" in html_str
+        assert "<dt>b<dd>2" in html_str
+
+    def test_variable_inspector_array_with_suffix(self):
+        """Test variable_inspector with array dict value that has suffix (line 496)."""
+        from html5tagger import E
+
+        from tracerite.html import variable_inspector
+        from tracerite.inspector import VarInfo
+
+        doc = E.div()
+        variable_inspector(
+            doc,
+            [
+                VarInfo(
+                    name="arr",
+                    typename="ndarray",
+                    value={
+                        "type": "array",
+                        "rows": [["1", "2"], ["3", "4"]],
+                        "suffix": "GB",
+                    },
+                    format_hint="inline",
+                ),
+            ],
+        )
+        html_str = str(doc)
+        assert "GB" in html_str

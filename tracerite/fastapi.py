@@ -37,7 +37,7 @@ def patch_fastapi(*, tty: bool = True) -> None:
         """Return TraceRite HTML traceback instead of Starlette's debug response."""
         accept = request.headers.get("accept", "")
         if "text/html" not in accept:
-            return _original_debug_response(self, request, exc)  # type: ignore
+            return _original_debug_response(self, request, exc)
         try:
             html = str(html_traceback(exc=exc, include_js_css=True))
             return HTMLResponse(
@@ -46,10 +46,10 @@ def patch_fastapi(*, tty: bool = True) -> None:
             )
         except Exception as e:
             logger.error(f"Failed to generate TraceRite response: {e}")
-            return _original_debug_response(self, request, exc)  # type: ignore
+            return _original_debug_response(self, request, exc)
 
-    ServerErrorMiddleware.debug_response = tracerite_debug_response  # type: ignore
-    fastapi.routing.__tracebackhide__ = "until"  # type: ignore
+    ServerErrorMiddleware.debug_response = tracerite_debug_response
+    fastapi.routing.__tracebackhide__ = "until"
 
     if tty:
         load_tty()

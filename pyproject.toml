@@ -11,7 +11,7 @@ authors = [
     { name = "Sanic Community", email = "tronic@noreply.users.github.com" }
 ]
 license = { text = "Public Domain" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: Public Domain",
@@ -74,7 +74,6 @@ packages = ["tracerite"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py38"
 extend-exclude = ["*.ipynb", "demo"]
 
 [tool.ty.src]

@@ -9,6 +9,7 @@ from collections import namedtuple
 from contextlib import suppress
 from pathlib import Path
 from secrets import token_urlsafe
+from typing import Any
 from urllib.parse import quote
 
 from . import trace_cpy
@@ -71,7 +72,7 @@ def compute_cursor_position(
 
 
 # Will be set to an instance if loaded as an IPython extension by %load_ext
-ipython = None
+ipython: Any = None
 
 # Locations considered to be bug-free (library code, not user code), capture pretty suffix
 libdir = re.compile(
@@ -745,7 +746,11 @@ def _count_bracket_depth(text: str) -> int:
                 string_char = None
                 i += 3
                 continue
-            elif len(string_char) == 1 and char == string_char:
+            elif (
+                string_char is not None
+                and len(string_char) == 1
+                and char == string_char
+            ):
                 in_string = False
                 string_char = None
 
@@ -826,7 +831,11 @@ def _find_clean_start_line(lines: list[str], target_idx: int) -> int:
                     string_char = None
                     i += 3
                     continue
-                elif len(string_char) == 1 and char == string_char:
+                elif (
+                    string_char is not None
+                    and len(string_char) == 1
+                    and char == string_char
+                ):
                     in_string = False
                     string_char = None
 

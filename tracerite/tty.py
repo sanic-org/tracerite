@@ -14,6 +14,10 @@ from .trace import build_chain_header, chainmsg, extract_chain, symbols, symdesc
 
 __all__ = ["load", "unload", "tty_traceback"]
 
+# Variable inspector line: (colored_line, plain_width, value_start_col)
+InspectorLine = tuple[str, int, int]
+InspectorLines = list[InspectorLine]
+
 
 def load(capture_logging: bool = True) -> None:
     """Load TraceRite as the default exception handler.
@@ -772,9 +776,7 @@ def _find_call_line_ranges(
 def _compute_inspector_positions(
     output_lines: list[tuple[str, int, int, bool]],
     inspector_frames: list[int],
-    inspector_data: list[
-        tuple[list[tuple[str, int]], int]
-    ],  # [(lines, error_line), ...]
+    inspector_data: list[tuple[InspectorLines, int]],  # [(lines, error_line), ...]
     frame_info_list: list[dict[str, Any]],
 ) -> tuple[list[int], int]:
     """Compute vertical positions for all inspectors, avoiding overlap.
@@ -881,7 +883,7 @@ def _compute_inspector_positions(
 
 def _merge_chrono_output(
     output_lines: list[tuple[str, int, int, bool]],
-    all_inspector_lines: list[list[tuple[str, int, int]]],
+    all_inspector_lines: list[InspectorLines],
     all_inspector_min_widths: list[int],
     term_width: int,
     inspector_frame_indices: list[int],
@@ -936,7 +938,7 @@ def _merge_chrono_output(
 
     # Calculate column for each inspector and populate inspector_at
     for insp_idx, (frame_idx, insp_lines) in enumerate(
-        zip(inspector_frame_indices, all_inspector_lines)
+        zip(inspector_frame_indices, all_inspector_lines, strict=True)
     ):
         inspector_start = positions[insp_idx]
         inspector_height = len(insp_lines)
@@ -1175,7 +1177,7 @@ def _format_fragment_call(fragment: dict[str, Any]) -> str:
 
 def _build_variable_inspector(
     variables: list[Any], term_width: int
-) -> tuple[list[tuple[str, int, int]], int]:
+) -> tuple[InspectorLines, int]:
     """Build variable inspector lines.
 
     Returns:

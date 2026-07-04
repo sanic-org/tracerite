@@ -761,6 +761,84 @@ class TestLoadUnload:
             unload()
             monkeypatch.setattr(tty, "tty_traceback", original_tty_traceback)
 
+    def test_stream_handler_no_original_returns(self):
+        """Test StreamHandler.emit returns when original is None (line 70)."""
+        import logging
+
+        from tracerite import hooks
+
+        handler = logging.StreamHandler(sys.stderr)
+        load(capture_logging=True)
+        try:
+            hooks._state.original_stream_handler_emit = None
+            record = logging.LogRecord(
+                name="test",
+                level=logging.INFO,
+                pathname="test.py",
+                lineno=1,
+                msg="No exception",
+                args=(),
+                exc_info=None,
+            )
+            # Should not raise
+            handler.emit(record)
+        finally:
+            unload()
+
+    def test_stream_handler_no_original_with_exception_handle_error(self):
+        """Test StreamHandler.emit falls back when original is None (line 86)."""
+        import logging
+
+        from tracerite import hooks
+
+        handler = logging.StreamHandler(sys.stderr)
+        load(capture_logging=True)
+        try:
+            hooks._state.original_stream_handler_emit = None
+            record = logging.LogRecord(
+                name="test",
+                level=logging.ERROR,
+                pathname="test.py",
+                lineno=1,
+                msg="With exception",
+                args=(),
+                exc_info=(ValueError, ValueError("test"), None),
+            )
+            # Should call handleError, not raise
+            handler.emit(record)
+        finally:
+            unload()
+
+    def test_load_suppressions_import_failure(self, monkeypatch):
+        """Test load() skips suppression modules that fail to import (lines 141-142)."""
+        import tracerite.hooks as hooks
+
+        monkeypatch.setattr(
+            hooks, "_SUPPRESSIONS", {"nonexistent.module.for.test": True}
+        )
+        load()
+        try:
+            # Should not crash
+            pass
+        finally:
+            unload()
+
+    def test_load_suppressions_unset_value(self, monkeypatch):
+        """Test load() deletes existing __tracebackhide__ when hide_value is Unset (line 148)."""
+        import tracerite.hooks as hooks
+
+        fake_module = types.ModuleType("fake_module_for_unset")
+        fake_module.__tracebackhide__ = True
+        monkeypatch.setitem(sys.modules, "fake_module_for_unset", fake_module)
+        monkeypatch.setattr(
+            hooks, "_SUPPRESSIONS", {"fake_module_for_unset": hooks.Unset}
+        )
+        load()
+        try:
+            assert not hasattr(fake_module, "__tracebackhide__")
+        finally:
+            unload()
+
 
 class TestFrameFormatting:
     """Tests for frame label and info extraction."""
@@ -947,6 +1025,18 @@ class TestVariableInspector:
         # Should be truncated (indicated by width being less than original)
         assert width < len(long_value)
         assert "…" in colored  # Truncation indicator
+
+    def test_build_variable_inspector_skips_ellipsis_value(self):
+        """Test inspector skips variables with ellipsis value (lines 1241, 1246)."""
+        from tracerite.inspector import VarInfo
+
+        variables = [
+            VarInfo(name="x", typename="int", value="⋯", format_hint="inline"),
+        ]
+        result, min_width = _build_variable_inspector(variables, term_width=80)
+
+        assert result == []
+        assert min_width == 0
 
 
 class TestSymbols:
@@ -2246,6 +2336,37 @@ class TestMergeChronoOutputBranches:
         # All variables should appear
         assert "var1" in result
         assert "var4" in result
+
+    def test_inspector_truncation(self):
+        """Test inspector line truncation when it exceeds available width (lines 1028-1053)."""
+        from tracerite.inspector import VarInfo
+        from tracerite.tty import _build_variable_inspector, _merge_chrono_output
+
+        output_lines = [
+            ("x" * 40, 40, 0, True),  # long line sets inspector_col
+        ]
+        variables = [
+            VarInfo(name="var_name", typename="str", value="x" * 80, format_hint=None),
+        ]
+        # Build with wide terminal so _build_variable_inspector doesn't truncate,
+        # letting _merge_chrono_output hit its own truncation path.
+        inspector_lines, min_width = _build_variable_inspector(
+            variables, term_width=200
+        )
+        exception_banners = []
+        frame_info_list = [{"relevance": "error"}]
+
+        result = _merge_chrono_output(
+            output_lines,
+            [inspector_lines],
+            [min_width],
+            term_width=100,
+            inspector_frame_indices=[0],
+            exception_banners=exception_banners,
+            frame_info_list=frame_info_list,
+        )
+        # Should contain truncated value indicator
+        assert "…" in result
 
 
 class TestPrintChronologicalBranches:
