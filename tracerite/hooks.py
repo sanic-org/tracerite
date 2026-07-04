@@ -7,10 +7,13 @@ import importlib
 import logging
 import sys
 import threading
+import types
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
 from . import tty as _tty
+
+Unset = object()  # Sentinel for modules that didn't have __tracebackhide__ set
 
 
 @dataclass
@@ -24,7 +27,7 @@ class LoaderState:
     original_stream_handler_emit: (
         Callable[[logging.StreamHandler[Any], logging.LogRecord], Any] | None
     ) = None
-    suppressed_modules: dict[str, Any] = field(default_factory=dict)
+    suppressed: dict[types.ModuleType, Any] = field(default_factory=dict)
 
 
 _state = LoaderState()
@@ -136,8 +139,15 @@ def load(
                 module = importlib.import_module(module_name)
             except Exception:
                 continue
-            module.__tracebackhide__ = hide_value
-            _state.suppressed_modules[module_name] = module
+            old_value = getattr(module, "__tracebackhide__", Unset)
+            if old_value == hide_value:
+                # Already set to the desired value; nothing to restore on unload.
+                continue
+            if hide_value is Unset:
+                delattr(module, "__tracebackhide__")
+            else:
+                setattr(module, "__tracebackhide__", hide_value)  # noqa: B010
+            _state.suppressed[module] = old_value
 
 
 def unload() -> None:
@@ -145,6 +155,7 @@ def unload() -> None:
 
     Removes TraceRite from sys.excepthook, threading.excepthook, and
     logging.StreamHandler.emit, restoring the previous handlers.
+    Also restores __tracebackhide__ values on modules modified by load().
     """
     if _state.original_excepthook is not None:
         sys.excepthook = _state.original_excepthook
@@ -158,7 +169,10 @@ def unload() -> None:
         logging.StreamHandler.emit = _state.original_stream_handler_emit
         _state.original_stream_handler_emit = None
 
-    for module in _state.suppressed_modules.values():
-        with contextlib.suppress(AttributeError):
-            delattr(module, "__tracebackhide__")
-    _state.suppressed_modules.clear()
+    for module, old_value in _state.suppressed.items():
+        if old_value is Unset:
+            with contextlib.suppress(AttributeError):
+                delattr(module, "__tracebackhide__")
+        else:
+            setattr(module, "__tracebackhide__", old_value)  # noqa: B010
+    _state.suppressed.clear()

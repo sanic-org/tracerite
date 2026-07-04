@@ -27,6 +27,7 @@ def load(capture_logging: bool = True) -> None:
         stacklevel=2,
     )
     from .hooks import load
+
     return load(capture_logging=capture_logging)
 
 
@@ -42,6 +43,7 @@ def unload() -> None:
         stacklevel=2,
     )
     from .hooks import unload
+
     return unload()
 
 
