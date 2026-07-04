@@ -1165,6 +1165,35 @@ def _get_variable_source_for_comprehension(
     return marked_text or lines
 
 
+def _fallback_mark_range_for_line(lines, error_line_in_context):
+    """Build a single-line mark Range when caret columns are unavailable.
+
+    Trims leading/trailing whitespace and (when present) end-of-line comments so that
+    the meaningful portion of the line is highlighted. For comment-only lines, a
+    minimal one-character mark is returned; for whitespace-only lines, returns None.
+    """
+    lines_list = lines.splitlines(keepends=True)
+    if not (1 <= error_line_in_context <= len(lines_list)):
+        return None
+    line = lines_list[error_line_in_context - 1]
+    content, _ = _split_line_content(line)
+    stripped = content.lstrip()
+    if not stripped:
+        return None
+    start_col = len(content) - len(stripped)
+
+    comment_start = _find_comment_start(content)
+    if comment_start is not None:
+        code_end = content[:comment_start].rstrip()
+        end_col = len(code_end)
+    else:
+        end_col = len(content.rstrip())
+
+    if end_col <= start_col:
+        end_col = start_col + 1
+    return Range(error_line_in_context, error_line_in_context, start_col, end_col)
+
+
 def _extract_emphasis_columns(
     lines, error_line_in_context, end_line, start_col, end_col, start
 ):
@@ -1498,6 +1527,10 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
             mark_range = Range(
                 error_line_in_context, mark_lfinal, adjusted_start_col, adjusted_end_col
             )
+        elif error_line_in_context:
+            # Fallback for Python versions that don't provide caret positions:
+            # highlight the trimmed error line so there is always a visible mark.
+            mark_range = _fallback_mark_range_for_line(lines, error_line_in_context)
 
         # Build emphasis range and fragments
         em_range = _extract_emphasis_columns(

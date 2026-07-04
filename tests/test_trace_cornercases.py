@@ -8,6 +8,7 @@ from unittest.mock import patch
 from tests.hidden_module import internal_helper_function
 from tracerite.trace import (
     Range,
+    _fallback_mark_range_for_line,
     compute_cursor_position,
     extract_exception,
     extract_frames,
@@ -454,8 +455,8 @@ hidden_frame()
                     # In the new API, we also have a range field
                     range_obj = error_frame.get("range")
 
-                    # The error is raised on line 20 in _trigger_error_no_source
-                    expected_lineno = 20
+                    # The error is raised on line 21 in _trigger_error_no_source
+                    expected_lineno = 21
 
                     # Verify the range contains the correct line number
                     if range_obj:
@@ -1423,3 +1424,43 @@ class TestFormatLocation:
         assert location == "<unknown>", f"Expected '<unknown>', got '{location}'"
         assert filename is None, "Filename should remain None"
         assert urls == {}, "URLs should be empty dict"
+
+
+class TestFallbackMarkRange:
+    """Tests for fallback single-line marking when caret columns are missing."""
+
+    def test_fallback_trims_whitespace_and_comment(self):
+        """Whitespace and end-of-line comments are excluded from the mark."""
+        lines = "    x = 1  # comment\n"
+        result = _fallback_mark_range_for_line(lines, error_line_in_context=1)
+        assert result == Range(1, 1, 4, 9)
+
+    def test_fallback_no_comment(self):
+        """Trailing whitespace is trimmed when there is no comment."""
+        lines = "    y = 2   \n"
+        result = _fallback_mark_range_for_line(lines, error_line_in_context=1)
+        assert result == Range(1, 1, 4, 9)
+
+    def test_fallback_comment_only_line(self):
+        """A line that is only a comment gets a minimal one-character mark."""
+        lines = "    # just a comment\n"
+        result = _fallback_mark_range_for_line(lines, error_line_in_context=1)
+        assert result == Range(1, 1, 4, 5)
+
+    def test_fallback_whitespace_only_line(self):
+        """A line with no code produces no fallback mark."""
+        lines = "    \n"
+        result = _fallback_mark_range_for_line(lines, error_line_in_context=1)
+        assert result is None
+
+    def test_fallback_ignores_comment_in_string(self):
+        """A '#' inside a string does not end the marked region."""
+        lines = '    x = "a # b"  # comment\n'
+        result = _fallback_mark_range_for_line(lines, error_line_in_context=1)
+        assert result == Range(1, 1, 4, 15)
+
+    def test_fallback_out_of_range(self):
+        """An invalid line number produces no fallback mark."""
+        lines = "    x = 1\n"
+        assert _fallback_mark_range_for_line(lines, error_line_in_context=0) is None
+        assert _fallback_mark_range_for_line(lines, error_line_in_context=2) is None
