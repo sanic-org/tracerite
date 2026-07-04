@@ -1926,9 +1926,8 @@ class TestTtyTracebackEdgeCases:
 
         assert len(lines) == 1
         assert "(no source code)" in lines[0][0]
-        # Call frames should show the call symbol
-        assert "➤" in lines[0][0]
-        assert f"{RESET}{EM_CALL}{symbols['call']}{RESET}" in lines[0][0]
+        # Call frames should show the call symbol in yellow
+        assert f"{EM_CALL}➤{RESET}" in lines[0][0]
 
     def test_chained_exception_with_banners(self):
         """Test chained exceptions produce banners correctly."""
