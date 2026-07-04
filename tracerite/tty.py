@@ -1,17 +1,49 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 import sys
 import textwrap
-import threading
 import unicodedata
+import warnings
 from pathlib import Path
 from typing import Any, TextIO
 
 from .chain_analysis import build_chronological_frames
 from .trace import build_chain_header, chainmsg, extract_chain, symbols, symdesc
+
+__all__ = ["load", "unload", "tty_traceback"]
+
+
+def load(capture_logging: bool = True) -> None:
+    """Load TraceRite as the default exception handler.
+
+    .. deprecated::
+        Use :func:`tracerite.load` instead.
+    """
+    warnings.warn(
+        "tracerite.tty.load is deprecated; use tracerite.load instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    from .hooks import load
+    return load(capture_logging=capture_logging)
+
+
+def unload() -> None:
+    """Restore the original exception handlers.
+
+    .. deprecated::
+        Use :func:`tracerite.unload` instead.
+    """
+    warnings.warn(
+        "tracerite.tty.unload is deprecated; use tracerite.unload instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    from .hooks import unload
+    return unload()
+
 
 # ANSI escape codes for terminal colors (can be monkeypatched for styling)
 ESC = "\x1b["
@@ -58,122 +90,6 @@ def _display_width(s: str) -> int:
     """Calculate the display width of a string in terminal columns."""
     plain = ANSI_ESCAPE_RE.sub("", s)
     return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in plain)
-
-
-# Store the original hooks for unload
-_original_excepthook = None
-_original_threading_excepthook = None
-_original_stream_handler_emit = None
-
-
-def load(capture_logging: bool = True) -> None:
-    """Load TraceRite as the default exception handler.
-
-    Replaces sys.excepthook to use TraceRite's pretty TTY formatting
-    for all unhandled exceptions, including those in threads and
-    logging.exception() calls.
-    Call unload() to restore the original exception handlers.
-
-    Args:
-        capture_logging: Whether to monkeypatch logging.StreamHandler.emit
-            to format exceptions in logging.exception() calls. Defaults to True.
-
-    Usage:
-        import tracerite
-        tracerite.load()  # Captures logging by default
-        tracerite.load(capture_logging=False)  # Only captures sys.excepthook
-    """
-    global \
-        _original_excepthook, \
-        _original_threading_excepthook, \
-        _original_stream_handler_emit
-
-    if _original_excepthook is None:
-        _original_excepthook = sys.excepthook
-
-    if _original_threading_excepthook is None:
-        _original_threading_excepthook = threading.excepthook
-
-    if capture_logging and _original_stream_handler_emit is None:
-        _original_stream_handler_emit = logging.StreamHandler.emit
-
-    def _tracerite_excepthook(exc_type, exc_value, exc_tb):
-        try:
-            tty_traceback(exc=exc_value)
-        except Exception:
-            # Fall back to original excepthook on any error
-            if _original_excepthook:
-                _original_excepthook(exc_type, exc_value, exc_tb)
-            else:
-                sys.__excepthook__(exc_type, exc_value, exc_tb)
-
-    def _tracerite_threading_excepthook(args):  # pragma: no cover (pytest intercepts)
-        try:
-            tty_traceback(exc=args.exc_value)
-        except Exception:
-            # Fall back to original threading excepthook on any error
-            if _original_threading_excepthook:
-                _original_threading_excepthook(args)
-            else:
-                sys.__excepthook__(args.exc_type, args.exc_value, args.exc_traceback)
-
-    def _tracerite_stream_handler_emit(self, record: logging.LogRecord) -> None:
-        """Emit a log record with TraceRite formatting for exceptions."""
-        try:
-            # Check if we have exception info to format specially
-            if not record.exc_info or record.exc_info[1] is None:
-                # No exception, use original emit
-                return _original_stream_handler_emit(self, record)
-            # Temporarily clear exc_info so format() doesn't include traceback
-            exc_info = record.exc_info
-            record.exc_info = None
-            record.exc_text = None
-            try:
-                msg = self.format(record)
-            finally:
-                record.exc_info = exc_info
-
-            # Temporarily restore original handler to avoid recursion
-            original_emit = logging.StreamHandler.emit
-            logging.StreamHandler.emit = _original_stream_handler_emit
-            try:
-                # Now format and write the exception using TraceRite
-                tty_traceback(exc=exc_info[1], file=self.stream, msg=msg)
-            finally:
-                logging.StreamHandler.emit = original_emit
-        except RecursionError:
-            raise
-        except Exception:
-            self.handleError(record)
-
-    sys.excepthook = _tracerite_excepthook
-    threading.excepthook = _tracerite_threading_excepthook
-    if capture_logging:
-        logging.StreamHandler.emit = _tracerite_stream_handler_emit  # type: ignore[attr-defined]
-
-
-def unload() -> None:
-    """Restore the original exception handlers.
-
-    Removes TraceRite from sys.excepthook, threading.excepthook, and
-    logging.StreamHandler.emit, restoring the previous handlers.
-    """
-    global \
-        _original_excepthook, \
-        _original_threading_excepthook, \
-        _original_stream_handler_emit
-
-    if _original_excepthook is not None:
-        sys.excepthook = _original_excepthook
-        _original_excepthook = None
-
-    if _original_threading_excepthook is not None:
-        threading.excepthook = _original_threading_excepthook
-        _original_threading_excepthook = None
-
-    if _original_stream_handler_emit is not None:
-        logging.StreamHandler.emit = _original_stream_handler_emit
-        _original_stream_handler_emit = None
 
 
 def tty_traceback(

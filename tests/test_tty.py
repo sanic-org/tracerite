@@ -3,10 +3,12 @@
 import io
 import sys
 import threading
+import types
 
 import pytest
 
-from tracerite import extract_chain
+from tracerite import extract_chain, hooks
+from tracerite.hooks import load, unload
 from tracerite.tty import (
     ANSI_ESCAPE_RE,
     ARROW_LEFT,
@@ -34,10 +36,8 @@ from tracerite.tty import (
     _format_fragment_call,
     _get_branch_summary,
     _get_frame_label,
-    load,
     symbols,
     tty_traceback,
-    unload,
 )
 
 from .errorcases import (
@@ -486,6 +486,55 @@ class TestLoadUnload:
         original_hook = sys.excepthook
         unload()  # Should not crash
         assert sys.excepthook == original_hook
+
+    def test_tty_load_unload_deprecated(self):
+        """Test that tracerite.tty.load/unload emit deprecation warnings."""
+        from tracerite import tty as tty_module
+
+        with pytest.warns(DeprecationWarning, match="tracerite.tty.load is deprecated"):
+            tty_module.load()
+        try:
+            with pytest.warns(
+                DeprecationWarning, match="tracerite.tty.unload is deprecated"
+            ):
+                tty_module.unload()
+        finally:
+            unload()  # Ensure cleanup if the warning assertion failed
+
+    def test_load_sets_tracebackhide_suppressions(self, monkeypatch):
+        """Test that load() sets __tracebackhide__ on suppression modules."""
+        load()
+        try:
+            import importlib._bootstrap
+            assert importlib._bootstrap.__tracebackhide__ == "until"
+        finally:
+            unload()
+
+    def test_unload_clears_tracebackhide_suppressions(self, monkeypatch):
+        """Test that unload() clears __tracebackhide__ set by load()."""
+        import importlib._bootstrap
+        load()
+        unload()
+        assert not hasattr(importlib._bootstrap, "__tracebackhide__")
+
+    def test_load_hooks_false(self):
+        """Test that load(hooks=False) doesn't install exception hooks."""
+        original_hook = sys.excepthook
+        load(hooks=False)
+        try:
+            assert sys.excepthook is original_hook
+        finally:
+            unload()
+
+    def test_load_suppressions_false(self, monkeypatch):
+        """Test that load(suppressions=False) doesn't set __tracebackhide__."""
+        fake_module = types.ModuleType("importlib._builder")
+        monkeypatch.setitem(sys.modules, "importlib._builder", fake_module)
+        load(suppressions=False)
+        try:
+            assert not hasattr(fake_module, "__tracebackhide__")
+        finally:
+            unload()
 
     def test_loaded_hook_handles_exceptions(self, capsys):
         """Test that the loaded hook properly handles exceptions."""
@@ -1483,7 +1532,7 @@ class TestExcepthookFallback:
 
             monkeypatch.setattr(tty, "tty_traceback", failing_tty_traceback)
             # Set original hook to None to trigger sys.__excepthook__ fallback
-            monkeypatch.setattr(tty, "_original_excepthook", None)
+            monkeypatch.setattr(hooks._state, "original_excepthook", None)
 
             # Manually invoke the hook
             try:
