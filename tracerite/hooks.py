@@ -111,8 +111,8 @@ def load(
 
     Usage:
         import tracerite
-        tracerite.load()  # Captures logging by default
-        tracerite.load(capture_logging=False)  # Only captures sys.excepthook
+        tracerite.load()  # Installs hooks, suppressions and logging capture by default
+        tracerite.load(capture_logging=False)  # Installs hooks and suppressions only
     """
     if hooks:
         if sys.excepthook is not _tracerite_excepthook:
