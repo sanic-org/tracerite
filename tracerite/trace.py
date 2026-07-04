@@ -1526,20 +1526,33 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
         adjusted_start_col = start_col - total_indent if start_col is not None else None
         adjusted_end_col = end_col - total_indent if end_col is not None else None
 
-        # Create mark range (1-based inclusive lines, 0-based exclusive columns)
+        # Build the frame's source range and the displayed mark range.
+        # On Python <3.11 co_positions is unavailable, so fall back to
+        # highlighting the meaningful portion of the error line.
+        frame_range = None
         mark_range = None
-        if adjusted_start_col is not None and adjusted_end_col is not None:
+        if start_col is not None and end_col is not None:
             # Ensure columns are not negative after dedenting adjustment
-            adjusted_start_col = max(0, adjusted_start_col)
-            adjusted_end_col = max(0, adjusted_end_col)
-            mark_lfinal = end_line or error_line_in_context
+            adjusted_start_col = max(0, start_col - total_indent)
+            adjusted_end_col = max(0, end_col - total_indent)
+            frame_range = Range(lineno, pos_end_lineno or lineno, start_col, end_col)
             mark_range = Range(
-                error_line_in_context, mark_lfinal, adjusted_start_col, adjusted_end_col
+                error_line_in_context,
+                end_line or error_line_in_context,
+                adjusted_start_col,
+                adjusted_end_col,
             )
         elif error_line_in_context:
-            # Fallback for Python versions that don't provide caret positions:
-            # highlight the trimmed error line so there is always a visible mark.
-            mark_range = _fallback_mark_range_for_line(lines, error_line_in_context)
+            fallback = _fallback_mark_range_for_line(lines, error_line_in_context)
+            if fallback:
+                # Map displayed columns back to original source columns.
+                frame_range = Range(
+                    lineno,
+                    pos_end_lineno or lineno,
+                    fallback.cbeg + total_indent,
+                    fallback.cend + total_indent,
+                )
+                mark_range = fallback
 
         # Build emphasis range and fragments
         em_range = _extract_emphasis_columns(
@@ -1578,9 +1591,7 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
                 "location": location,
                 "notebook_cell": notebook_cell,
                 "codeline": codeline[0].strip() if codeline else None,
-                "range": Range(lineno, pos_end_lineno or lineno, start_col, end_col)
-                if start_col is not None
-                else None,
+                "range": frame_range,
                 "lineno": lineno,  # Actual error line from traceback (always available)
                 "cursor_line": cursor_line,
                 "cursor_col": cursor_col,
