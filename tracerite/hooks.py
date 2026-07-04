@@ -77,7 +77,10 @@ def _tracerite_stream_handler_emit(self, record: logging.LogRecord) -> None:
 
         # Temporarily restore original handler to avoid recursion
         original_emit = logging.StreamHandler.emit
-        logging.StreamHandler.emit = _state.original_stream_handler_emit
+        original = _state.original_stream_handler_emit
+        if original is None:
+            return self.handleError(record)
+        logging.StreamHandler.emit = original
         try:
             # Now format and write the exception using TraceRite
             _tty.tty_traceback(exc=exc_info[1], file=self.stream, msg=msg)
