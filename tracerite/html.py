@@ -297,7 +297,8 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
     if not fragments:
         # Show "(no source code)" with the symbol emoji like a code line would have
         symbol = symbols.get(relevance, "")
-        doc.p(f"(no source code) {symbol}")
+        doc.p("(no source code) ")
+        doc.span(class_="tracerite-symbol", data_symbol=symbol)
         return
 
     with doc.pre, doc.code:
