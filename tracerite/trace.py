@@ -1168,9 +1168,9 @@ def _get_variable_source_for_comprehension(
 def _fallback_mark_range_for_line(lines, error_line_in_context):
     """Build a single-line mark Range when caret columns are unavailable.
 
-    Trims leading/trailing whitespace and end-of-line comments so that the
-    whole meaningful code portion of the error line is highlighted.
-    Returns a Range or None.
+    Trims leading/trailing whitespace and (when present) end-of-line comments so that
+    the meaningful portion of the line is highlighted. For comment-only lines, a
+    minimal one-character mark is returned; for whitespace-only lines, returns None.
     """
     lines_list = lines.splitlines(keepends=True)
     if not (1 <= error_line_in_context <= len(lines_list)):
