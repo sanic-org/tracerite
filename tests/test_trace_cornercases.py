@@ -1483,7 +1483,11 @@ class TestFallbackMarkRange:
         except ValueError as e:
             chain = extract_chain(exc=e)
             assert chain
-            assert chain[0]["frames"]
+            frames = chain[0]["frames"]
+            assert frames
+            assert any(f["range"] is not None for f in frames), (
+                "fallback path should synthesize a non-None range for at least one frame"
+            )
 
     def test_extract_frames_error_line_zero(self, monkeypatch):
         """Test branch when error_line_in_context is 0 (line 1539->1545)."""
