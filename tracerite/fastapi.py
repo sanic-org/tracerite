@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from .hooks import load as load_tty
 from .html import html_traceback
 from .logging import logger
-from .tty import load as load_tty
 
 _original_debug_response = None
 

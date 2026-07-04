@@ -1,9 +1,10 @@
 from .fastapi import patch_fastapi
+from .hooks import load, unload
 from .html import html_traceback
 from .inspector import extract_variables, prettyvalue
 from .notebook import load_ipython_extension, unload_ipython_extension
 from .trace import extract_chain
-from .tty import load, tty_traceback, unload
+from .tty import tty_traceback
 
 __all__ = [
     "load",

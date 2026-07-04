@@ -49,10 +49,12 @@ def create_mock_fastapi_modules():
 def reset_fastapi_module():
     """Fixture to reset the fastapi module state before and after tests."""
     from tracerite import fastapi as fastapi_module
+    from tracerite.hooks import unload
 
     original = fastapi_module._original_debug_response
     fastapi_module._original_debug_response = None
     yield fastapi_module
+    unload()
     fastapi_module._original_debug_response = original
 
 
