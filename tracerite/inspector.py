@@ -86,7 +86,7 @@ def _array_formatter(arr: Any) -> tuple[Callable[[Any], str], str]:
         finite = [abs(v) for v in sample if v == v and abs(v) != float("inf")]
         if not finite:
             # All NaN/Inf
-            return lambda v: ("NaN" if v != v else ("∞" if v > 0 else "-∞")), ""
+            return lambda v: "NaN" if v != v else ("∞" if v > 0 else "-∞"), ""
 
         max_abs = max(finite) if finite else 0
         log_max = math.log10(max_abs) if max_abs > 0 else 0
