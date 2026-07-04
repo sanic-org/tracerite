@@ -528,8 +528,8 @@ class TestLoadUnload:
 
     def test_load_suppressions_false(self, monkeypatch):
         """Test that load(suppressions=False) doesn't set __tracebackhide__."""
-        fake_module = types.ModuleType("importlib._builder")
-        monkeypatch.setitem(sys.modules, "importlib._builder", fake_module)
+        fake_module = types.ModuleType("importlib._bootstrap")
+        monkeypatch.setitem(sys.modules, "importlib._bootstrap", fake_module)
         load(suppressions=False)
         try:
             assert not hasattr(fake_module, "__tracebackhide__")
