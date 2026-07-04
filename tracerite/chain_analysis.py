@@ -333,6 +333,12 @@ def _find_chain_link(inner_exc: dict, outer_exc: dict) -> ChainLink | None:
     if inner_first_lineno is None:
         return None
 
+    # Determine the source file the inner exception came from. We will only
+    # match outer frames from the same file.
+    inner_filename = inner_first_frame.get(
+        "original_filename"
+    ) or inner_first_frame.get("filename")
+
     # Get try-except blocks from the frame's full source (works with any source)
     # This avoids reading from files, using the source Python already has
     inner_full_source = inner_first_frame.get("full_source")
@@ -344,9 +350,6 @@ def _find_chain_link(inner_exc: dict, outer_exc: dict) -> ChainLink | None:
         )
     else:
         # Fallback to file-based parsing if full_source not available
-        inner_filename = inner_first_frame.get(
-            "original_filename"
-        ) or inner_first_frame.get("filename")
         if not inner_filename:
             return None
         try_except_blocks = parse_source_for_try_except(inner_filename)
@@ -360,6 +363,13 @@ def _find_chain_link(inner_exc: dict, outer_exc: dict) -> ChainLink | None:
     for frame_idx, frame in enumerate(outer_frames):
         frame_lineno = _get_frame_lineno(frame)
         if frame_lineno is None:
+            continue
+
+        # Only consider outer frames from the same source file as the inner
+        # exception. Frames from other modules may have coinciding line numbers
+        # but cannot be the except handler for this try/except block.
+        outer_filename = frame.get("original_filename") or frame.get("filename")
+        if inner_filename and outer_filename != inner_filename:
             continue
 
         # Try to find a try-except block where:
