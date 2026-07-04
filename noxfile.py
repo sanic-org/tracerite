@@ -29,7 +29,7 @@ nox.options.sessions = [
 ]
 
 # Python versions to test against
-PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+PYTHON_VERSIONS = ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
 # Tools run only on the latest Python version
 TOOLS_PYTHON = PYTHON_VERSIONS[-1]
@@ -68,7 +68,7 @@ def test(session):
 @nox.session(python=TOOLS_PYTHON)
 def lint(session):
     """Run linting checks with ruff and type checking with ty."""
-    session.install("ruff", "ty")
+    session.install(".[nb]", "ruff", "ty")
     session.run("ruff", "check", ".")
     session.run("ruff", "format", "--check", ".")
     session.run("ty", "check", "tracerite")
@@ -189,7 +189,8 @@ def clean(session):
 @nox.session(python=TOOLS_PYTHON)
 def ty(session):
     """Run type checking with ty."""
-    session.run("uvx", "ty", "check", "tracerite")
+    session.install(".[nb]", "ty")
+    session.run("ty", "check", "tracerite")
 
 
 @nox.session(python=False)
@@ -206,7 +207,6 @@ def coverage(session):
         "lint",
         "cov-clean",
         "test-3.14",
-        "test-3.9",
         "cov-combine",
         external=True,
         success_codes=[0, 1],

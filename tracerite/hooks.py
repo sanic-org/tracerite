@@ -8,8 +8,9 @@ import logging
 import sys
 import threading
 import types
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from . import tty as _tty
 
@@ -83,7 +84,7 @@ def _tracerite_stream_handler_emit(self, record: logging.LogRecord) -> None:
         original = _state.original_stream_handler_emit
         if original is None:
             return self.handleError(record)
-        logging.StreamHandler.emit = original
+        type.__setattr__(logging.StreamHandler, "emit", original)
         try:
             # Now format and write the exception using TraceRite
             _tty.tty_traceback(exc=exc_info[1], file=self.stream, msg=msg)
@@ -131,7 +132,7 @@ def load(
         and logging.StreamHandler.emit is not _tracerite_stream_handler_emit
     ):
         _state.original_stream_handler_emit = logging.StreamHandler.emit
-        logging.StreamHandler.emit = _tracerite_stream_handler_emit
+        type.__setattr__(logging.StreamHandler, "emit", _tracerite_stream_handler_emit)
 
     if suppressions:
         for module_name, hide_value in _SUPPRESSIONS.items():
@@ -166,7 +167,9 @@ def unload() -> None:
         _state.original_threading_excepthook = None
 
     if _state.original_stream_handler_emit is not None:
-        logging.StreamHandler.emit = _state.original_stream_handler_emit
+        type.__setattr__(
+            logging.StreamHandler, "emit", _state.original_stream_handler_emit
+        )
         _state.original_stream_handler_emit = None
 
     for module, old_value in _state.suppressed.items():

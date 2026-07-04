@@ -95,9 +95,10 @@ class TestFastAPIIntegration:
         fastapi_module = reset_fastapi_module
         mock_modules = create_mock_fastapi_modules()
 
-        with mock.patch.dict(sys.modules, mock_modules), mock.patch(
-            "tracerite.fastapi.load_tty"
-        ) as mock_load_tty:
+        with (
+            mock.patch.dict(sys.modules, mock_modules),
+            mock.patch("tracerite.fastapi.load_tty") as mock_load_tty,
+        ):
             # Test tty=True (default)
             fastapi_module.patch_fastapi(tty=True)
             mock_load_tty.assert_called_once()

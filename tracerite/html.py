@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from importlib.resources import files
+from types import EllipsisType
 from typing import Any, cast
 
-from html5tagger import HTML, E  # type: ignore[import]
+from html5tagger import HTML, E
 
 from .chain_analysis import build_chronological_frames
 from .trace import build_chain_header, chainmsg, extract_chain, symbols, symdesc
@@ -67,7 +68,7 @@ def html_traceback(
     exc: BaseException | None = None,
     chain: list[dict[str, Any]] | None = None,
     *,
-    msg: str | None = ...,  # type: ignore[assignment]
+    msg: str | None | EllipsisType = ...,
     include_js_css: bool = True,
     local_urls: bool = False,
     replace_previous: bool = False,

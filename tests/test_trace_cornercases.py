@@ -1051,9 +1051,12 @@ class TestMissingCoverageBranches:
             delattr(e, "end_offset")
 
         # Mock extract_enhanced_positions to return None (fallback path)
-        with patch(
-            "tracerite.trace.extract_enhanced_positions", return_value=(None, None)
-        ), patch("linecache.getlines", return_value=["some error\n"]):
+        with (
+            patch(
+                "tracerite.trace.extract_enhanced_positions", return_value=(None, None)
+            ),
+            patch("linecache.getlines", return_value=["some error\n"]),
+        ):
             frame = _extract_syntax_error_frame(e)
 
             # Frame should be created but range might be None due to no column info
@@ -1177,8 +1180,9 @@ class TestMissingCoverageBranches:
             e.offset = 1
             e.text = "fallback text\n"
 
-            with patch("tracerite.trace._is_notebook_cell", return_value=True), patch(
-                "linecache.getlines", return_value=[]
+            with (
+                patch("tracerite.trace._is_notebook_cell", return_value=True),
+                patch("linecache.getlines", return_value=[]),
             ):
                 frame = _extract_syntax_error_frame(e)
                 assert frame is not None
