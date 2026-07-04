@@ -633,8 +633,8 @@ def _build_chrono_frame_lines(
     if not fragments:
         # Show "(no source code)" with the symbol emoji like a code line would have
         symbol = symbols.get(relevance, "")
-        msg = f"(no source code) {symbol}"
-        line = f"{INDENT}{label} {NO_SOURCE}{msg}{RESET}"
+        symbol_colored = f"{EM_CALL}{symbol}{RESET}" if symbol else ""
+        line = f"{INDENT}{label} {NO_SOURCE}(no source code){symbol_colored}{RESET}"
         lines.append((line, _display_width(line), False))
         return lines
 
