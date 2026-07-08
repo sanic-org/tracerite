@@ -2228,7 +2228,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = []
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [20],  # min widths
@@ -2259,7 +2259,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = []
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [20],
@@ -2287,7 +2287,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = []
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [20],
@@ -2315,7 +2315,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = [(100, "BANNER_TEXT")]
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [20],
@@ -2344,7 +2344,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = []
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [20],
@@ -2376,7 +2376,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = []
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [min_width],
@@ -2796,6 +2796,24 @@ class TestMultilineExceptionMessage:
         # A double vertical bar with a space in between is the old bug.
         assert "│ │" not in result_plain
 
+    def test_multiline_exception_message_has_half_block_continuation(self):
+        """Continuation lines of a multi-line message show a dim half block."""
+        from tests.errorcases import multiline_exception_message
+
+        output = io.StringIO()
+        output.isatty = lambda: False
+        try:
+            multiline_exception_message()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        # First line of the last exception gets the bottom corner.
+        assert "╰ ValueError: First line of error" in result_plain
+        # Continuation lines hang with spaces + half block.
+        assert "  ▐ Second line with details" in result_plain
+        assert "  ▐ Third line with more info" in result_plain
+
     def test_empty_line_exception_message_has_blank_row(self):
         """An empty line in the message is rendered as a blank banner row."""
         from tests.errorcases import empty_second_line_exception
@@ -2809,8 +2827,8 @@ class TestMultilineExceptionMessage:
 
         result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
         lines = [ln.rstrip() for ln in result_plain.splitlines()]
-        # The blank row appears as a line that contains only the border.
-        assert "│" in lines
+        # The blank row appears as a hanging continuation marker.
+        assert any("▐" in ln for ln in lines)
         assert "First line" in result_plain
         assert "Third line after empty" in result_plain
 
@@ -2827,11 +2845,14 @@ class TestMultilineExceptionMessage:
         result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
         banner_lines = []
         for ln in result_plain.splitlines():
-            if not ln.startswith("│ "):
-                continue
-            content = ln[2:]
-            if content.startswith("ValueError:") or content.startswith("xyzzy"):
-                banner_lines.append(ln)
+            if ln.startswith("│ "):
+                content = ln[2:]
+                if content.startswith("ValueError:") or content.startswith("xyzzy"):
+                    banner_lines.append(ln)
+            elif ln.startswith("  ▐ "):
+                content = ln[4:]
+                if content.startswith("xyzzy"):
+                    banner_lines.append(ln)
         assert len(banner_lines) > 1
         for line in banner_lines:
             # Each rendered line must fit inside the requested terminal width.
