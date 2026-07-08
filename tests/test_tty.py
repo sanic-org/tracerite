@@ -3121,6 +3121,10 @@ class TestWrapText:
         assert lines == ["あいうえお", "あいうえお"]
         assert all(_display_width(line) <= 10 for line in lines)
 
+    def test_wrap_text_whitespace_only(self):
+        """Whitespace-only input is returned unchanged."""
+        assert _wrap_text("   ", 10) == ["   "]
+
 
 class TestTTYCoverage:
     """Edge-case tests that previously lacked coverage."""
