@@ -698,7 +698,6 @@ def _build_chrono_frame_lines(
     loc_pad = " " * (location_width - _display_width(location_part))
     func_pad = " " * (function_width - _display_width(function_part))
     label = f"{location_part}{loc_pad} {function_part}{func_pad}"
-    location_width + 1 + function_width
 
     start = frinfo.get("linenostart", 1)
     symbol = symbols.get(relevance, "")
