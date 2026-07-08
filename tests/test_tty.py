@@ -3078,37 +3078,23 @@ class TestWrapText:
     """Tests for the internal _wrap_text helper."""
 
     def test_wrap_text_empty(self):
-        lines, truncated = _wrap_text("", 10)
-        assert lines == [""]
-        assert truncated is False
+        assert _wrap_text("", 10) == [""]
 
     def test_wrap_text_short_text(self):
-        lines, truncated = _wrap_text("short", 10)
-        assert lines == ["short"]
-        assert truncated is False
+        assert _wrap_text("short", 10) == ["short"]
 
     def test_wrap_text_long_text(self):
-        lines, truncated = _wrap_text("word " * 10, 20)
-        assert truncated is False
+        lines = _wrap_text("word " * 10, 20)
         assert all(len(line) <= 20 for line in lines)
         # textwrap strips trailing whitespace; joining should recover the words.
         assert " ".join(lines) == ("word " * 10).rstrip()
 
-    def test_wrap_text_middle_truncation(self):
+    def test_wrap_text_long_unbroken_text_wraps(self):
+        """Long unbroken text is wrapped rather than shortened."""
         text = "x" * 200
-        lines, truncated = _wrap_text(text, 30, max_lines=3)
-        assert truncated is True
-        assert len(lines) == 1
-        assert "…" in lines[0]
-        # Middle truncation may use the full available width.
-        assert len(lines[0]) <= 30
-
-    def test_wrap_text_middle_truncation_uses_full_width(self):
-        """Truncated line may use the full available width."""
-        text = "x" * 100
-        lines, truncated = _wrap_text(text, 20, max_lines=1)
-        assert truncated is True
-        assert len(lines[0]) == 20
+        lines = _wrap_text(text, 30)
+        assert "…" not in " ".join(lines)
+        assert all(len(line) <= 30 for line in lines)
 
 
 # Python 3.13+ has linecache._getline_from_code for interactive source retrieval

@@ -84,8 +84,6 @@ BOX_TR = "╮"  # Rounded top-right
 BOX_BR = "╯"  # Rounded bottom-right
 ARROW_LEFT = "◀"
 SINGLE_T = "❴"  # T-junction for single line
-BLOCK_HALF = "▐"  # Right half block, continuation marker for multi-line messages
-
 INDENT = ""  # No indent for function/location lines
 CODE_INDENT = "  "  # Indent for code in frame
 
@@ -159,9 +157,7 @@ def tty_traceback(
         except (OSError, ValueError):
             term_width = 80
 
-        # If the terminal is reported as very narrow, assume it is temporary and
-        # will be expanded back to a normal width.  Widths from 40 up are still
-        # honoured so users can deliberately narrow the window.
+        # Very narrow terminals are assumed temporary; honour 40+ deliberately.
         if term_width < 40:
             term_width = 80
 
@@ -172,14 +168,12 @@ def tty_traceback(
         last_banner_start += len(output)
     output += chrono_output
 
-    # Strip trailing EOL (which ends with LINE_PREFIX for an empty line we don't want)
+    # Strip trailing empty border.
     eol_suffix = f"\n{LINE_PREFIX}"
     if output.endswith(eol_suffix):
         output = output[: -len(eol_suffix)]
 
-    # Side bracket termination.  If the last emitted item is an exception
-    # banner, the curved ending goes at the banner's first line and any
-    # continuation lines hang without the left border.
+    # Curve the bottom border; for banners, continuation lines hang loose.
     if last_banner_start is not None:
         prefix_pos = last_banner_start - len(LINE_PREFIX)
         if prefix_pos >= 0 and output[prefix_pos:last_banner_start] == LINE_PREFIX:
@@ -190,7 +184,6 @@ def tty_traceback(
                 "\n" + LINE_PREFIX, "\n  "
             )
     else:
-        # No banner: curve at the last line as before.
         last_prefix_pos = output.rfind(LINE_PREFIX)
         if last_prefix_pos != -1:
             output = (
@@ -294,13 +287,7 @@ def _print_chronological(
     term_width: int,
     no_inspector: bool = False,
 ) -> tuple[str, int | None]:
-    """Print frames in chronological order with exception info after error frames.
-
-    Returns:
-        A tuple of ``(output, last_banner_start)`` where *last_banner_start*
-        is the character index of the first line of the last exception banner,
-        or ``None`` if no banner was emitted.
-    """
+    """Print frames in chronological order; returns ``(output, last_banner_start)``."""
     output = ""
     last_banner_start = None
     chrono_frames = build_chronological_frames(chain)
@@ -434,23 +421,9 @@ def _print_chronological(
     return output, last_banner_start
 
 
-def _wrap_text(text: str, width: int, max_lines: int = 12) -> tuple[list[str], bool]:
-    """Wrap *text* so that each line fits within *width* terminal columns.
-
-    Hard linefeeds in *text* are expected to be split by the caller; this
-    helper wraps a single paragraph.  If wrapping would produce an
-    unreasonably long run of lines, the middle of the original text is
-    cut out and shown as a single truncated line instead.
-
-    Returns:
-        A tuple of ``(lines, was_truncated)``.  The plain-text ellipsis
-        (``…``) is left for the caller to style; callers that want a dim
-        ellipsis can post-process the returned lines.
-    """
-    if not text:
-        return [""], False
-
-    wrapped = textwrap.wrap(
+def _wrap_text(text: str, width: int) -> list[str]:
+    """Wrap *text* so each line fits within *width* terminal columns."""
+    return textwrap.wrap(
         text,
         width=width,
         break_long_words=True,
@@ -458,95 +431,25 @@ def _wrap_text(text: str, width: int, max_lines: int = 12) -> tuple[list[str], b
         replace_whitespace=False,
     ) or [text]
 
-    if len(wrapped) <= max_lines:
-        return wrapped, False
-
-    # Pathological input: keep the beginning and end, cut out the middle.
-    # The rendered line is followed by a newline, so it can use the full
-    # available width.
-    half = max(0, (width - 1) // 2)
-    last_len = max(0, width - 1 - half)
-    truncated_line = text[:half] + "…" + text[-last_len:]
-    return [truncated_line], True
-
-
-def _dim_ellipsis_plain(line: str) -> str:
-    """Dim the middle ellipsis in a plain (non-bold) line."""
-    if "…" not in line:
-        return line
-    before, after = line.split("…", 1)
-    return f"{before}{DIM}…{RESET}{after}"
-
-
-def _dim_ellipsis_bold(line: str) -> str:
-    """Keep text bold but render the middle ellipsis in dim color."""
-    if "…" not in line:
-        return f"{BOLD}{line}{RESET}"
-    before, after = line.split("…", 1)
-    return f"{BOLD}{before}{RESET}{DIM}…{RESET}{BOLD}{after}{RESET}"
-
-
-def _char_display_width(char: str) -> int:
-    """Return the terminal display width of a single character."""
-    return 2 if unicodedata.east_asian_width(char) in "WF" else 1
-
 
 def _truncate_ansi(colored: str, max_width: int) -> str:
-    """Truncate a colored string so it fits within *max_width* columns.
-
-    A dim ellipsis is appended at the end.  ANSI escape sequences are
-    preserved and never counted towards the width.
-    """
-    if max_width < 1:
-        return ""
-
+    """Truncate a colored string, appending a dim ellipsis."""
     ellipsis = f"{RESET}{DIM}…{RESET}"
     ellipsis_width = _display_width(ellipsis)
     if max_width <= ellipsis_width:
         return ellipsis
-
-    result_parts: list[str] = []
-    width = 0
-    i = 0
-    n = len(colored)
-    available = max_width - ellipsis_width
-
-    while i < n:
-        c = colored[i]
-        if c == "\x1b":
-            m = ANSI_ESCAPE_RE.match(colored, i)
-            if m:
-                seq = m.group(0)
-                result_parts.append(seq)
-                i += len(seq)
-                continue
-        w = _char_display_width(c)
-        if width + w > available:
-            break
-        result_parts.append(c)
-        width += w
-        i += 1
-
-    result_parts.append(ellipsis)
-    return "".join(result_parts)
+    chunk = _wrap_code_line(colored, max_width - ellipsis_width)[0]
+    return chunk + (RESET if not chunk.endswith(RESET) else "") + ellipsis
 
 
-def _wrap_ansi(colored: str, max_width: int) -> list[tuple[str, str]]:
-    """Wrap a colored string into chunks that fit within *max_width*.
-
-    Returns a list of ``(chunk, active_codes)`` tuples.  *chunk* is the
-    text/ANSI content for that chunk; *active_codes* is the ANSI SGR
-    sequence that should be emitted before the chunk so that styles
-    (such as the mark background) continue seamlessly on continuation
-    lines.
-    """
+def _wrap_code_line(colored: str, max_width: int) -> list[str]:
+    """Wrap a colored code line, restoring active styles on each continuation."""
     if not colored:
-        return [("", "")]
+        return [""]
 
-    chunks: list[tuple[str, str]] = []
+    chunks: list[str] = []
     current: list[str] = []
     active_params: list[str] = []
-    pending_active = ""
     width = 0
     i = 0
     n = len(colored)
@@ -567,10 +470,12 @@ def _wrap_ansi(colored: str, max_width: int) -> list[tuple[str, str]]:
                 i += len(seq)
                 continue
 
-        w = _char_display_width(c)
+        w = _display_width(c)
         if width + w > max_width:
-            chunks.append(("".join(current), pending_active))
-            pending_active = f"{ESC}{';'.join(active_params)}m" if active_params else ""
+            chunk = "".join(current)
+            if chunks and active_params:
+                chunk = f"{ESC}{';'.join(active_params)}m{chunk}"
+            chunks.append(chunk)
             current = []
             width = 0
 
@@ -579,47 +484,16 @@ def _wrap_ansi(colored: str, max_width: int) -> list[tuple[str, str]]:
         i += 1
 
     if current:
-        chunks.append(("".join(current), pending_active))
+        chunk = "".join(current)
+        if chunks and active_params:
+            chunk = f"{ESC}{';'.join(active_params)}m{chunk}"
+        chunks.append(chunk)
 
     return chunks
 
 
-def _wrap_code_line(colored: str, max_width: int) -> list[str]:
-    """Wrap a colored code line, restoring active styles on each continuation."""
-    chunks = _wrap_ansi(colored, max_width)
-    result: list[str] = []
-    for i, (chunk, active) in enumerate(chunks):
-        if i > 0 and active:
-            chunk = active + chunk
-        result.append(chunk)
-    return result
-
-
-# Maximum number of wrapped lines to render for a single exception banner.
-# Messages that produce more wrapped lines are collapsed in the middle, like
-# the "N more calls" ellipsis used for hidden call frames.
-MAX_BANNER_LINES = 100
-BANNER_HEAD_LINES = 20
-BANNER_TAIL_LINES = 20
-
-
-def _truncate_banner_lines(lines: list[str]) -> list[str]:
-    """Collapse the middle of *lines* when there are too many to display."""
-    if len(lines) <= MAX_BANNER_LINES:
-        return lines
-    skipped = len(lines) - BANNER_HEAD_LINES - BANNER_TAIL_LINES
-    skipped_line = f"{ELLIPSIS}⋮ {skipped} more lines{RESET}"
-    return lines[:BANNER_HEAD_LINES] + [skipped_line] + lines[-BANNER_TAIL_LINES:]
-
-
 def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
-    """Build exception banner output to show after error frame.
-
-    The banner is a sequence of logical content lines.  No box-drawing
-    prefix is prepended here; the surrounding TTY formatter adds the
-    ``│ `` prefix between lines via :data:`EOL`.  This keeps the left
-    border single and consistent even for multi-line exception messages.
-    """
+    """Build exception-banner content lines (the formatter adds the border)."""
     exc_type = exc_info.get("type", "Exception")
     summary = exc_info.get("summary", "")
     message = exc_info.get("message", "")
@@ -630,87 +504,35 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
     type_prefix_colored = f"{EXC}{type_prefix}{RESET}"
     type_prefix_width = _display_width(type_prefix)
 
-    # The first banner line only has the "│ " border prefix.  Every
-    # continuation line also carries the dim half-block marker "▐ ", so it
-    # has 2 fewer usable columns.
+    # First banner line pays the border; continuations also pay the half-block.
     first_line_width = max(1, term_width - _display_width(LINE_PREFIX))
-    cont_width = max(
-        1, term_width - _display_width(LINE_PREFIX) - _display_width(f"{BLOCK_HALF} ")
-    )
+    cont_width = max(1, term_width - _display_width(LINE_PREFIX) - _display_width("▐ "))
 
     lines: list[str] = []
-
-    # --- Title row(s) ------------------------------------------------------
-    # The first row is special: it carries the exception type and the
-    # summary, and is emphasised in bold.
     title_width = type_prefix_width + _display_width(summary)
-    title_first_available = first_line_width - type_prefix_width
 
     if title_width <= first_line_width:
-        # The whole title fits on a single line.
         lines.append(f"{type_prefix_colored}{BOLD}{summary}{RESET}")
-    elif _display_width(summary) <= cont_width:
-        # Type prefix does not fit together with the summary, but the
-        # summary alone fits: put them on consecutive lines.
-        lines.append(type_prefix_colored)
-        wrapped_summary, _ = _wrap_text(summary, cont_width)
-        for line in wrapped_summary:
-            lines.append(_dim_ellipsis_bold(line))
     else:
-        # Both the prefix and the summary are too wide for one line.
-        # Wrap the title normally: the first line carries the type prefix,
-        # and continuation lines are indented by the half-block marker width
-        # so the same wrap width applies to every logical line.
-        cont_indent = " " * _display_width(f"{BLOCK_HALF} ")
-        if title_first_available < 1:
-            lines.append(type_prefix_colored)
-            wrapped_summary, _ = _wrap_text(summary, cont_width)
-            for line in wrapped_summary:
-                lines.append(_dim_ellipsis_bold(line))
-        else:
-            wrapped_title = textwrap.wrap(
-                summary,
-                width=first_line_width,
-                initial_indent=type_prefix,
-                subsequent_indent=cont_indent,
-                break_long_words=True,
-                break_on_hyphens=False,
-                replace_whitespace=False,
-            ) or [type_prefix + summary]
-            for i, line in enumerate(wrapped_title):
-                if i == 0:
-                    content = line[len(type_prefix) :]
-                    lines.append(f"{type_prefix_colored}{_dim_ellipsis_bold(content)}")
-                else:
-                    content = line[len(cont_indent) :]
-                    lines.append(_dim_ellipsis_bold(content))
+        lines.append(type_prefix_colored)
+        lines.extend(f"{BOLD}{line}{RESET}" for line in _wrap_text(summary, cont_width))
 
-    # --- Message body rows -------------------------------------------------
     if summary != message:
         body = message
         if summary and body.startswith(summary):
             body = body[len(summary) :]
-            # Drop exactly the newline that separates the summary from the body.
-            # Subsequent newlines are intentional blank lines and must be kept.
             if body.startswith("\n"):
                 body = body[1:]
-
         for para in body.split("\n"):
-            if para:
-                wrapped_body, _ = _wrap_text(para, cont_width)
-                for line in wrapped_body:
-                    lines.append(_dim_ellipsis_plain(line))
-            else:
-                # Preserve intentional blank lines from the message.
-                lines.append("")
+            lines.extend(_wrap_text(para, cont_width) if para else [""])
 
-    lines = _truncate_banner_lines(lines)
+    if len(lines) > 100:
+        skipped = len(lines) - 40
+        lines = lines[:20] + [f"{ELLIPSIS}⋮ {skipped} more lines{RESET}"] + lines[-20:]
 
-    # For multi-line messages, mark every continuation line with a dim half
-    # block so the block visually hangs off the first line.
     if len(lines) > 1:
-        cont_marker = f"{DIM}{BLOCK_HALF}{RESET} "
-        lines = [lines[0]] + [f"{cont_marker}{line}" for line in lines[1:]]
+        marker = f"{DIM}▐{RESET} "
+        lines[1:] = [marker + line for line in lines[1:]]
 
     return "".join(line + EOL for line in lines)
 
@@ -718,15 +540,7 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
 def _build_subexception_summaries(
     parallel_branches: list[list[dict[str, Any]]], term_width: int
 ) -> str:
-    """Build one-line summaries for each subexception branch.
-
-    For TTY output, we don't have space for full tracebacks, so we show
-    a compact summary: location, function, exception type and message.
-
-    Like exception banners, the box-drawing prefix is supplied by the
-    surrounding formatter through :data:`EOL`; this avoids a double
-    left border when multiple summaries are emitted in a row.
-    """
+    """Build one-line summaries for each subexception branch."""
     output = ""
     border_width = _display_width(LINE_PREFIX)  # "│ "
 
@@ -906,20 +720,20 @@ def _build_chrono_frame_lines(
     content_width = max(1, term_width - _display_width(LINE_PREFIX))
     single_marked = len(info["marked_lines"]) == 1
 
-    raw_lines: list[tuple[str, int, bool, bool]] = []
-    suffix_texts: set[str] = set()
+    raw_lines: list[tuple[str, bool, bool]] = []
+    symbol_suffix = f"{symbol_colored}  {SYMBOLDESC}{desc}{RESET}" if symbol else ""
 
     if not fragments:
         # Show "(no source code)" with the symbol emoji like a code line would have
         line = f"{INDENT}{label} {NO_SOURCE}(no source code){symbol_colored}{RESET}"
-        raw_lines.append((line, _display_width(line), False, bool(symbol)))
+        raw_lines.append((line, False, bool(symbol)))
     elif relevance == "call":
         # One-liner for call frames
         if info["marked_lines"]:
             # Build full code with em parts
             code_parts = []
             # Also track em parts for potential collapsing
-            em_ranges = []  # [(start_idx, end_idx), ...] in plain text
+            em_ranges = []
             em_start = None
             plain_len = 0  # Track position for em_ranges
 
@@ -970,14 +784,14 @@ def _build_chrono_frame_lines(
                     )
 
             line = f"{INDENT}{label} {code_colored}{symbol_colored}"
-            raw_lines.append((line, _display_width(line), False, bool(symbol)))
+            raw_lines.append((line, False, bool(symbol)))
         else:  # pragma: no cover
             line = f"{INDENT}{label} {symbol_colored}"
-            raw_lines.append((line, _display_width(line), False, bool(symbol)))
+            raw_lines.append((line, False, bool(symbol)))
     else:
         # Full format for error/warning/stop/except frames
         label_line = f"{INDENT}{label}"
-        raw_lines.append((label_line, _display_width(label_line), False, False))
+        raw_lines.append((label_line, False, False))
 
         marked_line_nums = set()
         for ml in info["marked_lines"]:
@@ -993,59 +807,37 @@ def _build_chrono_frame_lines(
             code_part = f"{CODE_INDENT}{code_colored}"
 
             if frame_range and abs_line == frame_range.lfinal and symbol:
-                # Keep the symbol together with the code when it fits; otherwise
-                # put the explanatory symbol line on its own.
-                suffix = f"{symbol_colored}  {SYMBOLDESC}{desc}{RESET}"
                 if (
-                    _display_width(code_part) + 1 + _display_width(suffix)
+                    _display_width(code_part) + 1 + _display_width(symbol_suffix)
                     <= content_width
                 ):
-                    line = f"{code_part} {suffix}"
-                    raw_lines.append((line, _display_width(line), is_marked, True))
+                    raw_lines.append((f"{code_part} {symbol_suffix}", is_marked, True))
                 else:
-                    # Both parts belong to the caret line and should be
-                    # wrapped rather than truncated with an ellipsis.
-                    raw_lines.append(
-                        (code_part, _display_width(code_part), is_marked, True)
-                    )
-                    raw_lines.append((suffix, _display_width(suffix), False, True))
-                    suffix_texts.add(suffix)
+                    raw_lines.append((code_part, is_marked, True))
+                    raw_lines.append((symbol_suffix, False, True))
             else:
-                raw_lines.append(
-                    (code_part, _display_width(code_part), is_marked, False)
-                )
+                raw_lines.append((code_part, is_marked, False))
 
-    # Fit the assembled lines to the terminal width.
     lines: list[tuple[str, int, bool]] = []
-    for line, width, is_marked, has_symbol in raw_lines:
+    for line, is_marked, has_symbol in raw_lines:
+        width = _display_width(line)
         if width <= content_width:
-            # Always close a marked line before the newline so the background
-            # does not bleed into the left border of the next row.
             if is_marked and not line.endswith(RESET):
                 line = line + RESET
-
-            # If this is a suffix line and the previous line has room, put it
-            # on the same line as the wrapped code instead of a new row.
             if (
-                line in suffix_texts
+                line == symbol_suffix
                 and lines
                 and lines[-1][1] + 1 + width <= content_width
             ):
                 prev, prev_width, prev_marked = lines[-1]
                 lines[-1] = (f"{prev} {line}", prev_width + 1 + width, prev_marked)
                 continue
-
-            lines.append((line, _display_width(line), is_marked))
+            lines.append((line, width, is_marked))
             continue
 
-        # Lines that carry the caret, and the only marked line in a frame,
-        # are wrapped so the important part stays visible.  Everything else
-        # is shortened with a trailing dim ellipsis.
         should_wrap = has_symbol or (is_marked and single_marked)
         if should_wrap:
             for chunk in _wrap_code_line(line, content_width):
-                # Each wrapped chunk of a marked line is closed before the
-                # newline; the next chunk re-opens the active style.
                 if is_marked and not chunk.endswith(RESET):
                     chunk = chunk + RESET
                 lines.append((chunk, _display_width(chunk), is_marked))
