@@ -158,6 +158,12 @@ def tty_traceback(
         except (OSError, ValueError):
             term_width = 80
 
+        # If the terminal is reported as very narrow, assume it is temporary and
+        # will be expanded back to a normal width.  Widths from 40 up are still
+        # honoured so users can deliberately narrow the window.
+        if term_width < 40:
+            term_width = 80
+
     output += _print_chronological(chain, term_width, no_inspector)
 
     # Strip trailing EOL (which ends with LINE_PREFIX for an empty line we don't want)
@@ -397,9 +403,83 @@ def _print_chronological(
     return output
 
 
+def _wrap_text(text: str, width: int, max_lines: int = 12) -> tuple[list[str], bool]:
+    """Wrap *text* so that each line fits within *width* terminal columns.
+
+    Hard linefeeds in *text* are expected to be split by the caller; this
+    helper wraps a single paragraph.  If wrapping would produce an
+    unreasonably long run of lines, the middle of the original text is
+    cut out and shown as a single truncated line instead.
+
+    Returns:
+        A tuple of ``(lines, was_truncated)``.  The plain-text ellipsis
+        (``…``) is left for the caller to style; callers that want a dim
+        ellipsis can post-process the returned lines.
+    """
+    if not text:
+        return [""], False
+
+    wrapped = textwrap.wrap(
+        text,
+        width=width,
+        break_long_words=True,
+        break_on_hyphens=False,
+        replace_whitespace=False,
+    ) or [text]
+
+    if len(wrapped) <= max_lines:
+        return wrapped, False
+
+    # Pathological input: keep the beginning and end, cut out the middle.
+    # Leave one column of breathing room, so the total display width is
+    # ``width - 1`` rather than filling the line exactly.
+    half = max(0, (width - 2) // 2)
+    last_len = max(0, width - 2 - half)
+    truncated_line = text[:half] + "…" + text[-last_len:]
+    return [truncated_line], True
+
+
+def _dim_ellipsis_plain(line: str) -> str:
+    """Dim the middle ellipsis in a plain (non-bold) line."""
+    if "…" not in line:
+        return line
+    before, after = line.split("…", 1)
+    return f"{before}{DIM}…{RESET}{after}"
+
+
+def _dim_ellipsis_bold(line: str) -> str:
+    """Keep text bold but render the middle ellipsis in dim color."""
+    if "…" not in line:
+        return f"{BOLD}{line}{RESET}"
+    before, after = line.split("…", 1)
+    return f"{BOLD}{before}{RESET}{DIM}…{RESET}{BOLD}{after}{RESET}"
+
+
+# Maximum number of wrapped lines to render for a single exception banner.
+# Messages that produce more wrapped lines are collapsed in the middle, like
+# the "N more calls" ellipsis used for hidden call frames.
+MAX_BANNER_LINES = 100
+BANNER_HEAD_LINES = 20
+BANNER_TAIL_LINES = 20
+
+
+def _truncate_banner_lines(lines: list[str]) -> list[str]:
+    """Collapse the middle of *lines* when there are too many to display."""
+    if len(lines) <= MAX_BANNER_LINES:
+        return lines
+    skipped = len(lines) - BANNER_HEAD_LINES - BANNER_TAIL_LINES
+    skipped_line = f"{ELLIPSIS}⋮ {skipped} more lines{RESET}"
+    return lines[:BANNER_HEAD_LINES] + [skipped_line] + lines[-BANNER_TAIL_LINES:]
+
+
 def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
-    """Build exception banner output to show after error frame."""
-    output = ""
+    """Build exception banner output to show after error frame.
+
+    The banner is a sequence of logical content lines.  No box-drawing
+    prefix is prepended here; the surrounding TTY formatter adds the
+    ``│ `` prefix between lines via :data:`EOL`.  This keeps the left
+    border single and consistent even for multi-line exception messages.
+    """
     exc_type = exc_info.get("type", "Exception")
     summary = exc_info.get("summary", "")
     message = exc_info.get("message", "")
@@ -407,50 +487,70 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
 
     chain_suffix = chainmsg.get(from_type, "")
     type_prefix = f"{exc_type}{chain_suffix}: "
-    type_prefix_len = len(type_prefix)
-    cont_prefix = f"{EXC}{BOX_V}{RESET} "
-    cont_prefix_len = 2
+    type_prefix_colored = f"{EXC}{type_prefix}{RESET}"
+    type_prefix_width = _display_width(type_prefix)
 
-    # Check if the full title fits on one line
-    full_title_len = type_prefix_len + len(summary)
-    if full_title_len <= term_width:
-        output += f"{EXC}{type_prefix}{RESET}{BOLD}{summary}{RESET}{EOL}"
-    elif len(summary) <= term_width - cont_prefix_len:
-        output += f"{EXC}{type_prefix}{RESET}{EOL}"
-        output += f"{cont_prefix}{BOLD}{summary}{RESET}{EOL}"
+    # Width available for the textual content after the left border "│ ".
+    prefix_width = _display_width(LINE_PREFIX)
+    content_width = max(1, term_width - prefix_width)
+
+    lines: list[str] = []
+
+    # --- Title row(s) ------------------------------------------------------
+    # The first row is special: it carries the exception type and the
+    # summary, and is emphasised in bold.
+    title_width = type_prefix_width + _display_width(summary)
+    first_line_available = content_width - type_prefix_width
+
+    if title_width <= content_width:
+        # The whole title fits on a single line.
+        lines.append(f"{type_prefix_colored}{BOLD}{summary}{RESET}")
+    elif _display_width(summary) <= content_width:
+        # Type prefix does not fit together with the summary, but the
+        # summary alone fits: put them on consecutive lines.
+        lines.append(type_prefix_colored)
+        wrapped_summary, _ = _wrap_text(summary, content_width)
+        for line in wrapped_summary:
+            lines.append(_dim_ellipsis_bold(line))
     else:
-        padding = "\x00" * (type_prefix_len - cont_prefix_len)
-        wrapped = textwrap.wrap(
-            padding + summary,
-            width=term_width - cont_prefix_len,
-            break_long_words=False,
-            break_on_hyphens=False,
-        )
-        wrapped[0] = wrapped[0].lstrip("\x00")
-        for i, line in enumerate(wrapped):
-            if i == 0:
-                output += f"{EXC}{type_prefix}{RESET}{BOLD}{line}{RESET}{EOL}"
-            else:
-                output += f"{cont_prefix}{BOLD}{line}{RESET}{EOL}"
+        # Both the prefix and the summary are too wide for one line.
+        # Wrap the summary.  The first wrapped line is indented by the
+        # type prefix; subsequent continuation lines use the full width.
+        if first_line_available < 1:
+            lines.append(type_prefix_colored)
+            wrapped_summary, _ = _wrap_text(summary, content_width)
+        else:
+            placeholder = "\x00" * type_prefix_width
+            wrapped_summary, _ = _wrap_text(placeholder + summary, content_width)
+            wrapped_summary[0] = wrapped_summary[0].lstrip("\x00")
 
+        for i, line in enumerate(wrapped_summary):
+            if i == 0 and first_line_available >= 1:
+                lines.append(f"{type_prefix_colored}{_dim_ellipsis_bold(line)}")
+            else:
+                lines.append(_dim_ellipsis_bold(line))
+
+    # --- Message body rows -------------------------------------------------
     if summary != message:
-        if message.startswith(summary):  # pragma: no cover
-            message = message[len(summary) :].strip("\n")
-        wrap_width = term_width - cont_prefix_len
-        for line in message.split("\n"):
-            if line:
-                wrapped = textwrap.wrap(
-                    line,
-                    width=wrap_width,
-                    break_long_words=False,
-                    break_on_hyphens=False,
-                ) or [line]
-                for wrapped_line in wrapped:
-                    output += f"{cont_prefix}{wrapped_line}{EOL}"
-            else:
-                output += f"{cont_prefix.rstrip()}{EOL}"
+        body = message
+        if summary and body.startswith(summary):
+            body = body[len(summary) :]
+            # Drop exactly the newline that separates the summary from the body.
+            # Subsequent newlines are intentional blank lines and must be kept.
+            if body.startswith("\n"):
+                body = body[1:]
 
-    return output
+        for para in body.split("\n"):
+            if para:
+                wrapped_body, _ = _wrap_text(para, content_width)
+                for line in wrapped_body:
+                    lines.append(_dim_ellipsis_plain(line))
+            else:
+                # Preserve intentional blank lines from the message.
+                lines.append("")
+
+    lines = _truncate_banner_lines(lines)
+    return "".join(line + EOL for line in lines)
 
 
 def _build_subexception_summaries(
@@ -460,16 +560,18 @@ def _build_subexception_summaries(
 
     For TTY output, we don't have space for full tracebacks, so we show
     a compact summary: location, function, exception type and message.
+
+    Like exception banners, the box-drawing prefix is supplied by the
+    surrounding formatter through :data:`EOL`; this avoids a double
+    left border when multiple summaries are emitted in a row.
     """
     output = ""
-    prefix = f"{EXC}{BOX_V}{RESET} "
-    prefix_len = 2  # "│ "
+    border_width = _display_width(LINE_PREFIX)  # "│ "
 
     for branch in parallel_branches:
-        # Get the summary for this branch
-        summary = _get_branch_summary(branch, term_width - prefix_len)
-        branch_line = f"{prefix}{summary}"
-        output += f"{branch_line}{EOL}"
+        # Get the summary for this branch, reserving space for the border.
+        summary = _get_branch_summary(branch, term_width - border_width)
+        output += f"{summary}{EOL}"
 
     return output
 

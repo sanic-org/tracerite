@@ -36,6 +36,7 @@ from tracerite.tty import (
     _format_fragment_call,
     _get_branch_summary,
     _get_frame_label,
+    _wrap_text,
     symbols,
     tty_traceback,
 )
@@ -301,6 +302,25 @@ class TestTtyTraceback:
         output.fileno = lambda: 1
         try:
             raise ValueError("test")
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+
+    def test_narrow_terminal_width_fallback_to_80(self, monkeypatch):
+        """Very narrow terminals (<40 cols) are assumed temporary and forced to 80."""
+        import os
+
+        output = io.StringIO()
+        monkeypatch.setattr(
+            os,
+            "get_terminal_size",
+            lambda fd: type("Size", (), {"columns": 20, "lines": 24})(),
+        )
+        output.fileno = lambda: 1
+        try:
+            raise ValueError("narrow terminal test")
         except Exception as e:
             tty_traceback(exc=e, file=output)
 
@@ -2689,6 +2709,18 @@ class TestExceptionGroupTTY:
         assert "ValueError" in result
         assert "TypeError" in result
 
+    def test_exception_group_parallel_branches_single_border(self):
+        """Parallel branch summaries must not produce a double left border."""
+        output = io.StringIO()
+        output.isatty = lambda: False
+        try:
+            exception_group_with_frames()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        assert "│ │" not in result_plain
+
 
 class TestLongArgumentsCollapse:
     """Tests for collapsing long em parts in TTY output."""
@@ -2749,6 +2781,130 @@ class TestMultilineExceptionMessage:
         result_plain = ANSI_ESCAPE_RE.sub("", result)
         # Should contain first line
         assert "First line" in result_plain
+
+    def test_multiline_exception_message_no_double_border(self):
+        """Continuation lines must have a single left border, not two."""
+        from tests.errorcases import multiline_exception_message
+
+        output = io.StringIO()
+        try:
+            multiline_exception_message()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        # A double vertical bar with a space in between is the old bug.
+        assert "│ │" not in result_plain
+
+    def test_empty_line_exception_message_has_blank_row(self):
+        """An empty line in the message is rendered as a blank banner row."""
+        from tests.errorcases import empty_second_line_exception
+
+        output = io.StringIO()
+        output.isatty = lambda: False
+        try:
+            empty_second_line_exception()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        lines = [ln.rstrip() for ln in result_plain.splitlines()]
+        # The blank row appears as a line that contains only the border.
+        assert "│" in lines
+        assert "First line" in result_plain
+        assert "Third line after empty" in result_plain
+
+    def test_long_exception_message_wraps_within_width(self):
+        """Long single-line messages are word-wrapped to the terminal width."""
+        output = io.StringIO()
+        output.isatty = lambda: False
+        long_msg = "xyzzy " * 20
+        try:
+            raise ValueError(long_msg)
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=30)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        banner_lines = []
+        for ln in result_plain.splitlines():
+            if not ln.startswith("│ "):
+                continue
+            content = ln[2:]
+            if content.startswith("ValueError:") or content.startswith("xyzzy"):
+                banner_lines.append(ln)
+        assert len(banner_lines) > 1
+        for line in banner_lines:
+            # Each rendered line must fit inside the requested terminal width.
+            assert len(line) <= 30
+
+    def test_extremely_long_exception_message_is_middle_truncated(self):
+        """Pathologically long single-line messages are cut in the middle."""
+        output = io.StringIO()
+        output.isatty = lambda: False
+        try:
+            raise ValueError("x" * 2000)
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=50)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        assert "…" in result_plain
+        # Should not expand into dozens of wrapped lines.
+        assert result_plain.count("\n") < 20
+
+    def test_too_many_message_lines_are_middle_truncated(self):
+        """Exception messages with too many hard linefeeds are collapsed."""
+        output = io.StringIO()
+        output.isatty = lambda: False
+        try:
+            raise ValueError("\n".join(f"line {i}" for i in range(120)))
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=80)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        # Should contain the first and last lines but not every middle line.
+        assert "line 0" in result_plain
+        assert "line 119" in result_plain
+        assert "line 30" not in result_plain
+        assert "line 90" not in result_plain
+        # Should report how many lines were skipped, same style as hidden calls.
+        assert "more lines" in result_plain
+
+
+class TestWrapText:
+    """Tests for the internal _wrap_text helper."""
+
+    def test_wrap_text_empty(self):
+        lines, truncated = _wrap_text("", 10)
+        assert lines == [""]
+        assert truncated is False
+
+    def test_wrap_text_short_text(self):
+        lines, truncated = _wrap_text("short", 10)
+        assert lines == ["short"]
+        assert truncated is False
+
+    def test_wrap_text_long_text(self):
+        lines, truncated = _wrap_text("word " * 10, 20)
+        assert truncated is False
+        assert all(len(line) <= 20 for line in lines)
+        # textwrap strips trailing whitespace; joining should recover the words.
+        assert " ".join(lines) == ("word " * 10).rstrip()
+
+    def test_wrap_text_middle_truncation(self):
+        text = "x" * 200
+        lines, truncated = _wrap_text(text, 30, max_lines=3)
+        assert truncated is True
+        assert len(lines) == 1
+        assert "…" in lines[0]
+        # The truncated line leaves one column of breathing room.
+        assert len(lines[0]) <= 29
+
+    def test_wrap_text_middle_truncation_leaves_room(self):
+        """Truncated line should be one column shorter than the width."""
+        text = "x" * 100
+        lines, truncated = _wrap_text(text, 20, max_lines=1)
+        assert truncated is True
+        assert len(lines[0]) == 19
 
 
 # Python 3.13+ has linecache._getline_from_code for interactive source retrieval
