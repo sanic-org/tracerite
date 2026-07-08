@@ -462,12 +462,55 @@ def _wrap_text(text: str, width: int, max_lines: int = 12) -> tuple[list[str], b
         return wrapped, False
 
     # Pathological input: keep the beginning and end, cut out the middle.
-    # Leave one column of breathing room, so the total display width is
-    # ``width - 1`` rather than filling the line exactly.
-    half = max(0, (width - 2) // 2)
-    last_len = max(0, width - 2 - half)
+    # The rendered line is followed by a newline, so it can use the full
+    # available width.
+    half = max(0, (width - 1) // 2)
+    last_len = max(0, width - 1 - half)
     truncated_line = text[:half] + "…" + text[-last_len:]
     return [truncated_line], True
+
+
+def _wrap_text_with_first_line_wider(
+    text: str, first_width: int, rest_width: int, max_lines: int = 12
+) -> tuple[list[str], bool]:
+    """Wrap *text* with the first line allowed to be wider than the rest.
+
+    This is useful when the first line has a smaller left margin than
+    continuation lines (e.g. an exception title vs. its continuations).
+    """
+    if not text:
+        return [""], False
+
+    first_wrapped = textwrap.wrap(
+        text,
+        width=first_width,
+        break_long_words=True,
+        break_on_hyphens=False,
+        replace_whitespace=False,
+    ) or [text]
+    first_line = first_wrapped[0]
+
+    rest = text[len(first_line) :].lstrip()
+    if not rest:
+        return [first_line], False
+
+    rest_wrapped = textwrap.wrap(
+        rest,
+        width=rest_width,
+        break_long_words=True,
+        break_on_hyphens=False,
+        replace_whitespace=False,
+    ) or [rest]
+
+    combined = [first_line] + rest_wrapped
+    if len(combined) <= max_lines:
+        return combined, False
+
+    # Middle truncation collapses to a single line, which is the first line,
+    # so it is allowed to use the full first-line budget (no breathing room).
+    half = (first_width - 1) // 2
+    last_len = first_width - 1 - half
+    return [text[:half] + "…" + text[-last_len:]], True
 
 
 def _dim_ellipsis_plain(line: str) -> str:
@@ -630,11 +673,13 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
     type_prefix_colored = f"{EXC}{type_prefix}{RESET}"
     type_prefix_width = _display_width(type_prefix)
 
-    # Width available for the textual content after the left border "│ ".
-    # Continuation lines also carry the dim half-block marker "▐ ", so the
-    # usable width is reduced by the widest possible prefix combination.
-    prefix_width = _display_width(LINE_PREFIX) + _display_width(f"{BLOCK_HALF} ")
-    content_width = max(1, term_width - prefix_width)
+    # The first banner line only has the "│ " border prefix.  Every
+    # continuation line also carries the dim half-block marker "▐ ", so it
+    # has 2 fewer usable columns.
+    first_line_width = max(1, term_width - _display_width(LINE_PREFIX))
+    cont_width = max(
+        1, term_width - _display_width(LINE_PREFIX) - _display_width(f"{BLOCK_HALF} ")
+    )
 
     lines: list[str] = []
 
@@ -642,32 +687,32 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
     # The first row is special: it carries the exception type and the
     # summary, and is emphasised in bold.
     title_width = type_prefix_width + _display_width(summary)
-    first_line_available = content_width - type_prefix_width
+    title_first_available = first_line_width - type_prefix_width
 
-    if title_width <= content_width:
+    if title_width <= first_line_width:
         # The whole title fits on a single line.
         lines.append(f"{type_prefix_colored}{BOLD}{summary}{RESET}")
-    elif _display_width(summary) <= content_width:
+    elif _display_width(summary) <= cont_width:
         # Type prefix does not fit together with the summary, but the
         # summary alone fits: put them on consecutive lines.
         lines.append(type_prefix_colored)
-        wrapped_summary, _ = _wrap_text(summary, content_width)
+        wrapped_summary, _ = _wrap_text(summary, cont_width)
         for line in wrapped_summary:
             lines.append(_dim_ellipsis_bold(line))
     else:
         # Both the prefix and the summary are too wide for one line.
-        # Wrap the summary.  The first wrapped line is indented by the
-        # type prefix; subsequent continuation lines use the full width.
-        if first_line_available < 1:
+        # The first wrapped summary line sits after the type prefix and can
+        # therefore be wider; subsequent lines are normal continuations.
+        if title_first_available < 1:
             lines.append(type_prefix_colored)
-            wrapped_summary, _ = _wrap_text(summary, content_width)
+            wrapped_summary, _ = _wrap_text(summary, cont_width)
         else:
-            placeholder = "\x00" * type_prefix_width
-            wrapped_summary, _ = _wrap_text(placeholder + summary, content_width)
-            wrapped_summary[0] = wrapped_summary[0].lstrip("\x00")
+            wrapped_summary, _ = _wrap_text_with_first_line_wider(
+                summary, title_first_available, cont_width
+            )
 
         for i, line in enumerate(wrapped_summary):
-            if i == 0 and first_line_available >= 1:
+            if i == 0:
                 lines.append(f"{type_prefix_colored}{_dim_ellipsis_bold(line)}")
             else:
                 lines.append(_dim_ellipsis_bold(line))
@@ -684,7 +729,7 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
 
         for para in body.split("\n"):
             if para:
-                wrapped_body, _ = _wrap_text(para, content_width)
+                wrapped_body, _ = _wrap_text(para, cont_width)
                 for line in wrapped_body:
                     lines.append(_dim_ellipsis_plain(line))
             else:

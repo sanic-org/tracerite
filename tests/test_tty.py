@@ -3028,6 +3028,42 @@ class TestMultilineExceptionMessage:
         # Should report how many lines were skipped, same style as hidden calls.
         assert "more lines" in result_plain
 
+    def test_first_banner_line_uses_full_terminal_width(self):
+        """The first line of an exception banner fills the terminal width."""
+        output = io.StringIO()
+        try:
+            # Message length chosen empirically so the line exactly fills width 30.
+            raise ValueError("x" * 16)
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=30)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        banner_lines = [
+            ln
+            for ln in result_plain.splitlines()
+            if "ValueError:" in ln and "▐" not in ln
+        ]
+        assert banner_lines
+        # The rendered line (including border/corner) must reach the full width.
+        assert len(banner_lines[0]) == 30
+
+    def test_continuation_line_uses_full_terminal_width(self):
+        """Wrapped message continuation lines also fill the terminal width."""
+        output = io.StringIO()
+        try:
+            # Message length chosen empirically to produce a full-width continuation.
+            raise ValueError("x" * 50)
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=30)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        cont_lines = [
+            ln for ln in result_plain.splitlines() if "▐" in ln and ln.strip()
+        ]
+        assert cont_lines
+        # At least one continuation line should reach the full terminal width.
+        assert any(len(ln) == 30 for ln in cont_lines)
+
 
 class TestWrapText:
     """Tests for the internal _wrap_text helper."""
@@ -3055,15 +3091,15 @@ class TestWrapText:
         assert truncated is True
         assert len(lines) == 1
         assert "…" in lines[0]
-        # The truncated line leaves one column of breathing room.
-        assert len(lines[0]) <= 29
+        # Middle truncation may use the full available width.
+        assert len(lines[0]) <= 30
 
-    def test_wrap_text_middle_truncation_leaves_room(self):
-        """Truncated line should be one column shorter than the width."""
+    def test_wrap_text_middle_truncation_uses_full_width(self):
+        """Truncated line may use the full available width."""
         text = "x" * 100
         lines, truncated = _wrap_text(text, 20, max_lines=1)
         assert truncated is True
-        assert len(lines[0]) == 19
+        assert len(lines[0]) == 20
 
 
 # Python 3.13+ has linecache._getline_from_code for interactive source retrieval
