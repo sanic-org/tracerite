@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-import textwrap
 import unicodedata
 import warnings
 from pathlib import Path
@@ -84,12 +83,14 @@ BOX_TR = "╮"  # Rounded top-right
 BOX_BR = "╯"  # Rounded bottom-right
 ARROW_LEFT = "◀"
 SINGLE_T = "❴"  # T-junction for single line
-
 INDENT = ""  # No indent for function/location lines
 CODE_INDENT = "  "  # Indent for code in frame
 
 # Regex pattern to strip ANSI escape sequences
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+# Token regex: either a full ANSI escape sequence or any single character.
+_TOKEN_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|.", re.DOTALL)
 
 
 def _display_width(s: str) -> int:
@@ -158,21 +159,41 @@ def tty_traceback(
         except (OSError, ValueError):
             term_width = 80
 
-    output += _print_chronological(chain, term_width, no_inspector)
+        # Very narrow terminals are assumed temporary; honour 40+ deliberately.
+        if term_width < 40:
+            term_width = 80
 
-    # Strip trailing EOL (which ends with LINE_PREFIX for an empty line we don't want)
+    chrono_output, last_banner_start = _print_chronological(
+        chain, term_width, no_inspector
+    )
+    if last_banner_start is not None:
+        last_banner_start += len(output)
+    output += chrono_output
+
+    # Strip trailing empty border.
     eol_suffix = f"\n{LINE_PREFIX}"
     if output.endswith(eol_suffix):
         output = output[: -len(eol_suffix)]
 
-    # Replace the last line prefix with bottom corner and reset to original terminal colors
-    last_prefix_pos = output.rfind(LINE_PREFIX)
-    if last_prefix_pos != -1:
-        output = (
-            output[:last_prefix_pos]
-            + LINE_PREFIX_BOT
-            + output[last_prefix_pos + len(LINE_PREFIX) :]
-        )
+    # Curve the bottom border; for banners, continuation lines hang loose.
+    if last_banner_start is not None:
+        prefix_pos = last_banner_start - len(LINE_PREFIX)
+        if prefix_pos >= 0 and output[prefix_pos:last_banner_start] == LINE_PREFIX:
+            output = output[:prefix_pos] + LINE_PREFIX_BOT + output[last_banner_start:]
+        first_line_end = output.find("\n", last_banner_start)
+        if first_line_end != -1:
+            output = output[:first_line_end] + output[first_line_end:].replace(
+                "\n" + LINE_PREFIX, "\n  "
+            )
+    else:
+        last_prefix_pos = output.rfind(LINE_PREFIX)
+        if last_prefix_pos != -1:
+            output = (
+                output[:last_prefix_pos]
+                + LINE_PREFIX_BOT
+                + output[last_prefix_pos + len(LINE_PREFIX) :]
+            )
+
     output += "\n" + RESET
 
     if no_color:
@@ -267,9 +288,10 @@ def _print_chronological(
     chain: list[dict[str, Any]],
     term_width: int,
     no_inspector: bool = False,
-) -> str:
-    """Print frames in chronological order with exception info after error frames."""
+) -> tuple[str, int | None]:
+    """Print frames in chronological order; returns ``(output, last_banner_start)``."""
     output = ""
+    last_banner_start = None
     chrono_frames = build_chronological_frames(chain)
     if not chrono_frames:
         # No frames, but still show exception banners for any exceptions in chain
@@ -280,8 +302,9 @@ def _print_chronological(
                 "summary": exc.get("summary"),
                 "from": exc.get("from"),
             }
+            last_banner_start = len(output)
             output += _build_exception_banner(exc_info, term_width)
-        return output
+        return output, last_banner_start
 
     # Build frame info list for all chronological frames
     frame_info_list = []
@@ -368,7 +391,7 @@ def _print_chronological(
     # Build final output, inserting exception banners at the right positions
     if all_inspector_lines:
         # Complex case: merge inspectors and banners
-        output += _merge_chrono_output(
+        chrono_output, last_banner_start = _merge_chrono_output(
             output_lines,
             all_inspector_lines,
             all_inspector_min_widths,
@@ -377,6 +400,7 @@ def _print_chronological(
             exception_banners,
             frame_info_list,
         )
+        output += chrono_output
     else:
         # Simpler case: just insert banners
         banner_idx = 0
@@ -386,20 +410,113 @@ def _print_chronological(
             while banner_idx < len(exception_banners):
                 insert_pos, banner = exception_banners[banner_idx]
                 if li + 1 == insert_pos:
+                    last_banner_start = len(output)
                     output += banner
                     banner_idx += 1
                 else:
                     break
         # Any remaining banners (when banner position > last output line)
         for _, banner in exception_banners[banner_idx:]:  # pragma: no cover
+            last_banner_start = len(output)
             output += banner
 
-    return output
+    return output, last_banner_start
+
+
+def _wrap_text(text: str, width: int) -> list[str]:
+    """Wrap *text* so each line fits within *width* terminal columns."""
+    # In contrast to textwrap.wrap(), this function counts emoji etc. display width, ignoring ANSI codes.
+    if not text or width <= 0:
+        return [text]
+
+    lines: list[str] = []
+    line = ""
+    line_width = 0
+
+    for m in re.finditer(r"\s*\S+", text):
+        word = m.group(0).lstrip()
+        word_width = _display_width(word)
+
+        if line_width and line_width + 1 + word_width > width:
+            lines.append(line)
+            line, line_width = "", 0
+
+        if word_width > width:
+            # Hard break an unbreakable word at the display-width boundary.
+            chunk_width = 0
+            chunk_chars: list[str] = []
+            for char in word:
+                char_width = _display_width(char)
+                if chunk_width + char_width > width:
+                    lines.append("".join(chunk_chars))
+                    chunk_chars = []
+                    chunk_width = 0
+                chunk_chars.append(char)
+                chunk_width += char_width
+            line = "".join(chunk_chars)
+            line_width = chunk_width
+        else:
+            if line_width:
+                line += " "
+                line_width += 1
+            line += word
+            line_width += word_width
+
+    if line:
+        lines.append(line)
+
+    return lines or [text]
+
+
+def _truncate_ansi(colored: str, max_width: int) -> str:
+    """Truncate a colored string, appending a dim ellipsis."""
+    ellipsis = f"{RESET}{DIM}…{RESET}"
+    ellipsis_width = _display_width(ellipsis)
+    if max_width <= ellipsis_width:
+        return ellipsis
+    chunk = _wrap_code_line(colored, max_width - ellipsis_width)[0]
+    return chunk + (RESET if not chunk.endswith(RESET) else "") + ellipsis
+
+
+def _wrap_code_line(colored: str, max_width: int) -> list[str]:
+    """Wrap a colored code line, restoring active styles on each continuation."""
+    if not colored or max_width <= 0:
+        return [colored]
+
+    chunks: list[str] = []
+    current: list[str] = []
+    color: list[str] = []
+    width = 0
+
+    for m in _TOKEN_RE.finditer(colored):
+        token = m.group(0)
+        if token.startswith("\x1b"):
+            current.append(token)
+            if token.endswith("m"):
+                params = token[2:-1]
+                for p in params.split(";"):
+                    color = [] if p == "0" else [c for c in color if c != p] + [p]
+            continue
+
+        w = _display_width(token)
+        if width + w > max_width:
+            chunk = "".join(current)
+            if chunks and color:
+                chunk = f"{ESC}{';'.join(color)}m{chunk}"
+            chunks.append(chunk)
+            current, width = [], 0
+        current.append(token)
+        width += w
+
+    chunk = "".join(current)
+    if chunks and color:
+        chunk = f"{ESC}{';'.join(color)}m{chunk}"
+    chunks.append(chunk)
+    return chunks
 
 
 def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
-    """Build exception banner output to show after error frame."""
-    output = ""
+    """Build exception-banner content lines (the formatter adds the border)."""
     exc_type = exc_info.get("type", "Exception")
     summary = exc_info.get("summary", "")
     message = exc_info.get("message", "")
@@ -407,69 +524,53 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
 
     chain_suffix = chainmsg.get(from_type, "")
     type_prefix = f"{exc_type}{chain_suffix}: "
-    type_prefix_len = len(type_prefix)
-    cont_prefix = f"{EXC}{BOX_V}{RESET} "
-    cont_prefix_len = 2
+    type_prefix_colored = f"{EXC}{type_prefix}{RESET}"
+    type_prefix_width = _display_width(type_prefix)
 
-    # Check if the full title fits on one line
-    full_title_len = type_prefix_len + len(summary)
-    if full_title_len <= term_width:
-        output += f"{EXC}{type_prefix}{RESET}{BOLD}{summary}{RESET}{EOL}"
-    elif len(summary) <= term_width - cont_prefix_len:
-        output += f"{EXC}{type_prefix}{RESET}{EOL}"
-        output += f"{cont_prefix}{BOLD}{summary}{RESET}{EOL}"
+    # First banner line pays the border; continuations also pay the half-block.
+    first_line_width = max(1, term_width - _display_width(LINE_PREFIX))
+    cont_width = max(1, term_width - _display_width(LINE_PREFIX) - _display_width("▐ "))
+
+    lines: list[str] = []
+    title_width = type_prefix_width + _display_width(summary)
+
+    if title_width <= first_line_width:
+        lines.append(f"{type_prefix_colored}{BOLD}{summary}{RESET}")
     else:
-        padding = "\x00" * (type_prefix_len - cont_prefix_len)
-        wrapped = textwrap.wrap(
-            padding + summary,
-            width=term_width - cont_prefix_len,
-            break_long_words=False,
-            break_on_hyphens=False,
-        )
-        wrapped[0] = wrapped[0].lstrip("\x00")
-        for i, line in enumerate(wrapped):
-            if i == 0:
-                output += f"{EXC}{type_prefix}{RESET}{BOLD}{line}{RESET}{EOL}"
-            else:
-                output += f"{cont_prefix}{BOLD}{line}{RESET}{EOL}"
+        lines.append(type_prefix_colored)
+        lines.extend(f"{BOLD}{line}{RESET}" for line in _wrap_text(summary, cont_width))
 
     if summary != message:
-        if message.startswith(summary):  # pragma: no cover
-            message = message[len(summary) :].strip("\n")
-        wrap_width = term_width - cont_prefix_len
-        for line in message.split("\n"):
-            if line:
-                wrapped = textwrap.wrap(
-                    line,
-                    width=wrap_width,
-                    break_long_words=False,
-                    break_on_hyphens=False,
-                ) or [line]
-                for wrapped_line in wrapped:
-                    output += f"{cont_prefix}{wrapped_line}{EOL}"
-            else:
-                output += f"{cont_prefix.rstrip()}{EOL}"
+        body = message
+        if summary and body.startswith(summary):
+            body = body[len(summary) :]
+            if body.startswith("\n"):
+                body = body[1:]
+        for para in body.split("\n"):
+            lines.extend(_wrap_text(para, cont_width) if para else [""])
 
-    return output
+    if len(lines) > 100:
+        skipped = len(lines) - 40
+        lines = lines[:20] + [f"{ELLIPSIS}⋮ {skipped} more lines{RESET}"] + lines[-20:]
+
+    if len(lines) > 1:
+        marker = f"{DIM}▐{RESET} "
+        lines[1:] = [marker + line for line in lines[1:]]
+
+    return "".join(line + EOL for line in lines)
 
 
 def _build_subexception_summaries(
     parallel_branches: list[list[dict[str, Any]]], term_width: int
 ) -> str:
-    """Build one-line summaries for each subexception branch.
-
-    For TTY output, we don't have space for full tracebacks, so we show
-    a compact summary: location, function, exception type and message.
-    """
+    """Build one-line summaries for each subexception branch."""
     output = ""
-    prefix = f"{EXC}{BOX_V}{RESET} "
-    prefix_len = 2  # "│ "
+    border_width = _display_width(LINE_PREFIX)  # "│ "
 
     for branch in parallel_branches:
-        # Get the summary for this branch
-        summary = _get_branch_summary(branch, term_width - prefix_len)
-        branch_line = f"{prefix}{summary}"
-        output += f"{branch_line}{EOL}"
+        # Get the summary for this branch, reserving space for the border.
+        summary = _get_branch_summary(branch, term_width - border_width)
+        output += f"{summary}{EOL}"
 
     return output
 
@@ -630,34 +731,31 @@ def _build_chrono_frame_lines(
     loc_pad = " " * (location_width - _display_width(location_part))
     func_pad = " " * (function_width - _display_width(function_part))
     label = f"{location_part}{loc_pad} {function_part}{func_pad}"
-    location_width + 1 + function_width
 
-    lines = []
-
-    if not fragments:
-        # Show "(no source code)" with the symbol emoji like a code line would have
-        symbol = symbols.get(relevance, "")
-        symbol_colored = f"{EM_CALL}{symbol}{RESET}" if symbol else ""
-        line = f"{INDENT}{label} {NO_SOURCE}(no source code){symbol_colored}{RESET}"
-        lines.append((line, _display_width(line), False))
-        return lines
-
-    start = frinfo["linenostart"]
+    start = frinfo.get("linenostart", 1)
     symbol = symbols.get(relevance, "")
     symbol_colored = f"{EM_CALL}{symbol}{RESET}" if symbol else ""
 
     desc = symdesc[relevance]
 
-    # Account for LINE_PREFIX "│ " (2 chars) added to each line
-    margin = 2
+    # Width available for the content after the left border "│ "
+    content_width = max(1, term_width - _display_width(LINE_PREFIX))
+    single_marked = len(info["marked_lines"]) == 1
 
-    if relevance == "call":
+    raw_lines: list[tuple[str, bool, bool]] = []
+    symbol_suffix = f"{symbol_colored}  {SYMBOLDESC}{desc}{RESET}" if symbol else ""
+
+    if not fragments:
+        # Show "(no source code)" with the symbol emoji like a code line would have
+        line = f"{INDENT}{label} {NO_SOURCE}(no source code){symbol_colored}{RESET}"
+        raw_lines.append((line, False, bool(symbol)))
+    elif relevance == "call":
         # One-liner for call frames
         if info["marked_lines"]:
             # Build full code with em parts
             code_parts = []
             # Also track em parts for potential collapsing
-            em_ranges = []  # [(start_idx, end_idx), ...] in plain text
+            em_ranges = []
             em_start = None
             plain_len = 0  # Track position for em_ranges
 
@@ -708,21 +806,14 @@ def _build_chrono_frame_lines(
                     )
 
             line = f"{INDENT}{label} {code_colored}{symbol_colored}"
-            line_width = margin + _display_width(line)
-            lines.append((line, line_width, False))
+            raw_lines.append((line, False, bool(symbol)))
         else:  # pragma: no cover
             line = f"{INDENT}{label} {symbol_colored}"
-            lines.append(
-                (
-                    line,
-                    margin + _display_width(line),
-                    False,
-                )
-            )
+            raw_lines.append((line, False, bool(symbol)))
     else:
         # Full format for error/warning/stop/except frames
         label_line = f"{INDENT}{label}"
-        lines.append((label_line, _display_width(label_line), False))
+        raw_lines.append((label_line, False, False))
 
         marked_line_nums = set()
         for ml in info["marked_lines"]:
@@ -735,13 +826,47 @@ def _build_chrono_frame_lines(
             is_marked = line_num in marked_line_nums
 
             code_colored = "".join(_format_fragment(f) for f in line_fragments)
+            code_part = f"{CODE_INDENT}{code_colored}"
 
             if frame_range and abs_line == frame_range.lfinal and symbol:
-                line = f"{CODE_INDENT}{code_colored} {symbol_colored}  {SYMBOLDESC}{desc}{RESET}"
+                if (
+                    _display_width(code_part) + 1 + _display_width(symbol_suffix)
+                    <= content_width
+                ):
+                    raw_lines.append((f"{code_part} {symbol_suffix}", is_marked, True))
+                else:
+                    raw_lines.append((code_part, is_marked, True))
+                    raw_lines.append((symbol_suffix, False, True))
             else:
-                line = f"{CODE_INDENT}{code_colored}"
+                raw_lines.append((code_part, is_marked, False))
 
-            lines.append((line, _display_width(line), is_marked))
+    lines: list[tuple[str, int, bool]] = []
+    for line, is_marked, has_symbol in raw_lines:
+        width = _display_width(line)
+        if width <= content_width:
+            if is_marked and not line.endswith(RESET):
+                line = line + RESET
+            if (
+                line == symbol_suffix
+                and lines
+                and lines[-1][1] + 1 + width <= content_width
+            ):
+                prev, prev_width, prev_marked = lines[-1]
+                lines[-1] = (f"{prev} {line}", prev_width + 1 + width, prev_marked)
+                continue
+            lines.append((line, width, is_marked))
+            continue
+
+        should_wrap = has_symbol or (is_marked and single_marked)
+        if should_wrap:
+            for chunk in _wrap_code_line(line, content_width):
+                if is_marked and not chunk.endswith(RESET):
+                    chunk = chunk + RESET
+                lines.append((chunk, _display_width(chunk), is_marked))
+        else:
+            lines.append(
+                (_truncate_ansi(line, content_width), content_width, is_marked)
+            )
 
     return lines
 
@@ -889,7 +1014,7 @@ def _merge_chrono_output(
     inspector_frame_indices: list[int],
     exception_banners: list[tuple[int, str]],
     frame_info_list: list[dict[str, Any]],
-) -> str:
+) -> tuple[str, int | None]:
     """Merge chronological output with multiple inspectors and exception banners.
 
     Args:
@@ -905,19 +1030,22 @@ def _merge_chrono_output(
     if not inspector_frame_indices:  # pragma: no cover
         # No inspectors, just output lines and banners
         output = ""
+        last_banner_start: int | None = None
         banner_idx = 0
         for li, (line, _, _, _) in enumerate(output_lines):
             output += f"{line}{EOL}"
             while banner_idx < len(exception_banners):
                 insert_pos, banner = exception_banners[banner_idx]
                 if li + 1 == insert_pos:
+                    last_banner_start = len(output)
                     output += banner
                     banner_idx += 1
                 else:
                     break
         for _, banner in exception_banners[banner_idx:]:
+            last_banner_start = len(output)
             output += banner
-        return output
+        return output, last_banner_start
 
     # Build inspector data: (lines, error_line) for each inspector
     inspector_data = []
@@ -1001,6 +1129,7 @@ def _merge_chrono_output(
 
     # Build output
     output = ""
+    last_banner_start = None
     banner_idx = 0
 
     for li in range(len(output_lines)):
@@ -1081,6 +1210,7 @@ def _merge_chrono_output(
         while banner_idx < len(exception_banners):
             insert_pos, banner = exception_banners[banner_idx]
             if li + 1 == insert_pos:
+                last_banner_start = len(output)
                 output += banner
                 banner_idx += 1
             else:
@@ -1119,9 +1249,10 @@ def _merge_chrono_output(
 
     # Any remaining banners
     for _, banner in exception_banners[banner_idx:]:
+        last_banner_start = len(output)
         output += banner
 
-    return output
+    return output, last_banner_start
 
 
 def _format_fragment(fragment: dict[str, Any]) -> str:

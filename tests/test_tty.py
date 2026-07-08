@@ -25,17 +25,23 @@ from tracerite.tty import (
     EM_CALL,
     FUNC,
     INDENT,
+    LINE_PREFIX,
     LOCFN,
     MARK_BG,
     MARK_TEXT,
     RESET,
     VAR,
+    _build_exception_banner,
     _build_subexception_summaries,
     _build_variable_inspector,
+    _display_width,
     _format_fragment,
     _format_fragment_call,
     _get_branch_summary,
     _get_frame_label,
+    _truncate_ansi,
+    _wrap_code_line,
+    _wrap_text,
     symbols,
     tty_traceback,
 )
@@ -301,6 +307,25 @@ class TestTtyTraceback:
         output.fileno = lambda: 1
         try:
             raise ValueError("test")
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+
+    def test_narrow_terminal_width_fallback_to_80(self, monkeypatch):
+        """Very narrow terminals (<40 cols) are assumed temporary and forced to 80."""
+        import os
+
+        output = io.StringIO()
+        monkeypatch.setattr(
+            os,
+            "get_terminal_size",
+            lambda fd: type("Size", (), {"columns": 20, "lines": 24})(),
+        )
+        output.fileno = lambda: 1
+        try:
+            raise ValueError("narrow terminal test")
         except Exception as e:
             tty_traceback(exc=e, file=output)
 
@@ -2188,6 +2213,145 @@ class TestTtyTracebackEdgeCases:
         assert "ValueError" in result
 
 
+class TestCodeLineWidthAdaptation:
+    """Tests for adapting code lines to narrow terminal widths."""
+
+    def test_long_unmarked_line_truncated(self):
+        """Unmarked code lines are shortened with a trailing dim ellipsis."""
+        from tracerite.tty import _build_chrono_frame_lines
+
+        info = {
+            "location_part": "test.py:1",
+            "function_part": "func:",
+            "fragments": [
+                {"line": 1, "fragments": [{"code": "x = " + "a" * 80}]},
+                {"line": 2, "fragments": [{"code": "y = 1"}]},
+            ],
+            "frame_range": type("Range", (), {"lfirst": 2, "lfinal": 2})(),
+            "relevance": "error",
+            "exc_info": None,
+            "marked_lines": [],
+            "frinfo": {"linenostart": 1},
+        }
+
+        lines = _build_chrono_frame_lines(
+            info, location_width=10, function_width=10, term_width=40
+        )
+        code_line, width, _ = lines[1]
+        plain = ANSI_ESCAPE_RE.sub("", code_line)
+
+        assert plain.endswith("…")
+        assert "\n" not in code_line
+        assert width <= 38
+
+    def test_single_marked_line_wraps(self):
+        """The only marked line in a frame is wrapped and keeps its mark color."""
+        from tracerite.tty import _build_chrono_frame_lines
+
+        code = "y" * 80
+        info = {
+            "location_part": "test.py:1",
+            "function_part": "func:",
+            "fragments": [
+                {
+                    "line": 1,
+                    "fragments": [{"code": "x = "}, {"code": code, "mark": "solo"}],
+                }
+            ],
+            "frame_range": type("Range", (), {"lfirst": 1, "lfinal": 1})(),
+            "relevance": "error",
+            "exc_info": None,
+            "marked_lines": [
+                {"line": 1, "fragments": [{"code": code, "mark": "solo"}]}
+            ],
+            "frinfo": {"linenostart": 1},
+        }
+
+        lines = _build_chrono_frame_lines(
+            info, location_width=10, function_width=10, term_width=40
+        )
+
+        # More than just the label + one code line.
+        assert len(lines) > 2
+        for _line, width, _ in lines[1:]:
+            assert width <= 38
+        # Every wrapped chunk closes the mark before the newline...
+        for line, _, _ in lines[1:]:
+            assert line.endswith(RESET)
+        # ...and a continuation chunk restores the mark background color.
+        assert any("\x1b[103" in line for line, _, _ in lines[2:])
+
+    def test_caret_line_wraps(self):
+        """The line carrying the caret symbol is wrapped."""
+        from tracerite.tty import _build_chrono_frame_lines
+
+        code = "z" * 80
+        info = {
+            "location_part": "test.py:1",
+            "function_part": "func:",
+            "fragments": [
+                {
+                    "line": 1,
+                    "fragments": [{"code": "x = "}, {"code": code, "mark": "solo"}],
+                }
+            ],
+            "frame_range": type("Range", (), {"lfirst": 1, "lfinal": 1})(),
+            "relevance": "error",
+            "exc_info": None,
+            "marked_lines": [
+                {"line": 1, "fragments": [{"code": code, "mark": "solo"}]}
+            ],
+            "frinfo": {"linenostart": 1},
+        }
+
+        lines = _build_chrono_frame_lines(
+            info, location_width=10, function_width=10, term_width=40
+        )
+
+        assert any(symbols["error"] in line for line, _, _ in lines)
+        assert len(lines) > 2
+        # When the last wrapped chunk has room, the symbol stays on that line.
+        symbol_line = next(line for line, _, _ in lines if symbols["error"] in line)
+        assert "z" in symbol_line
+
+    def test_other_marked_lines_shortened(self):
+        """Non-caret marked lines are shortened when there are multiple marks."""
+        from tracerite.tty import _build_chrono_frame_lines
+
+        info = {
+            "location_part": "test.py:1",
+            "function_part": "func:",
+            "fragments": [
+                {
+                    "line": 1,
+                    "fragments": [
+                        {"code": "first_long_line = " + "a" * 80, "mark": "solo"}
+                    ],
+                },
+                {
+                    "line": 2,
+                    "fragments": [{"code": "second = " + "b" * 40, "mark": "solo"}],
+                },
+            ],
+            "frame_range": type("Range", (), {"lfirst": 2, "lfinal": 2})(),
+            "relevance": "error",
+            "exc_info": None,
+            "marked_lines": [{"line": 1}, {"line": 2}],
+            "frinfo": {"linenostart": 1},
+        }
+
+        lines = _build_chrono_frame_lines(
+            info, location_width=10, function_width=10, term_width=40
+        )
+
+        # First marked line is not the caret line, so it is truncated.
+        first_plain = ANSI_ESCAPE_RE.sub("", lines[1][0])
+        assert first_plain.endswith("…")
+        # Second marked line carries the caret and is wrapped.
+        assert any(symbols["error"] in line for line, _, _ in lines)
+        assert len(lines) > 3
+
+
 class TestMergeChronoOutputBranches:
     """Tests for specific branches in _merge_chrono_output."""
 
@@ -2208,7 +2372,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = []
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [20],  # min widths
@@ -2239,7 +2403,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = []
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [20],
@@ -2267,7 +2431,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = []
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [20],
@@ -2295,7 +2459,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = [(100, "BANNER_TEXT")]
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [20],
@@ -2324,7 +2488,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = []
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [20],
@@ -2356,7 +2520,7 @@ class TestMergeChronoOutputBranches:
         exception_banners = []
         frame_info_list = [{"relevance": "error"}]
 
-        result = _merge_chrono_output(
+        result, _ = _merge_chrono_output(
             output_lines,
             [inspector_lines],
             [min_width],
@@ -2689,6 +2853,18 @@ class TestExceptionGroupTTY:
         assert "ValueError" in result
         assert "TypeError" in result
 
+    def test_exception_group_parallel_branches_single_border(self):
+        """Parallel branch summaries must not produce a double left border."""
+        output = io.StringIO()
+        output.isatty = lambda: False
+        try:
+            exception_group_with_frames()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        assert "│ │" not in result_plain
+
 
 class TestLongArgumentsCollapse:
     """Tests for collapsing long em parts in TTY output."""
@@ -2749,6 +2925,306 @@ class TestMultilineExceptionMessage:
         result_plain = ANSI_ESCAPE_RE.sub("", result)
         # Should contain first line
         assert "First line" in result_plain
+
+    def test_multiline_exception_message_no_double_border(self):
+        """Continuation lines must have a single left border, not two."""
+        from tests.errorcases import multiline_exception_message
+
+        output = io.StringIO()
+        try:
+            multiline_exception_message()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        # A double vertical bar with a space in between is the old bug.
+        assert "│ │" not in result_plain
+
+    def test_multiline_exception_message_has_half_block_continuation(self):
+        """Continuation lines of a multi-line message show a dim half block."""
+        from tests.errorcases import multiline_exception_message
+
+        output = io.StringIO()
+        output.isatty = lambda: False
+        try:
+            multiline_exception_message()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        # First line of the last exception gets the bottom corner.
+        assert "╰ ValueError: First line of error" in result_plain
+        # Continuation lines hang with spaces + half block.
+        assert "  ▐ Second line with details" in result_plain
+        assert "  ▐ Third line with more info" in result_plain
+
+    def test_empty_line_exception_message_has_blank_row(self):
+        """An empty line in the message is rendered as a blank banner row."""
+        from tests.errorcases import empty_second_line_exception
+
+        output = io.StringIO()
+        output.isatty = lambda: False
+        try:
+            empty_second_line_exception()
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        lines = [ln.rstrip() for ln in result_plain.splitlines()]
+        # The blank row appears as a hanging continuation marker.
+        assert any("▐" in ln for ln in lines)
+        assert "First line" in result_plain
+        assert "Third line after empty" in result_plain
+
+    def test_long_exception_message_wraps_within_width(self):
+        """Long single-line messages are word-wrapped to the terminal width."""
+        output = io.StringIO()
+        output.isatty = lambda: False
+        long_msg = "xyzzy " * 20
+        try:
+            raise ValueError(long_msg)
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=30)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        banner_lines = []
+        for ln in result_plain.splitlines():
+            if ln.startswith("│ "):
+                content = ln[2:]
+                if content.startswith("ValueError:") or content.startswith("xyzzy"):
+                    banner_lines.append(ln)
+            elif ln.startswith("  ▐ "):
+                content = ln[4:]
+                if content.startswith("xyzzy"):
+                    banner_lines.append(ln)
+        assert len(banner_lines) > 1
+        for line in banner_lines:
+            # Each rendered line must fit inside the requested terminal width.
+            assert len(line) <= 30
+
+    def test_extremely_long_exception_message_wraps_normally(self):
+        """A pathologically long single-line message is wrapped, not shortened."""
+        output = io.StringIO()
+        output.isatty = lambda: False
+        try:
+            raise ValueError("x" * 2000)
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=50)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        banner_lines = [
+            ln for ln in result_plain.splitlines() if "ValueError:" in ln or "▐" in ln
+        ]
+        # The message should wrap to multiple continuation lines.
+        cont_lines = [ln for ln in banner_lines if "▐" in ln]
+        assert len(cont_lines) > 1
+        # No middle ellipsis should appear in the banner itself.
+        assert all("…" not in ln for ln in banner_lines)
+        # All banner-related lines must fit within the requested width.
+        for line in banner_lines:
+            assert len(line) <= 50
+
+    def test_too_many_message_lines_are_middle_truncated(self):
+        """Exception messages with too many hard linefeeds are collapsed."""
+        output = io.StringIO()
+        output.isatty = lambda: False
+        try:
+            raise ValueError("\n".join(f"line {i}" for i in range(120)))
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=80)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        # Should contain the first and last lines but not every middle line.
+        assert "line 0" in result_plain
+        assert "line 119" in result_plain
+        assert "line 30" not in result_plain
+        assert "line 90" not in result_plain
+        # Should report how many lines were skipped, same style as hidden calls.
+        assert "more lines" in result_plain
+
+    def test_first_banner_line_uses_full_terminal_width(self):
+        """The first line of an exception banner fills the terminal width."""
+        output = io.StringIO()
+        try:
+            # Message length chosen empirically so the line exactly fills width 30.
+            raise ValueError("x" * 16)
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=30)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        banner_lines = [
+            ln
+            for ln in result_plain.splitlines()
+            if "ValueError:" in ln and "▐" not in ln
+        ]
+        assert banner_lines
+        # The rendered line (including border/corner) must reach the full width.
+        assert len(banner_lines[0]) == 30
+
+    def test_continuation_line_uses_full_terminal_width(self):
+        """Wrapped message continuation lines also fill the terminal width."""
+        output = io.StringIO()
+        try:
+            # Message length chosen empirically to produce a full-width continuation.
+            raise ValueError("x" * 50)
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=30)
+
+        result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
+        cont_lines = [
+            ln for ln in result_plain.splitlines() if "▐" in ln and ln.strip()
+        ]
+        assert cont_lines
+        # At least one continuation line should reach the full terminal width.
+        assert any(len(ln) == 30 for ln in cont_lines)
+
+
+class TestWrapText:
+    """Tests for the internal _wrap_text helper."""
+
+    def test_wrap_text_empty(self):
+        assert _wrap_text("", 10) == [""]
+
+    def test_wrap_text_short_text(self):
+        assert _wrap_text("short", 10) == ["short"]
+
+    def test_wrap_text_long_text(self):
+        lines = _wrap_text("word " * 10, 20)
+        assert all(_display_width(line) <= 20 for line in lines)
+        # Joining should recover the words (whitespace normalised to single spaces).
+        assert " ".join(lines) == ("word " * 10).strip()
+
+    def test_wrap_text_long_unbroken_text_wraps(self):
+        """Long unbroken text is wrapped rather than shortened."""
+        text = "x" * 200
+        lines = _wrap_text(text, 30)
+        assert "…" not in " ".join(lines)
+        assert all(_display_width(line) <= 30 for line in lines)
+
+    def test_wrap_text_respects_display_width(self):
+        """CJK characters count as two columns, not one."""
+        text = "あいうえお" * 4  # each character is 2 columns
+        lines = _wrap_text(text, 10)
+        assert all(_display_width(line) <= 10 for line in lines)
+        # Each line should hold exactly 5 wide characters.
+        assert all(len(line) == 5 for line in lines)
+
+    def test_wrap_text_hard_breaks_long_word(self):
+        """An unbreakable word longer than the width is split."""
+        lines = _wrap_text("x" * 25, 10)
+        assert lines == ["x" * 10, "x" * 10, "x" * 5]
+
+    def test_wrap_text_mixed_width_hard_break(self):
+        """Hard breaks respect display width, not character count."""
+        # Each CJK char is 2 columns; width 10 fits 5 chars or 2 wide + 1 narrow.
+        lines = _wrap_text("あいうえお" * 2, 10)
+        assert lines == ["あいうえお", "あいうえお"]
+        assert all(_display_width(line) <= 10 for line in lines)
+
+    def test_wrap_text_whitespace_only(self):
+        """Whitespace-only input is returned unchanged."""
+        assert _wrap_text("   ", 10) == ["   "]
+
+
+class TestTTYCoverage:
+    """Edge-case tests that previously lacked coverage."""
+
+    def test_banner_at_start_no_prefix_to_replace(self):
+        """A banner right after the top corner has no preceding border."""
+        output = io.StringIO()
+        tty_traceback(
+            chain=[
+                {
+                    "type": "ValueError",
+                    "summary": "x",
+                    "message": "x",
+                    "from": "none",
+                    "frames": [],
+                }
+            ],
+            file=output,
+            msg="",
+        )
+        assert "ValueError" in output.getvalue()
+
+    def test_wrap_code_line_plain_fits(self):
+        assert _wrap_code_line("hello", 10) == ["hello"]
+
+    def test_wrap_code_line_active_params(self):
+        colored = f"{BOLD}{'x' * 20}"
+        chunks = _wrap_code_line(colored, 8)
+        assert len(chunks) > 1
+        assert chunks[1].startswith(BOLD)
+
+    def test_wrap_code_line_non_sgr_escape(self):
+        colored = "\x1b[Khello"
+        chunks = _wrap_code_line(colored, 10)
+        assert "hello" in ANSI_ESCAPE_RE.sub("", chunks[0])
+
+    def test_wrap_code_line_invalid_escape(self):
+        chunks = _wrap_code_line("\x1bhello", 10)
+        assert len(chunks) == 1
+
+    def test_wrap_code_line_empty(self):
+        assert _wrap_code_line("", 10) == [""]
+
+    def test_wrap_code_line_zero_max_width(self):
+        """Zero max_width should not hang or emit empty chunks."""
+        assert _wrap_code_line("hello", 0) == ["hello"]
+        assert _wrap_code_line(f"{BOLD}hello", 0) == [f"{BOLD}hello"]
+
+    def test_wrap_code_line_restores_cumulative_styles(self):
+        """Continuation lines keep all active SGR attributes, not just the last."""
+        colored = f"{BOLD}{EM}{'x' * 20}"
+        chunks = _wrap_code_line(colored, 8)
+        assert len(chunks) > 1
+        # Second chunk should restore both bold and red.
+        assert chunks[1].startswith(BOLD + EM) or chunks[1].startswith("\x1b[1;31m")
+
+    def test_wrap_code_line_no_escape_only_chunks(self):
+        """Leading escape sequences should not produce zero-width chunks."""
+        chunks = _wrap_code_line(f"{BOLD}{'x' * 4}", 1)
+        assert all(ANSI_ESCAPE_RE.sub("", c) for c in chunks)
+
+    def test_truncate_ansi_too_narrow(self):
+        truncated = _truncate_ansi("hello", 1)
+        assert ANSI_ESCAPE_RE.sub("", truncated).endswith("…")
+
+    def test_build_exception_banner_empty_summary(self):
+        banner = _build_exception_banner(
+            {"type": "ValueError", "summary": "", "message": "body", "from": "none"},
+            term_width=40,
+        )
+        assert "body" in banner
+
+    def test_build_exception_banner_summary_equals_message(self):
+        banner = _build_exception_banner(
+            {
+                "type": "ValueError",
+                "summary": "same",
+                "message": "same",
+                "from": "none",
+            },
+            term_width=40,
+        )
+        assert "same" in banner
+
+    def test_build_exception_banner_summary_prefix_no_newline(self):
+        banner = _build_exception_banner(
+            {
+                "type": "ValueError",
+                "summary": "pre",
+                "message": "pre_suffix",
+                "from": "none",
+            },
+            term_width=40,
+        )
+        assert "_suffix" in banner
+
+    def test_no_banner_bottom_corner_falls_back_to_last_prefix(self):
+        output = io.StringIO()
+        tty_traceback(chain=[], file=output, msg=f"{LINE_PREFIX} hello")
+        assert "╰" in output.getvalue()
 
 
 # Python 3.13+ has linecache._getline_from_code for interactive source retrieval
