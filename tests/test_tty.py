@@ -34,6 +34,7 @@ from tracerite.tty import (
     _build_exception_banner,
     _build_subexception_summaries,
     _build_variable_inspector,
+    _display_width,
     _format_fragment,
     _format_fragment_call,
     _get_branch_summary,
@@ -3089,16 +3090,36 @@ class TestWrapText:
 
     def test_wrap_text_long_text(self):
         lines = _wrap_text("word " * 10, 20)
-        assert all(len(line) <= 20 for line in lines)
-        # textwrap strips trailing whitespace; joining should recover the words.
-        assert " ".join(lines) == ("word " * 10).rstrip()
+        assert all(_display_width(line) <= 20 for line in lines)
+        # Joining should recover the words (whitespace normalised to single spaces).
+        assert " ".join(lines) == ("word " * 10).strip()
 
     def test_wrap_text_long_unbroken_text_wraps(self):
         """Long unbroken text is wrapped rather than shortened."""
         text = "x" * 200
         lines = _wrap_text(text, 30)
         assert "…" not in " ".join(lines)
-        assert all(len(line) <= 30 for line in lines)
+        assert all(_display_width(line) <= 30 for line in lines)
+
+    def test_wrap_text_respects_display_width(self):
+        """CJK characters count as two columns, not one."""
+        text = "あいうえお" * 4  # each character is 2 columns
+        lines = _wrap_text(text, 10)
+        assert all(_display_width(line) <= 10 for line in lines)
+        # Each line should hold exactly 5 wide characters.
+        assert all(len(line) == 5 for line in lines)
+
+    def test_wrap_text_hard_breaks_long_word(self):
+        """An unbreakable word longer than the width is split."""
+        lines = _wrap_text("x" * 25, 10)
+        assert lines == ["x" * 10, "x" * 10, "x" * 5]
+
+    def test_wrap_text_mixed_width_hard_break(self):
+        """Hard breaks respect display width, not character count."""
+        # Each CJK char is 2 columns; width 10 fits 5 chars or 2 wide + 1 narrow.
+        lines = _wrap_text("あいうえお" * 2, 10)
+        assert lines == ["あいうえお", "あいうえお"]
+        assert all(_display_width(line) <= 10 for line in lines)
 
 
 class TestTTYCoverage:

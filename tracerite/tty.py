@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-import textwrap
 import unicodedata
 import warnings
 from pathlib import Path
@@ -426,13 +425,47 @@ def _print_chronological(
 
 def _wrap_text(text: str, width: int) -> list[str]:
     """Wrap *text* so each line fits within *width* terminal columns."""
-    return textwrap.wrap(
-        text,
-        width=width,
-        break_long_words=True,
-        break_on_hyphens=False,
-        replace_whitespace=False,
-    ) or [text]
+    # In contrast to textwrap.wrap(), this function counts emoji etc. display width, ignoring ANSI codes.
+    if not text or width <= 0:
+        return [text]
+
+    lines: list[str] = []
+    line = ""
+    line_width = 0
+
+    for m in re.finditer(r"\s*\S+", text):
+        word = m.group(0).lstrip()
+        word_width = _display_width(word)
+
+        if line_width and line_width + 1 + word_width > width:
+            lines.append(line)
+            line, line_width = "", 0
+
+        if word_width > width:
+            # Hard break an unbreakable word at the display-width boundary.
+            chunk_width = 0
+            chunk_chars: list[str] = []
+            for char in word:
+                char_width = _display_width(char)
+                if chunk_width + char_width > width:
+                    lines.append("".join(chunk_chars))
+                    chunk_chars = []
+                    chunk_width = 0
+                chunk_chars.append(char)
+                chunk_width += char_width
+            line = "".join(chunk_chars)
+            line_width = chunk_width
+        else:
+            if line_width:
+                line += " "
+                line_width += 1
+            line += word
+            line_width += word_width
+
+    if line:
+        lines.append(line)
+
+    return lines or [text]
 
 
 def _truncate_ansi(colored: str, max_width: int) -> str:
