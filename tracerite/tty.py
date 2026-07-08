@@ -90,6 +90,9 @@ CODE_INDENT = "  "  # Indent for code in frame
 # Regex pattern to strip ANSI escape sequences
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
+# Token regex: either a full ANSI escape sequence or any single character.
+_TOKEN_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|.", re.DOTALL)
+
 
 def _display_width(s: str) -> int:
     """Calculate the display width of a string in terminal columns."""
@@ -444,48 +447,37 @@ def _truncate_ansi(colored: str, max_width: int) -> str:
 
 def _wrap_code_line(colored: str, max_width: int) -> list[str]:
     """Wrap a colored code line, restoring active styles on each continuation."""
-    if not colored:
-        return [""]
+    if not colored or max_width <= 0:
+        return [colored]
 
     chunks: list[str] = []
     current: list[str] = []
-    active_params: list[str] = []
+    color: list[str] = []
     width = 0
-    i = 0
-    n = len(colored)
 
-    while i < n:
-        c = colored[i]
-        if c == "\x1b":
-            m = ANSI_ESCAPE_RE.match(colored, i)
-            if m:
-                seq = m.group(0)
-                current.append(seq)
-                if seq.endswith("m"):
-                    params = seq[2:-1]
-                    if params == "0":
-                        active_params = []
-                    else:
-                        active_params.append(params)
-                i += len(seq)
-                continue
+    for m in _TOKEN_RE.finditer(colored):
+        token = m.group(0)
+        if token.startswith("\x1b"):
+            current.append(token)
+            if token.endswith("m"):
+                params = token[2:-1]
+                for p in params.split(";"):
+                    color = [] if p == "0" else [c for c in color if c != p] + [p]
+            continue
 
-        w = _display_width(c)
+        w = _display_width(token)
         if width + w > max_width:
             chunk = "".join(current)
-            if chunks and active_params:
-                chunk = f"{ESC}{';'.join(active_params)}m{chunk}"
+            if chunks and color:
+                chunk = f"{ESC}{';'.join(color)}m{chunk}"
             chunks.append(chunk)
-            current = []
-            width = 0
-
-        current.append(c)
+            current, width = [], 0
+        current.append(token)
         width += w
-        i += 1
 
     chunk = "".join(current)
-    if chunks and active_params:
-        chunk = f"{ESC}{';'.join(active_params)}m{chunk}"
+    if chunks and color:
+        chunk = f"{ESC}{';'.join(color)}m{chunk}"
     chunks.append(chunk)
     return chunks
 

@@ -3143,6 +3143,24 @@ class TestTTYCoverage:
     def test_wrap_code_line_empty(self):
         assert _wrap_code_line("", 10) == [""]
 
+    def test_wrap_code_line_zero_max_width(self):
+        """Zero max_width should not hang or emit empty chunks."""
+        assert _wrap_code_line("hello", 0) == ["hello"]
+        assert _wrap_code_line(f"{BOLD}hello", 0) == [f"{BOLD}hello"]
+
+    def test_wrap_code_line_restores_cumulative_styles(self):
+        """Continuation lines keep all active SGR attributes, not just the last."""
+        colored = f"{BOLD}{EM}{'x' * 20}"
+        chunks = _wrap_code_line(colored, 8)
+        assert len(chunks) > 1
+        # Second chunk should restore both bold and red.
+        assert chunks[1].startswith(BOLD + EM) or chunks[1].startswith("\x1b[1;31m")
+
+    def test_wrap_code_line_no_escape_only_chunks(self):
+        """Leading escape sequences should not produce zero-width chunks."""
+        chunks = _wrap_code_line(f"{BOLD}{'x' * 4}", 1)
+        assert all(ANSI_ESCAPE_RE.sub("", c) for c in chunks)
+
     def test_truncate_ansi_too_narrow(self):
         truncated = _truncate_ansi("hello", 1)
         assert ANSI_ESCAPE_RE.sub("", truncated).endswith("…")
