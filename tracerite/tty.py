@@ -486,6 +486,115 @@ def _dim_ellipsis_bold(line: str) -> str:
     return f"{BOLD}{before}{RESET}{DIM}…{RESET}{BOLD}{after}{RESET}"
 
 
+def _char_display_width(char: str) -> int:
+    """Return the terminal display width of a single character."""
+    return 2 if unicodedata.east_asian_width(char) in "WF" else 1
+
+
+def _truncate_ansi(colored: str, max_width: int) -> str:
+    """Truncate a colored string so it fits within *max_width* columns.
+
+    A dim ellipsis is appended at the end.  ANSI escape sequences are
+    preserved and never counted towards the width.
+    """
+    if max_width < 1:
+        return ""
+
+    ellipsis = f"{RESET}{DIM}…{RESET}"
+    ellipsis_width = _display_width(ellipsis)
+    if max_width <= ellipsis_width:
+        return ellipsis
+
+    result_parts: list[str] = []
+    width = 0
+    i = 0
+    n = len(colored)
+    available = max_width - ellipsis_width
+
+    while i < n:
+        c = colored[i]
+        if c == "\x1b":
+            m = ANSI_ESCAPE_RE.match(colored, i)
+            if m:
+                seq = m.group(0)
+                result_parts.append(seq)
+                i += len(seq)
+                continue
+        w = _char_display_width(c)
+        if width + w > available:
+            break
+        result_parts.append(c)
+        width += w
+        i += 1
+
+    result_parts.append(ellipsis)
+    return "".join(result_parts)
+
+
+def _wrap_ansi(colored: str, max_width: int) -> list[tuple[str, str]]:
+    """Wrap a colored string into chunks that fit within *max_width*.
+
+    Returns a list of ``(chunk, active_codes)`` tuples.  *chunk* is the
+    text/ANSI content for that chunk; *active_codes* is the ANSI SGR
+    sequence that should be emitted before the chunk so that styles
+    (such as the mark background) continue seamlessly on continuation
+    lines.
+    """
+    if not colored:
+        return [("", "")]
+
+    chunks: list[tuple[str, str]] = []
+    current: list[str] = []
+    active_params: list[str] = []
+    pending_active = ""
+    width = 0
+    i = 0
+    n = len(colored)
+
+    while i < n:
+        c = colored[i]
+        if c == "\x1b":
+            m = ANSI_ESCAPE_RE.match(colored, i)
+            if m:
+                seq = m.group(0)
+                current.append(seq)
+                if seq.endswith("m"):
+                    params = seq[2:-1]
+                    if params == "0":
+                        active_params = []
+                    else:
+                        active_params.append(params)
+                i += len(seq)
+                continue
+
+        w = _char_display_width(c)
+        if width + w > max_width:
+            chunks.append(("".join(current), pending_active))
+            pending_active = f"{ESC}{';'.join(active_params)}m" if active_params else ""
+            current = []
+            width = 0
+
+        current.append(c)
+        width += w
+        i += 1
+
+    if current:
+        chunks.append(("".join(current), pending_active))
+
+    return chunks
+
+
+def _wrap_code_line(colored: str, max_width: int) -> list[str]:
+    """Wrap a colored code line, restoring active styles on each continuation."""
+    chunks = _wrap_ansi(colored, max_width)
+    result: list[str] = []
+    for i, (chunk, active) in enumerate(chunks):
+        if i > 0 and active:
+            chunk = active + chunk
+        result.append(chunk)
+    return result
+
+
 # Maximum number of wrapped lines to render for a single exception banner.
 # Messages that produce more wrapped lines are collapsed in the middle, like
 # the "N more calls" ellipsis used for hidden call frames.
@@ -774,26 +883,23 @@ def _build_chrono_frame_lines(
     label = f"{location_part}{loc_pad} {function_part}{func_pad}"
     location_width + 1 + function_width
 
-    lines = []
-
-    if not fragments:
-        # Show "(no source code)" with the symbol emoji like a code line would have
-        symbol = symbols.get(relevance, "")
-        symbol_colored = f"{EM_CALL}{symbol}{RESET}" if symbol else ""
-        line = f"{INDENT}{label} {NO_SOURCE}(no source code){symbol_colored}{RESET}"
-        lines.append((line, _display_width(line), False))
-        return lines
-
-    start = frinfo["linenostart"]
+    start = frinfo.get("linenostart", 1)
     symbol = symbols.get(relevance, "")
     symbol_colored = f"{EM_CALL}{symbol}{RESET}" if symbol else ""
 
     desc = symdesc[relevance]
 
-    # Account for LINE_PREFIX "│ " (2 chars) added to each line
-    margin = 2
+    # Width available for the content after the left border "│ "
+    content_width = max(1, term_width - _display_width(LINE_PREFIX))
+    single_marked = len(info["marked_lines"]) == 1
 
-    if relevance == "call":
+    raw_lines: list[tuple[str, int, bool, bool]] = []
+
+    if not fragments:
+        # Show "(no source code)" with the symbol emoji like a code line would have
+        line = f"{INDENT}{label} {NO_SOURCE}(no source code){symbol_colored}{RESET}"
+        raw_lines.append((line, _display_width(line), False, bool(symbol)))
+    elif relevance == "call":
         # One-liner for call frames
         if info["marked_lines"]:
             # Build full code with em parts
@@ -850,21 +956,14 @@ def _build_chrono_frame_lines(
                     )
 
             line = f"{INDENT}{label} {code_colored}{symbol_colored}"
-            line_width = margin + _display_width(line)
-            lines.append((line, line_width, False))
+            raw_lines.append((line, _display_width(line), False, bool(symbol)))
         else:  # pragma: no cover
             line = f"{INDENT}{label} {symbol_colored}"
-            lines.append(
-                (
-                    line,
-                    margin + _display_width(line),
-                    False,
-                )
-            )
+            raw_lines.append((line, _display_width(line), False, bool(symbol)))
     else:
         # Full format for error/warning/stop/except frames
         label_line = f"{INDENT}{label}"
-        lines.append((label_line, _display_width(label_line), False))
+        raw_lines.append((label_line, _display_width(label_line), False, False))
 
         marked_line_nums = set()
         for ml in info["marked_lines"]:
@@ -877,13 +976,48 @@ def _build_chrono_frame_lines(
             is_marked = line_num in marked_line_nums
 
             code_colored = "".join(_format_fragment(f) for f in line_fragments)
+            code_part = f"{CODE_INDENT}{code_colored}"
 
             if frame_range and abs_line == frame_range.lfinal and symbol:
-                line = f"{CODE_INDENT}{code_colored} {symbol_colored}  {SYMBOLDESC}{desc}{RESET}"
+                # Keep the symbol together with the code when it fits; otherwise
+                # put the explanatory symbol line on its own.
+                suffix = f"{symbol_colored}  {SYMBOLDESC}{desc}{RESET}"
+                if (
+                    _display_width(code_part) + 1 + _display_width(suffix)
+                    <= content_width
+                ):
+                    line = f"{code_part} {suffix}"
+                    raw_lines.append((line, _display_width(line), is_marked, True))
+                else:
+                    # Both parts belong to the caret line and should be
+                    # wrapped rather than truncated with an ellipsis.
+                    raw_lines.append(
+                        (code_part, _display_width(code_part), is_marked, True)
+                    )
+                    raw_lines.append((suffix, _display_width(suffix), False, True))
             else:
-                line = f"{CODE_INDENT}{code_colored}"
+                raw_lines.append(
+                    (code_part, _display_width(code_part), is_marked, False)
+                )
 
-            lines.append((line, _display_width(line), is_marked))
+    # Fit the assembled lines to the terminal width.
+    lines: list[tuple[str, int, bool]] = []
+    for line, width, is_marked, has_symbol in raw_lines:
+        if width <= content_width:
+            lines.append((line, width, is_marked))
+            continue
+
+        # Lines that carry the caret, and the only marked line in a frame,
+        # are wrapped so the important part stays visible.  Everything else
+        # is shortened with a trailing dim ellipsis.
+        should_wrap = has_symbol or (is_marked and single_marked)
+        if should_wrap:
+            for chunk in _wrap_code_line(line, content_width):
+                lines.append((chunk, _display_width(chunk), is_marked))
+        else:
+            lines.append(
+                (_truncate_ansi(line, content_width), content_width, is_marked)
+            )
 
     return lines
 

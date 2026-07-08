@@ -2208,6 +2208,144 @@ class TestTtyTracebackEdgeCases:
         assert "ValueError" in result
 
 
+class TestCodeLineWidthAdaptation:
+    """Tests for adapting code lines to narrow terminal widths."""
+
+    def test_long_unmarked_line_truncated(self):
+        """Unmarked code lines are shortened with a trailing dim ellipsis."""
+        from tracerite.tty import _build_chrono_frame_lines
+
+        info = {
+            "location_part": "test.py:1",
+            "function_part": "func:",
+            "fragments": [
+                {"line": 1, "fragments": [{"code": "x = " + "a" * 80}]},
+                {"line": 2, "fragments": [{"code": "y = 1"}]},
+            ],
+            "frame_range": type("Range", (), {"lfirst": 2, "lfinal": 2})(),
+            "relevance": "error",
+            "exc_info": None,
+            "marked_lines": [],
+            "frinfo": {"linenostart": 1},
+        }
+
+        lines = _build_chrono_frame_lines(
+            info, location_width=10, function_width=10, term_width=40
+        )
+        code_line, width, _ = lines[1]
+        plain = ANSI_ESCAPE_RE.sub("", code_line)
+
+        assert plain.endswith("…")
+        assert "\n" not in code_line
+        assert width <= 38
+
+    def test_single_marked_line_wraps(self):
+        """The only marked line in a frame is wrapped and keeps its mark color."""
+        from tracerite.tty import _build_chrono_frame_lines
+
+        code = "y" * 80
+        info = {
+            "location_part": "test.py:1",
+            "function_part": "func:",
+            "fragments": [
+                {
+                    "line": 1,
+                    "fragments": [{"code": "x = "}, {"code": code, "mark": "solo"}],
+                }
+            ],
+            "frame_range": type("Range", (), {"lfirst": 1, "lfinal": 1})(),
+            "relevance": "error",
+            "exc_info": None,
+            "marked_lines": [
+                {"line": 1, "fragments": [{"code": code, "mark": "solo"}]}
+            ],
+            "frinfo": {"linenostart": 1},
+        }
+
+        lines = _build_chrono_frame_lines(
+            info, location_width=10, function_width=10, term_width=40
+        )
+
+        # More than just the label + one code line.
+        assert len(lines) > 2
+        for _line, width, _ in lines[1:]:
+            assert width <= 38
+        # A continuation chunk restores the mark background color.
+        assert any("\x1b[103" in line for line, _, _ in lines[2:])
+
+    def test_caret_line_wraps(self):
+        """The line carrying the caret symbol is wrapped."""
+        from tracerite.tty import _build_chrono_frame_lines
+
+        code = "z" * 80
+        info = {
+            "location_part": "test.py:1",
+            "function_part": "func:",
+            "fragments": [
+                {
+                    "line": 1,
+                    "fragments": [{"code": "x = "}, {"code": code, "mark": "solo"}],
+                }
+            ],
+            "frame_range": type("Range", (), {"lfirst": 1, "lfinal": 1})(),
+            "relevance": "error",
+            "exc_info": None,
+            "marked_lines": [
+                {"line": 1, "fragments": [{"code": code, "mark": "solo"}]}
+            ],
+            "frinfo": {"linenostart": 1},
+        }
+
+        lines = _build_chrono_frame_lines(
+            info, location_width=10, function_width=10, term_width=40
+        )
+
+        assert any(symbols["error"] in line for line, _, _ in lines)
+        assert len(lines) > 2
+        # The symbol is moved to its own line when it does not fit.
+        assert any(
+            ANSI_ESCAPE_RE.sub("", line).strip() == symbols["error"]
+            for line, _, _ in lines
+        )
+
+    def test_other_marked_lines_shortened(self):
+        """Non-caret marked lines are shortened when there are multiple marks."""
+        from tracerite.tty import _build_chrono_frame_lines
+
+        info = {
+            "location_part": "test.py:1",
+            "function_part": "func:",
+            "fragments": [
+                {
+                    "line": 1,
+                    "fragments": [
+                        {"code": "first_long_line = " + "a" * 80, "mark": "solo"}
+                    ],
+                },
+                {
+                    "line": 2,
+                    "fragments": [{"code": "second = " + "b" * 40, "mark": "solo"}],
+                },
+            ],
+            "frame_range": type("Range", (), {"lfirst": 2, "lfinal": 2})(),
+            "relevance": "error",
+            "exc_info": None,
+            "marked_lines": [{"line": 1}, {"line": 2}],
+            "frinfo": {"linenostart": 1},
+        }
+
+        lines = _build_chrono_frame_lines(
+            info, location_width=10, function_width=10, term_width=40
+        )
+
+        # First marked line is not the caret line, so it is truncated.
+        first_plain = ANSI_ESCAPE_RE.sub("", lines[1][0])
+        assert first_plain.endswith("…")
+        # Second marked line carries the caret and is wrapped.
+        assert any(symbols["error"] in line for line, _, _ in lines)
+        assert len(lines) > 3
+
+
 class TestMergeChronoOutputBranches:
     """Tests for specific branches in _merge_chrono_output."""
 
