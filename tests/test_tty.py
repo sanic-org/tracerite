@@ -2997,8 +2997,8 @@ class TestMultilineExceptionMessage:
             # Each rendered line must fit inside the requested terminal width.
             assert len(line) <= 30
 
-    def test_extremely_long_exception_message_is_middle_truncated(self):
-        """Pathologically long single-line messages are cut in the middle."""
+    def test_extremely_long_exception_message_wraps_normally(self):
+        """A pathologically long single-line message is wrapped, not shortened."""
         output = io.StringIO()
         output.isatty = lambda: False
         try:
@@ -3007,9 +3007,17 @@ class TestMultilineExceptionMessage:
             tty_traceback(exc=e, file=output, term_width=50)
 
         result_plain = ANSI_ESCAPE_RE.sub("", output.getvalue())
-        assert "…" in result_plain
-        # Should not expand into dozens of wrapped lines.
-        assert result_plain.count("\n") < 20
+        banner_lines = [
+            ln for ln in result_plain.splitlines() if "ValueError:" in ln or "▐" in ln
+        ]
+        # The message should wrap to multiple continuation lines.
+        cont_lines = [ln for ln in banner_lines if "▐" in ln]
+        assert len(cont_lines) > 1
+        # No middle ellipsis should appear in the banner itself.
+        assert all("…" not in ln for ln in banner_lines)
+        # All banner-related lines must fit within the requested width.
+        for line in banner_lines:
+            assert len(line) <= 50
 
     def test_too_many_message_lines_are_middle_truncated(self):
         """Exception messages with too many hard linefeeds are collapsed."""
