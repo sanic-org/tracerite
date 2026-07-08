@@ -2270,7 +2270,10 @@ class TestCodeLineWidthAdaptation:
         assert len(lines) > 2
         for _line, width, _ in lines[1:]:
             assert width <= 38
-        # A continuation chunk restores the mark background color.
+        # Every wrapped chunk closes the mark before the newline...
+        for line, _, _ in lines[1:]:
+            assert line.endswith(RESET)
+        # ...and a continuation chunk restores the mark background color.
         assert any("\x1b[103" in line for line, _, _ in lines[2:])
 
     def test_caret_line_wraps(self):
@@ -2302,11 +2305,9 @@ class TestCodeLineWidthAdaptation:
 
         assert any(symbols["error"] in line for line, _, _ in lines)
         assert len(lines) > 2
-        # The symbol is moved to its own line when it does not fit.
-        assert any(
-            ANSI_ESCAPE_RE.sub("", line).strip() == symbols["error"]
-            for line, _, _ in lines
-        )
+        # When the last wrapped chunk has room, the symbol stays on that line.
+        symbol_line = next(line for line, _, _ in lines if symbols["error"] in line)
+        assert "z" in symbol_line
 
     def test_other_marked_lines_shortened(self):
         """Non-caret marked lines are shortened when there are multiple marks."""

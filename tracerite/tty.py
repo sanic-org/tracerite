@@ -939,6 +939,7 @@ def _build_chrono_frame_lines(
     single_marked = len(info["marked_lines"]) == 1
 
     raw_lines: list[tuple[str, int, bool, bool]] = []
+    suffix_texts: set[str] = set()
 
     if not fragments:
         # Show "(no source code)" with the symbol emoji like a code line would have
@@ -1040,6 +1041,7 @@ def _build_chrono_frame_lines(
                         (code_part, _display_width(code_part), is_marked, True)
                     )
                     raw_lines.append((suffix, _display_width(suffix), False, True))
+                    suffix_texts.add(suffix)
             else:
                 raw_lines.append(
                     (code_part, _display_width(code_part), is_marked, False)
@@ -1049,7 +1051,23 @@ def _build_chrono_frame_lines(
     lines: list[tuple[str, int, bool]] = []
     for line, width, is_marked, has_symbol in raw_lines:
         if width <= content_width:
-            lines.append((line, width, is_marked))
+            # Always close a marked line before the newline so the background
+            # does not bleed into the left border of the next row.
+            if is_marked and not line.endswith(RESET):
+                line = line + RESET
+
+            # If this is a suffix line and the previous line has room, put it
+            # on the same line as the wrapped code instead of a new row.
+            if (
+                line in suffix_texts
+                and lines
+                and lines[-1][1] + 1 + width <= content_width
+            ):
+                prev, prev_width, prev_marked = lines[-1]
+                lines[-1] = (f"{prev} {line}", prev_width + 1 + width, prev_marked)
+                continue
+
+            lines.append((line, _display_width(line), is_marked))
             continue
 
         # Lines that carry the caret, and the only marked line in a frame,
@@ -1058,6 +1076,10 @@ def _build_chrono_frame_lines(
         should_wrap = has_symbol or (is_marked and single_marked)
         if should_wrap:
             for chunk in _wrap_code_line(line, content_width):
+                # Each wrapped chunk of a marked line is closed before the
+                # newline; the next chunk re-opens the active style.
+                if is_marked and not chunk.endswith(RESET):
+                    chunk = chunk + RESET
                 lines.append((chunk, _display_width(chunk), is_marked))
         else:
             lines.append(
