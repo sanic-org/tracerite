@@ -483,12 +483,10 @@ def _wrap_code_line(colored: str, max_width: int) -> list[str]:
         width += w
         i += 1
 
-    if current:
-        chunk = "".join(current)
-        if chunks and active_params:
-            chunk = f"{ESC}{';'.join(active_params)}m{chunk}"
-        chunks.append(chunk)
-
+    chunk = "".join(current)
+    if chunks and active_params:
+        chunk = f"{ESC}{';'.join(active_params)}m{chunk}"
+    chunks.append(chunk)
     return chunks
 
 

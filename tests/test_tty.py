@@ -25,17 +25,21 @@ from tracerite.tty import (
     EM_CALL,
     FUNC,
     INDENT,
+    LINE_PREFIX,
     LOCFN,
     MARK_BG,
     MARK_TEXT,
     RESET,
     VAR,
+    _build_exception_banner,
     _build_subexception_summaries,
     _build_variable_inspector,
     _format_fragment,
     _format_fragment_call,
     _get_branch_summary,
     _get_frame_label,
+    _truncate_ansi,
+    _wrap_code_line,
     _wrap_text,
     symbols,
     tty_traceback,
@@ -3095,6 +3099,89 @@ class TestWrapText:
         lines = _wrap_text(text, 30)
         assert "…" not in " ".join(lines)
         assert all(len(line) <= 30 for line in lines)
+
+
+class TestTTYCoverage:
+    """Edge-case tests that previously lacked coverage."""
+
+    def test_banner_at_start_no_prefix_to_replace(self):
+        """A banner right after the top corner has no preceding border."""
+        output = io.StringIO()
+        tty_traceback(
+            chain=[
+                {
+                    "type": "ValueError",
+                    "summary": "x",
+                    "message": "x",
+                    "from": "none",
+                    "frames": [],
+                }
+            ],
+            file=output,
+            msg="",
+        )
+        assert "ValueError" in output.getvalue()
+
+    def test_wrap_code_line_plain_fits(self):
+        assert _wrap_code_line("hello", 10) == ["hello"]
+
+    def test_wrap_code_line_active_params(self):
+        colored = f"{BOLD}{'x' * 20}"
+        chunks = _wrap_code_line(colored, 8)
+        assert len(chunks) > 1
+        assert chunks[1].startswith(BOLD)
+
+    def test_wrap_code_line_non_sgr_escape(self):
+        colored = "\x1b[Khello"
+        chunks = _wrap_code_line(colored, 10)
+        assert "hello" in ANSI_ESCAPE_RE.sub("", chunks[0])
+
+    def test_wrap_code_line_invalid_escape(self):
+        chunks = _wrap_code_line("\x1bhello", 10)
+        assert len(chunks) == 1
+
+    def test_wrap_code_line_empty(self):
+        assert _wrap_code_line("", 10) == [""]
+
+    def test_truncate_ansi_too_narrow(self):
+        truncated = _truncate_ansi("hello", 1)
+        assert ANSI_ESCAPE_RE.sub("", truncated).endswith("…")
+
+    def test_build_exception_banner_empty_summary(self):
+        banner = _build_exception_banner(
+            {"type": "ValueError", "summary": "", "message": "body", "from": "none"},
+            term_width=40,
+        )
+        assert "body" in banner
+
+    def test_build_exception_banner_summary_equals_message(self):
+        banner = _build_exception_banner(
+            {
+                "type": "ValueError",
+                "summary": "same",
+                "message": "same",
+                "from": "none",
+            },
+            term_width=40,
+        )
+        assert "same" in banner
+
+    def test_build_exception_banner_summary_prefix_no_newline(self):
+        banner = _build_exception_banner(
+            {
+                "type": "ValueError",
+                "summary": "pre",
+                "message": "pre_suffix",
+                "from": "none",
+            },
+            term_width=40,
+        )
+        assert "_suffix" in banner
+
+    def test_no_banner_bottom_corner_falls_back_to_last_prefix(self):
+        output = io.StringIO()
+        tty_traceback(chain=[], file=output, msg=f"{LINE_PREFIX} hello")
+        assert "╰" in output.getvalue()
 
 
 # Python 3.13+ has linecache._getline_from_code for interactive source retrieval
