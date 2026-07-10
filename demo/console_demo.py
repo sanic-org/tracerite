@@ -87,11 +87,12 @@ def demo_string_concat() -> None:
 
 
 def demo_concurrent_failures() -> None:
-    """Multiple concurrent failures propagated through asyncio.run and wrapped."""
+    """Concurrent failures reported as a generic application crash."""
     try:
         asyncio.run(async_tasks.run_concurrent_tasks())
-    except ExceptionGroup as eg:
-        raise RuntimeError("Concurrent tasks failed") from eg
+    except Exception as e:
+        msg = "Application crashed inside asyncio.run()"
+        raise RuntimeError(msg) from e
 
 
 SCENARIOS = [
@@ -116,6 +117,7 @@ def run_scenario(title: str, func: object) -> None:
     print("\n" + "=" * 60, file=sys.stderr)
     print(f"Scenario: {title}", file=sys.stderr)
     print("=" * 60, file=sys.stderr)
+    __tracebackhide__ = True
     try:
         func()  # type: ignore[operator]
     except Exception:

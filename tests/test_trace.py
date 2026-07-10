@@ -1329,3 +1329,33 @@ def test_exc_message_variable_suppressed_in_raising_frame():
         frame = chain[0]["frames"][-1]
         var_names = {v.name for v in frame["variables"]}
         assert "msg" not in var_names
+
+
+def test_re_raise_in_same_function_has_distinct_frames():
+    """A re-raise inside the same function must not clobber the earlier frame."""
+
+    def _inner():
+        raise ValueError("original")
+
+    def _outer():
+        try:
+            _inner()
+        except ValueError as e:
+            # Re-raise the caught exception explicitly so a new frame is added.
+            raise e
+
+    try:
+        _outer()
+    except ValueError as e:
+        chain = extract_chain(e)
+        frames = chain[0]["frames"]
+        outer_frames = [fr for fr in frames if fr.get("function") == "_outer"]
+        # One frame at the _inner() call and one at the explicit ``raise e``.
+        assert len(outer_frames) == 2
+        codelines = {fr.get("codeline") for fr in outer_frames}
+        assert "_inner()" in codelines
+        assert "raise e" in codelines
+        # lineno and cursor_line must differ; before the fix both pointed at the
+        # same line because the frame object was used as a dictionary key.
+        assert len({fr["lineno"] for fr in outer_frames}) == 2
+        assert len({fr["cursor_line"] for fr in outer_frames}) == 2

@@ -865,24 +865,24 @@ class TestApplyBaseExceptionSuppression:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        # Should only have frames up to bug frame
-        assert len(result) == 2
-        # Last frame should have exception transferred
+        # Bug frame plus the final error frame are kept; the library call is suppressed
+        assert len(result) == 3
+        # The error frame keeps its own exception banner
         assert result[-1].get("exception") == {"type": "KeyboardInterrupt"}
-        # Relevance should be changed to "stop"
-        assert result[-1]["relevance"] == "stop"
+        # Bug frame relevance should be changed to "stop"
+        assert result[1]["relevance"] == "stop"
 
     def test_suppression_transfers_parallel(self):
         """Test that parallel branches are transferred during suppression."""
         chronological = [
             {"lineno": 1, "relevance": "warning"},  # Bug frame
-            {"lineno": 2, "relevance": "error", "parallel": [["branch1"]]},
+            {"lineno": 2, "relevance": "stop", "parallel": [["branch1"]]},
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
+        # The library stop frame is suppressed; its parallel moves to the bug frame
         assert len(result) == 1
-        # Parallel should be transferred
-        assert result[-1].get("parallel") == [["branch1"]]
+        assert result[0].get("parallel") == [["branch1"]]
 
     def test_suppression_no_bug_frame(self):
         """Test suppression when no bug frame exists."""
@@ -1022,8 +1022,12 @@ class TestSuppressionRelevanceChange:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        # Last frame should have relevance changed from warning to stop
-        assert result[-1]["relevance"] == "stop"
+        # Bug frame is followed by the kept error frame
+        assert len(result) == 2
+        # Bug frame relevance should be changed to "stop"
+        assert result[0]["relevance"] == "stop"
+        # The error frame keeps its own banner
+        assert result[-1].get("exception") == {"type": "KeyboardInterrupt"}
 
     def test_suppression_keeps_error_relevance(self):
         """Test that relevance='error' is not changed during suppression."""
@@ -1037,10 +1041,13 @@ class TestSuppressionRelevanceChange:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        # Only one frame returned (bug frame), and it should have the exception
-        assert len(result) == 1
+        # Both the bug frame and the error frame are kept
+        assert len(result) == 2
+        # The error frame keeps its exception and relevance
         assert result[-1].get("exception") == {"type": "KeyboardInterrupt"}
-        assert result[-1]["relevance"] == "stop"
+        assert result[-1]["relevance"] == "error"
+        # Bug frame's relevance becomes "stop"
+        assert result[0]["relevance"] == "stop"
 
     def test_suppression_does_not_change_error_relevance(self):
         """Test suppression with relevance='error' at bug frame (from edge case)."""
@@ -1052,9 +1059,11 @@ class TestSuppressionRelevanceChange:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        assert len(result) == 1
+        assert len(result) == 2
         # Bug frame's "warning" relevance gets changed to "stop"
-        assert result[-1]["relevance"] == "stop"
+        assert result[0]["relevance"] == "stop"
+        # Error frame keeps its exception
+        assert result[-1].get("exception") == {"type": "Error"}
 
     def test_suppression_not_change_except_relevance(self):
         """Test that relevance='except' on non-bug frame is preserved before suppression."""
@@ -1065,12 +1074,14 @@ class TestSuppressionRelevanceChange:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        # Frames up to and including bug frame are kept
-        assert len(result) == 2
+        # All three frames are kept
+        assert len(result) == 3
         # First frame keeps "except" relevance
         assert result[0]["relevance"] == "except"
-        # Bug frame (last) changes to "stop"
-        assert result[-1]["relevance"] == "stop"
+        # Bug frame changes to "stop"
+        assert result[1]["relevance"] == "stop"
+        # Error frame keeps its exception
+        assert result[-1].get("exception") == {"type": "Error"}
 
     def test_suppression_with_existing_parallel(self):
         """Test that existing parallel is not overwritten during suppression."""
@@ -1088,6 +1099,9 @@ class TestSuppressionRelevanceChange:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        assert len(result) == 1
-        # Existing parallel should not be overwritten
-        assert result[-1]["parallel"] == [["existing"]]
+        # Error frames are kept, so both frames remain
+        assert len(result) == 2
+        # Existing parallel on the bug frame should not be overwritten
+        assert result[0]["parallel"] == [["existing"]]
+        # The error frame keeps its own parallel
+        assert result[-1]["parallel"] == [["suppressed"]]

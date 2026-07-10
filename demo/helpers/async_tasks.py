@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from . import calc, data
 
@@ -26,8 +27,12 @@ async def _crash_after_calc() -> None:
 
 
 async def run_concurrent_tasks() -> None:
-    """Run several tasks concurrently; failures surface as an ExceptionGroup."""
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(_fail_soon("service A"))
-        tg.create_task(_crash_after_load())
-        tg.create_task(_crash_after_calc())
+    """Run several tasks concurrently; consume one sub-exception with ``except*``."""
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(_fail_soon("service A"))
+            tg.create_task(_crash_after_load())
+            tg.create_task(_crash_after_calc())
+    except* json.JSONDecodeError:
+        # Consume the JSON decode error; the remaining sub-exceptions propagate.
+        pass
