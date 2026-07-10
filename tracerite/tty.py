@@ -59,8 +59,8 @@ LINE_PREFIX = f"{DIM}│{RESET} "  # Dim vertical line prefix for middle lines
 LINE_PREFIX_BOT = f"{DIM}╰{RESET} "  # Dim rounded bottom-left corner for last line
 EOL = f"\n{LINE_PREFIX}"  # End of line: newline, add prefix
 MARK_BG = f"{ESC}103m"  # Bright yellow background
-MARK_TEXT = f"{ESC}30m"
-EM = f"{ESC}31m"
+MARK_TEXT = f"{ESC}22;24;30m"  # Black text, no bold/underline
+EM = f"{ESC}1;4:3;91m"  # Bold, wavy underline, bright red
 LOCFN = f"{ESC}32m"
 EM_CALL = f"{ESC}93m"  # Bright yellow
 EXC = f"{ESC}90m"  # Dark grey for exception text
@@ -87,10 +87,10 @@ INDENT = ""  # No indent for function/location lines
 CODE_INDENT = "  "  # Indent for code in frame
 
 # Regex pattern to strip ANSI escape sequences
-ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;:]*[A-Za-z]")
 
 # Token regex: either a full ANSI escape sequence or any single character.
-_TOKEN_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|.", re.DOTALL)
+_TOKEN_RE = re.compile(r"\x1b\[[0-9;:]*[A-Za-z]|.", re.DOTALL)
 
 
 def _display_width(s: str) -> int:
