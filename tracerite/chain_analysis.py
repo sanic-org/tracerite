@@ -535,9 +535,10 @@ def _apply_base_exception_suppression(
     if not chronological or not chain:
         return chronological
 
-    # Check if any exception in the chain has suppress_inner=True
-    # (This is set for BaseExceptions like KeyboardInterrupt, SystemExit)
-    has_suppress = any(exc.get("suppress_inner") for exc in chain)
+    # Suppression is only meant for the actually-uncaught exception. If the
+    # outermost exception is a regular Exception, keep its frames even when an
+    # inner BaseException or ExceptionGroup was the proximate cause.
+    has_suppress = chain[-1].get("suppress_inner") if chain else False
     if not has_suppress:
         return chronological
 

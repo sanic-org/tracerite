@@ -566,11 +566,14 @@ def _build_subexception_summaries(
     """Build one-line summaries for each subexception branch."""
     output = ""
     border_width = _display_width(LINE_PREFIX)  # "│ "
+    marker = f"{DIM}▐{RESET} "
+    marker_width = _display_width(marker)
 
     for branch in parallel_branches:
-        # Get the summary for this branch, reserving space for the border.
-        summary = _get_branch_summary(branch, term_width - border_width)
-        output += f"{summary}{EOL}"
+        # Get the summary for this branch, reserving space for the border and
+        # the half-block prefix that visually groups it under the parent.
+        summary = _get_branch_summary(branch, term_width - border_width - marker_width)
+        output += f"{marker}{summary}{EOL}"
 
     return output
 
