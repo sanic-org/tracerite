@@ -1009,6 +1009,42 @@ def _compute_inspector_positions(
     return positions, total_extra
 
 
+def _truncate_inspector_line(
+    insp_line: str, insp_width: int, value_start: int, available_for_content: int
+) -> str:
+    """Truncate an inspector line to fit the space available at render time.
+
+    The prefix (variable name/type/alignment) is preserved with its existing
+    colouring; only the value portion is shortened, and a dim ellipsis is
+    appended when truncation occurs.
+    """
+    if insp_width <= available_for_content or available_for_content <= 0:
+        return insp_line
+
+    available_for_value = available_for_content - value_start
+    if available_for_value <= 1:
+        return f"{DIM}…{RESET}"
+
+    # Find the byte index in the coloured string that corresponds to
+    # ``value_start`` characters of plain text, so we can keep the prefix
+    # colouring intact.
+    plain_idx = 0
+    colored_idx = 0
+    while plain_idx < value_start and colored_idx < len(insp_line):
+        if insp_line[colored_idx] == "\x1b":
+            while colored_idx < len(insp_line) and insp_line[colored_idx] != "m":
+                colored_idx += 1
+            colored_idx += 1  # skip the 'm'
+        else:
+            plain_idx += 1
+            colored_idx += 1
+
+    prefix_colored = insp_line[:colored_idx]
+    value_plain = ANSI_ESCAPE_RE.sub("", insp_line)[value_start:]
+    truncated_value = value_plain[: available_for_value - 1]
+    return f"{prefix_colored}{VAR}{truncated_value}{DIM}…{RESET}"
+
+
 def _merge_chrono_output(
     output_lines: list[tuple[str, int, int, bool]],
     all_inspector_lines: list[InspectorLines],
@@ -1099,7 +1135,9 @@ def _merge_chrono_output(
         elif arrow_line >= inspector_height:  # pragma: no cover
             arrow_line = inspector_height - 1
 
-        # Calculate column position for this inspector
+        # Calculate column position for this inspector. Use the frame width as
+        # the starting point, but cap it so the inspector always has a usable
+        # amount of space (at least a third of the terminal, or 20 columns).
         max_line_len = 0
         for li in range(  # pragma: no cover
             inspector_start, min(inspector_start + inspector_height, len(output_lines))
@@ -1107,7 +1145,12 @@ def _merge_chrono_output(
             if li < len(output_lines):
                 max_line_len = max(max_line_len, output_lines[li][1])
 
-        inspector_col = max_line_len + 2
+        min_content_width = max(20, term_width // 3)
+        max_inspector_col = max(
+            _display_width(LINE_PREFIX) + 2,
+            term_width - min_content_width - 4,
+        )
+        inspector_col = min(max_line_len + 2, max_inspector_col)
 
         # Calculate available space - inspector must not overlap with code
         # Available = term_width - inspector_col - 4 (for box/arrow chars)
@@ -1150,42 +1193,14 @@ def _merge_chrono_output(
             is_last = insp_line_idx == inspector_height - 1
             is_arrow = insp_line_idx == arrow_line
 
-            # Truncate inspector content if it exceeds available width
-            # Only truncate the value portion, preserving name/type coloring
+            # Truncate inspector content to the width actually available now
+            # that the inspector column is known.
             available_for_content = (
-                term_width - inspector_col - 5
-            )  # 5 = box chars + space
-            if insp_width > available_for_content > 0:
-                # Get plain text to find where to truncate
-                insp_plain = ANSI_ESCAPE_RE.sub("", insp_line)
-                # Available space for value = total available - prefix
-                available_for_value = available_for_content - value_start
-                if available_for_value > 1:
-                    # Truncate value only, keep prefix with its coloring
-                    # Find the ANSI position corresponding to value_start in plain text
-                    # by scanning the colored string
-                    plain_idx = 0
-                    colored_idx = 0
-                    while plain_idx < value_start and colored_idx < len(insp_line):
-                        if insp_line[colored_idx] == "\x1b":
-                            # Skip ANSI sequence
-                            while (
-                                colored_idx < len(insp_line)
-                                and insp_line[colored_idx] != "m"
-                            ):
-                                colored_idx += 1
-                            colored_idx += 1  # skip the 'm'
-                        else:
-                            plain_idx += 1
-                            colored_idx += 1
-                    # colored_idx is now at the start of the value in the colored string
-                    prefix_colored = insp_line[:colored_idx]
-                    value_plain = insp_plain[value_start:]
-                    truncated_value = value_plain[: available_for_value - 1] + "…"
-                    insp_line = f"{prefix_colored}{VAR}{truncated_value}{RESET}"
-                elif available_for_content > 0:  # pragma: no cover
-                    # Not enough space, just show ellipsis
-                    insp_line = f"{VAR}…{RESET}"
+                term_width - inspector_col - 4
+            )  # 4 = box chars + space
+            insp_line = _truncate_inspector_line(
+                insp_line, insp_width, value_start, available_for_content
+            )
 
             if is_arrow:
                 if is_first and is_last:
@@ -1209,6 +1224,43 @@ def _merge_chrono_output(
         else:
             output += f"{line}{EOL}"
 
+        # Emit any inspector lines that extend past this frame before inserting
+        # exception banners. The previous line's EOL already provides the box
+        # border, so we only need to position the inspector content.
+        for insp_idx, frame_idx in enumerate(inspector_frame_indices):
+            frame_start, frame_end = _find_frame_line_range(output_lines, frame_idx)
+            if li == frame_end:
+                inspector_start = positions[insp_idx]
+                inspector_height = len(all_inspector_lines[insp_idx])
+                inspector_end = inspector_start + inspector_height
+
+                for extra_li in range(li + 1, inspector_end):
+                    if extra_li not in inspector_at:
+                        continue
+                    _, insp_line_idx, arrow_line, inspector_col = inspector_at[extra_li]
+                    insp_lines = all_inspector_lines[insp_idx]
+                    insp_line, insp_width, value_start = insp_lines[insp_line_idx]
+
+                    available_for_content = (
+                        term_width - inspector_col - 4
+                    )  # 4 = box chars + space
+                    insp_line = _truncate_inspector_line(
+                        insp_line, insp_width, value_start, available_for_content
+                    )
+
+                    cursor_pos = f"{ESC}{inspector_col + 1}G"
+                    is_last = insp_line_idx == len(insp_lines) - 1
+                    is_arrow = insp_line_idx == arrow_line
+
+                    if is_arrow:
+                        box_char = BOX_BR if is_last else BOX_VL
+                        output += f"{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RESET} {insp_line}{EOL}"
+                    else:
+                        box_char = BOX_BL if is_last else BOX_V
+                        output += (
+                            f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}{EOL}"
+                        )
+
         # Insert exception banner if needed
         while banner_idx < len(exception_banners):
             insert_pos, banner = exception_banners[banner_idx]
@@ -1218,37 +1270,6 @@ def _merge_chrono_output(
                 banner_idx += 1
             else:
                 break
-
-        # Check if we need to emit extra lines for inspector overflow
-        # Find if any inspector ends after this line and needs extra lines
-        for insp_idx, frame_idx in enumerate(inspector_frame_indices):
-            frame_start, frame_end = _find_frame_line_range(output_lines, frame_idx)
-            if li == frame_end:
-                # Check if this inspector needs extra lines
-                inspector_start = positions[insp_idx]
-                inspector_height = len(all_inspector_lines[insp_idx])
-                inspector_end = inspector_start + inspector_height
-
-                # How many lines extend beyond the current output?
-                if inspector_end > li + 1:  # pragma: no cover
-                    for extra_li in range(li + 1, inspector_end):
-                        if extra_li in inspector_at:
-                            _, insp_line_idx, arrow_line, inspector_col = inspector_at[
-                                extra_li
-                            ]
-                            insp_lines = all_inspector_lines[insp_idx]
-                            insp_line, _, _ = insp_lines[insp_line_idx]
-
-                            cursor_pos = f"{ESC}{inspector_col + 1}G"
-                            is_last = insp_line_idx == len(insp_lines) - 1
-                            is_arrow = insp_line_idx == arrow_line
-
-                            if is_arrow:
-                                box_char = BOX_BR if is_last else BOX_VL
-                                output += f"{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RESET} {insp_line}{EOL}"
-                            else:
-                                box_char = BOX_BL if is_last else BOX_V
-                                output += f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}{EOL}"
 
     # Any remaining banners
     for _, banner in exception_banners[banner_idx:]:
@@ -1389,46 +1410,46 @@ def _build_variable_inspector(
     prefix_width = max_name_part_len + len(" = ")
     min_required_width = prefix_width + 5
 
-    # Pre-truncate values to a reasonable width (final truncation happens at render)
-    value_width = max(5, term_width // 2 - 4 - prefix_width)
-
-    # Build variable lines with right-aligned names
-    # Each result entry: (colored_line, plain_width, value_start_col)
-    # value_start_col is where the value starts, for smart truncation at render time
+    # Build variable lines with right-aligned names.
+    # Each result entry: (colored_line, display_width, value_start_col).
+    # Lines are NOT truncated here; the single truncation pass in
+    # _merge_chrono_output knows the actual inspector column.
     result = []
     for name, typename, val_str, fmt_hint in var_data:
         name_part = f"{name}: {typename}" if typename else name
         padding = " " * (max_name_part_len - len(name_part))
         indent = " " * prefix_width
 
+        def _dim_ellipsis(text: str) -> str:
+            """Return text with any standalone ellipsis wrapped in dim styling."""
+            if text == "⋮":
+                return f"{DIM}⋮{RESET}"
+            if text.endswith("…"):
+                return f"{text[:-1]}{DIM}…{RESET}"
+            return text
+
         # Handle multi-line block format
         if fmt_hint == "block" and "\n" in val_str:  # pragma: no cover
             for i, val_line in enumerate(val_str.split("\n")):
-                # Truncate value line if needed
-                if len(val_line) > value_width:
-                    val_line = val_line[: value_width - 1] + "…"
+                val_line_colored = _dim_ellipsis(val_line)
                 if i == 0:
                     # First line with name and type
                     if typename:
-                        line = f"{VAR}{padding}{name}: {TYPE_COLOR}{typename} = {VAR}{val_line}{RESET}"
+                        line = f"{VAR}{padding}{name}: {TYPE_COLOR}{typename} = {VAR}{val_line_colored}{RESET}"
                     else:
-                        line = f"{VAR}{padding}{name} = {val_line}{RESET}"
-                    plain = f"{padding}{name_part} = {val_line}"
-                    result.append((line, len(plain), prefix_width))
+                        line = f"{VAR}{padding}{name} = {val_line_colored}{RESET}"
+                    result.append((line, _display_width(line), prefix_width))
                 else:
                     # Continuation lines (indented) - all value
-                    line = f"{VAR}{indent}{val_line}{RESET}"
-                    plain = f"{indent}{val_line}"
-                    result.append((line, len(plain), prefix_width))
+                    line = f"{VAR}{indent}{val_line_colored}{RESET}"
+                    result.append((line, _display_width(line), prefix_width))
         else:
             # Single line format
-            if len(val_str) > value_width:
-                val_str = val_str[: value_width - 1] + "…"
+            val_str_colored = _dim_ellipsis(val_str)
             if typename:
-                line = f"{VAR}{padding}{name}: {TYPE_COLOR}{typename} = {VAR}{val_str}{RESET}"
+                line = f"{VAR}{padding}{name}: {TYPE_COLOR}{typename} = {VAR}{val_str_colored}{RESET}"
             else:
-                line = f"{VAR}{padding}{name} = {val_str}{RESET}"
-            plain = f"{padding}{name_part} = {val_str}"
-            result.append((line, len(plain), prefix_width))
+                line = f"{VAR}{padding}{name} = {val_str_colored}{RESET}"
+            result.append((line, _display_width(line), prefix_width))
 
     return result, min_required_width

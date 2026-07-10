@@ -1313,3 +1313,19 @@ def bar():
         assert "def foo():" in joined
         assert "return x" in joined
         assert "def bar():" not in joined
+
+
+def test_exc_message_variable_suppressed_in_raising_frame():
+    """The variable used as the exception message is hidden in the inner frame."""
+
+    def _raise_with_msg():
+        msg = "unique error message 12345"
+        raise ValueError(msg)
+
+    try:
+        _raise_with_msg()
+    except ValueError as e:
+        chain = extract_chain(e)
+        frame = chain[0]["frames"][-1]
+        var_names = {v.name for v in frame["variables"]}
+        assert "msg" not in var_names

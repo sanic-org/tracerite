@@ -160,7 +160,11 @@ def main() -> None:
 
     print("-" * len(header))
     count = len(scenarios)
-    print(_row("Mean", totals[0] / count, totals[1] / count, totals[2] / count, name_width))
+    print(
+        _row(
+            "Mean", totals[0] / count, totals[1] / count, totals[2] / count, name_width
+        )
+    )
 
 
 if __name__ == "__main__":

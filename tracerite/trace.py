@@ -352,7 +352,9 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         else "none"
     )
     try:
-        frames = extract_frames(tb, raw_tb, except_block=(f != "none"), exc=e)
+        frames = extract_frames(
+            tb, raw_tb, except_block=(f != "none"), exc=e, exc_message=message
+        )
         # For SyntaxError, add the synthetic frame showing the problematic code
         if syntax_frame:
             # Demote the previous frame (compile, exec, etc.) to call only
@@ -1444,7 +1446,9 @@ def _extract_syntax_error_frame(e):
     }
 
 
-def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
+def extract_frames(
+    tb, raw_tb=None, *, except_block=False, exc=None, exc_message=None
+) -> list:
     if not tb:
         return []
 
@@ -1601,7 +1605,11 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
                 "function": function,
                 "function_suffix": "",
                 "urls": urls,
-                "variables": extract_variables(frame.f_locals, variable_source)
+                "variables": extract_variables(
+                    frame.f_locals,
+                    variable_source,
+                    exc_message=exc_message if is_last_frame else None,
+                )
                 if not hidden
                 else [],
                 # Full source for chain analysis (try-except matching via AST)

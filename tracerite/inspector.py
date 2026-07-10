@@ -192,7 +192,9 @@ def _extract_identifiers_regex(sourcecode: str) -> set[str]:
     }
 
 
-def extract_variables(variables: dict[str, Any], sourcecode: str) -> list[VarInfo]:
+def extract_variables(
+    variables: dict[str, Any], sourcecode: str, exc_message: str | None = None
+) -> list[VarInfo]:
     # Try AST-based extraction first, fall back to regex
     identifiers = _extract_identifiers_ast(sourcecode)
     if identifiers is None:
@@ -213,6 +215,11 @@ def extract_variables(variables: dict[str, Any], sourcecode: str) -> list[VarInf
             # Using repr is better for empty strings and some other cases
             if not strvalue and reprvalue:
                 strvalue = reprvalue
+            # Suppress the variable that was used as the exception message in the
+            # frame where the exception was raised; the message is already shown
+            # in the exception banner.
+            if exc_message and strvalue == exc_message:
+                continue
             # Try to print members of objects that don't have proper __str__
             elif no_str_conv.fullmatch(strvalue):
                 found = False
@@ -445,8 +452,21 @@ def prettyvalue(val: Any) -> tuple[Any, str]:
     # For block format, don't truncate but limit line count if needed
     else:
         lines = ret.split("\n")
-        if len(lines) > 20:
-            # Show first 10 and last 10 lines
-            ret = "\n".join(lines[:10] + ["⋯"] + lines[-10:])
+        if len(lines) > 15:
+            # Show first 5 and last 2 lines once the string gets long, dropping
+            # empty/whitespace-only lines that sit right next to the marker.
+            first = lines[:5]
+            while first and first[-1].strip() == "":
+                first.pop()
+
+            last: list[str] = []
+            for line in reversed(lines):
+                if line.strip() != "":
+                    last.append(line)
+                    if len(last) == 2:
+                        break
+            last.reverse()
+
+            ret = "\n".join(first + ["⋮"] + last)
 
     return (ret, format_hint)

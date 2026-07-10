@@ -40,6 +40,7 @@ from tracerite.tty import (
     _get_branch_summary,
     _get_frame_label,
     _truncate_ansi,
+    _truncate_inspector_line,
     _wrap_code_line,
     _wrap_text,
     symbols,
@@ -1034,7 +1035,7 @@ class TestVariableInspector:
         assert "[" in colored
 
     def test_build_variable_inspector_truncation(self):
-        """Test that long values are truncated."""
+        """Long values are preserved by the builder; truncation is deferred."""
         from tracerite.inspector import VarInfo
 
         long_value = "x" * 200
@@ -1047,9 +1048,14 @@ class TestVariableInspector:
 
         assert len(result) == 1
         colored, width, value_col = result[0]
-        # Should be truncated (indicated by width being less than original)
-        assert width < len(long_value)
-        assert "…" in colored  # Truncation indicator
+        # The full value is retained; width is prefix + full value length.
+        assert width == len("long_var: str = ") + len(long_value)
+        assert "…" not in colored
+        # Truncation is applied later by _truncate_inspector_line.
+        truncated = _truncate_inspector_line(
+            colored, width, value_col, available_for_content=30
+        )
+        assert "…" in truncated
 
     def test_build_variable_inspector_skips_ellipsis_value(self):
         """Test inspector skips variables with ellipsis value (lines 1241, 1246)."""
@@ -2531,6 +2537,38 @@ class TestMergeChronoOutputBranches:
         )
         # Should contain truncated value indicator
         assert "…" in result
+
+    def test_inspector_extra_line_truncation(self):
+        """Continuation inspector lines past the frame are also truncated."""
+        from tracerite.inspector import VarInfo
+        from tracerite.tty import _build_variable_inspector, _merge_chrono_output
+
+        output_lines = [
+            ("short line", 10, 0, True),
+        ]
+        value = "first line\n" + "x" * 100
+        variables = [
+            VarInfo(name="var", typename="str", value=value, format_hint="block"),
+        ]
+        inspector_lines, min_width = _build_variable_inspector(
+            variables, term_width=200
+        )
+        assert len(inspector_lines) > 1
+        frame_info_list = [{"relevance": "error"}]
+
+        result, _ = _merge_chrono_output(
+            output_lines,
+            [inspector_lines],
+            [min_width],
+            term_width=40,
+            inspector_frame_indices=[0],
+            exception_banners=[],
+            frame_info_list=frame_info_list,
+        )
+        # Continuation line should have been truncated to fit the terminal.
+        assert "…" in result
+        for line in result.splitlines():
+            assert _display_width(line) <= 40
 
 
 class TestPrintChronologicalBranches:
