@@ -1069,6 +1069,164 @@ class TestVariableInspector:
         assert result == []
         assert min_width == 0
 
+    def test_truncate_inspector_line_narrow_value_space(self):
+        """When only the prefix fits, the value is replaced by a plain ellipsis."""
+        colored = "var: str = some value"
+        width = len(colored)
+        value_start = len("var: str = ")
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content=value_start + 1
+        )
+        assert result == "…"
+
+    def test_truncate_inspector_line_wide_chars(self):
+        """Truncation respects display columns, not character counts."""
+        colored = "var: str = 日本語の値"
+        plain = ANSI_ESCAPE_RE.sub("", colored)
+        width = _display_width(plain)
+        value_start = len("var: str = ")
+        available_for_content = value_start + 5  # room for 5 display columns
+
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content=available_for_content
+        )
+
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        assert _display_width(result_plain) <= available_for_content
+        assert "…" in result
+
+    def test_build_variable_inspector_preserves_content_ellipsis(self):
+        """Ellipsis characters that are part of the value are not restyled."""
+        from tracerite.inspector import VarInfo
+        from tracerite.tty import DIM
+
+        variables = [
+            VarInfo(name="s", typename="str", value="abc …", format_hint="inline")
+        ]
+        result, _ = _build_variable_inspector(variables, term_width=200)
+        colored, _, _ = result[0]
+        # No dim styling was applied to the content ellipsis.
+        assert DIM not in colored
+
+    def test_truncate_inspector_line_inline_marker_shortens_right(self):
+        """Inline values shorten the right side of the middle ellipsis first."""
+        from tracerite.inspector import VarInfo
+
+        value = "head12345 … tail12345"
+        variables = [
+            VarInfo(name="s", typename="str", value=value, format_hint="inline")
+        ]
+        entries, _ = _build_variable_inspector(variables, term_width=200)
+        colored, width, value_start = entries[0]
+        prefix_width = _display_width(ANSI_ESCAPE_RE.sub("", colored[:value_start]))
+
+        available_for_content = prefix_width + 15
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content
+        )
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+
+        assert "head12345" in result_plain
+        assert " … " in result_plain
+        # The end of the right side is preserved, not its beginning.
+        assert result_plain.endswith("45")
+        assert "tail" not in result_plain
+        assert _display_width(result_plain) <= available_for_content
+        assert result.endswith(RESET)
+
+    def test_truncate_inspector_line_inline_marker_shortens_left(self):
+        """Once the right side is gone, shorten the left side and keep trailing ellipsis."""
+        from tracerite.inspector import VarInfo
+
+        value = "head12345 … tail12345"
+        variables = [
+            VarInfo(name="s", typename="str", value=value, format_hint="inline")
+        ]
+        entries, _ = _build_variable_inspector(variables, term_width=200)
+        colored, width, value_start = entries[0]
+        prefix_width = _display_width(ANSI_ESCAPE_RE.sub("", colored[:value_start]))
+
+        available_for_content = prefix_width + 8
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content
+        )
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+
+        assert result_plain.endswith("…")
+        assert "head123" in result_plain
+        assert "tail" not in result_plain
+        assert " … " not in result_plain
+        assert _display_width(result_plain) <= available_for_content
+        assert result.endswith(RESET)
+
+    def test_truncate_inspector_line_inline_marker_plain_line(self):
+        """Inline-marker truncation also works on uncoloured lines."""
+        colored = "var: str = head12345 … tail12345"
+        width = len(colored)
+        value_start = len("var: str = ")
+        available_for_content = value_start + 15
+
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content
+        )
+
+        assert result == "var: str = head12345 … 345"
+        assert "\x1b" not in result
+
+    def test_truncate_inspector_line_zero_available(self):
+        """When no content space is available, return a plain ellipsis."""
+        result = _truncate_inspector_line(
+            "var: str = value",
+            insp_width=17,
+            value_start=12,
+            available_for_content=0,
+        )
+        assert result == "…"
+
+    def test_truncate_inspector_line_inline_marker_empty_right(self):
+        """A marker with no right side falls back to trailing ellipsis."""
+        from tracerite.inspector import VarInfo
+
+        variables = [
+            VarInfo(
+                name="s", typename="str", value="head12345 … ", format_hint="inline"
+            )
+        ]
+        entries, _ = _build_variable_inspector(variables, term_width=200)
+        colored, width, value_start = entries[0]
+        prefix_width = _display_width(ANSI_ESCAPE_RE.sub("", colored[:value_start]))
+
+        available_for_content = prefix_width + 11
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content
+        )
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+
+        assert "head12345" in result_plain
+        assert result_plain.endswith("…")
+        assert "tail" not in result_plain
+        assert _display_width(result_plain) <= available_for_content
+
+    def test_truncate_inspector_line_inline_marker_both_sides_empty(self):
+        """A value that is only a marker collapses to a single ellipsis."""
+        from tracerite.inspector import VarInfo
+
+        variables = [
+            VarInfo(name="s", typename="str", value=" … ", format_hint="inline")
+        ]
+        entries, _ = _build_variable_inspector(variables, term_width=200)
+        colored, width, value_start = entries[0]
+        prefix_width = _display_width(ANSI_ESCAPE_RE.sub("", colored[:value_start]))
+
+        available_for_content = prefix_width + 2
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content
+        )
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+
+        assert result_plain.endswith("…")
+        assert _display_width(result_plain) <= available_for_content
+
 
 class TestSymbols:
     """Tests for symbol definitions."""
@@ -2569,6 +2727,42 @@ class TestMergeChronoOutputBranches:
         assert "…" in result
         for line in result.splitlines():
             assert _display_width(line) <= 40
+
+    def test_inspector_skipped_when_narrow(self):
+        """A multi-line inspector that does not fit is skipped cleanly."""
+        from tracerite.inspector import VarInfo
+        from tracerite.tty import _build_variable_inspector, _merge_chrono_output
+
+        output_lines = [
+            ("short line", 10, 0, True),
+        ]
+        variables = [
+            VarInfo(
+                name="long_name",
+                typename="str",
+                value="line1\nline2\nline3",
+                format_hint="block",
+            ),
+        ]
+        inspector_lines, min_width = _build_variable_inspector(
+            variables, term_width=200
+        )
+        frame_info_list = [{"relevance": "error"}]
+
+        result, _ = _merge_chrono_output(
+            output_lines,
+            [inspector_lines],
+            [min_width],
+            term_width=20,
+            inspector_frame_indices=[0],
+            exception_banners=[],
+            frame_info_list=frame_info_list,
+        )
+        # The inspector was too wide for the terminal, so no variable content
+        # is rendered; the code line and frame border are still present.
+        assert "short line" in result
+        assert "line1" not in result
+        assert "long_name" not in result
 
 
 class TestPrintChronologicalBranches:

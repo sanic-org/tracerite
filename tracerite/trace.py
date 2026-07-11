@@ -5,7 +5,7 @@ import linecache
 import re
 import sys
 import tokenize
-from collections import namedtuple
+from collections import deque, namedtuple
 from contextlib import suppress
 from pathlib import Path
 from secrets import token_urlsafe
@@ -187,27 +187,27 @@ def extract_chain(exc=None, **kwargs) -> list:
 
 
 def _deduplicate_variables(chain: list) -> None:
-    """Show the variable inspector only in the last frame of each function.
+    """Show the variable inspector only once per frame object.
 
-    Frames that belong to the same function (same filename/function) share the
-    same locals when they come from the same invocation (e.g. re-raises inside
-    the same function).  Only the last occurrence in chronological order keeps
-    its inspector; earlier frames are cleared so the inspector is not shown
-    multiple times.  Because exception-message filtering is already applied to
-    the last frame, the message variable is hidden from all frames in the
-    group automatically.
+    When an exception is caught and re-raised inside the same function, the
+    traceback contains multiple entries pointing at the same frame object.
+    Only the last of those entries keeps its inspector; earlier entries are
+    cleared so the inspector is not shown multiple times.  Recursive calls have
+    distinct frame objects, so each level keeps its own inspector.  Because
+    exception-message filtering is already applied to the last entry, the
+    message variable is hidden from all entries for that frame automatically.
     """
 
-    # Group frames by (filename, function)
-    frame_groups: dict[tuple, list[tuple[int, int]]] = {}
+    # Group frames by the identity of the underlying frame object.  Two frames
+    # for the same recursive call are different objects, while two traceback
+    # entries produced by a re-raise inside the same function (or at module
+    # level) point at the same frame object.
+    frame_groups: dict[int, list[tuple[int, int]]] = {}
     for ei, exc in enumerate(chain):
-        for fi, frame in enumerate(exc.get("frames", [])):
-            key = (frame.get("filename"), frame.get("function"))
-            if key not in frame_groups:
-                frame_groups[key] = []
-            frame_groups[key].append((ei, fi))
+        for fi, frame in enumerate(exc["frames"]):
+            frame_groups.setdefault(frame["idframe"], []).append((ei, fi))
 
-    # Only the last frame of each group keeps its inspector.
+    # Only the last occurrence of each frame object keeps its inspector.
     for occurrences in frame_groups.values():
         for ei, fi in occurrences[:-1]:
             chain[ei]["frames"][fi]["variables"] = []
@@ -1219,7 +1219,7 @@ def _build_position_map(raw_tb):
         return position_map
     try:
         for frame_obj, positions in trace_cpy._walk_tb_with_full_positions(raw_tb):
-            position_map.setdefault(frame_obj, []).append(positions)
+            position_map.setdefault(frame_obj, deque()).append(positions)
     except Exception:
         logger.exception("Error extracting position information")
     return position_map
@@ -1378,6 +1378,7 @@ def _extract_syntax_error_frame(e):
     return {
         "id": f"tb-{token_urlsafe(12)}",
         "relevance": "error",
+        "idframe": id(e),
         "filename": fmt_filename,
         "location": location,
         "notebook_cell": notebook_cell,
@@ -1428,7 +1429,7 @@ def extract_frames(
         # A frame object may occur multiple times in the traceback, so consume the
         # next stored position for this frame in order.
         frame_positions = position_map.get(frame)
-        pos = frame_positions.pop(0) if frame_positions else [None] * 4
+        pos = frame_positions.popleft() if frame_positions else [None] * 4
         pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
 
         # Check if this is a notebook cell (to reduce context)
@@ -1451,6 +1452,7 @@ def extract_frames(
                         "id": f"tb-{token_urlsafe(12)}",
                         "relevance": relevance,
                         "hidden": True,
+                        "idframe": id(frame),
                         "lineno": lineno,
                         "full_source": full_source,
                         "full_source_start": full_source_start,
@@ -1544,6 +1546,7 @@ def extract_frames(
                 "id": f"tb-{token_urlsafe(12)}",
                 "relevance": relevance,
                 "hidden": hidden,  # For chain analysis; filtered out after ordering
+                "idframe": id(frame),  # Identity used for inspector deduplication
                 "filename": filename,
                 "original_filename": original_filename,  # For chain analysis AST parsing
                 "location": location,

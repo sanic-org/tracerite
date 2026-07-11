@@ -417,6 +417,19 @@ class TestMultilineFormatting:
         assert shown[-2:] == ["  Line 17", "    Line 18"]
         assert result.count("\n") == 6  # 4 + marker + 2
 
+    def test_block_format_loop_exit_with_blanks(self):
+        """Blank lines exercise the loop-back/exit branches.
+
+        With only one non-empty line and many blanks, the loop that collects
+        trailing lines skips blanks and exits normally rather than breaking.
+        """
+        lines = [""] * 19 + ["only non-empty"]
+        result, fmt = prettyvalue("\n".join(lines))
+        assert fmt == "block"
+        assert "⋮" in result
+        assert result.endswith("only non-empty")
+        assert result.count("\n") == 1  # marker + one kept line
+
     def test_short_multiline_string(self):
         """Test block format with <= 15 lines."""
         few_lines = "\n".join([f"Line {i}" for i in range(5)])
