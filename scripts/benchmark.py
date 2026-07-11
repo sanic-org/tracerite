@@ -7,18 +7,24 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+import inspect
 import io
-import re
 import timeit
 from collections.abc import Callable
 
-from demo.console_demo import SCENARIOS as DEMO_SCENARIOS
+from demo.helpers import scenarios
 from tracerite import extract_chain, html_traceback, tty_traceback
 
-
-def _slug(title: str) -> str:
-    """Turn a scenario title into a compact command-line key."""
-    return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+DEMO_SCENARIOS = [
+    (name, func)
+    for name, func in vars(scenarios).items()
+    if (
+        not name.startswith("_")
+        and inspect.isfunction(func)
+        and func.__module__ == scenarios.__name__
+    )
+]
 
 
 def _make_exc(func: Callable[[], object]) -> Callable[[], BaseException]:
@@ -26,7 +32,10 @@ def _make_exc(func: Callable[[], object]) -> Callable[[], BaseException]:
 
     def wrapper() -> BaseException:
         try:
-            func()
+            if inspect.iscoroutinefunction(func):
+                asyncio.run(func())
+            else:
+                func()
         except BaseException as exc:
             return exc
         raise RuntimeError("Expected an exception")
@@ -36,23 +45,22 @@ def _make_exc(func: Callable[[], object]) -> Callable[[], BaseException]:
 
 # Representative scenarios for benchmarking: realistic cross-module traces,
 # stdlib callbacks, exception chains/groups, plus one large message.
-BENCHMARK_KEYS = [
-    "mixed-content",
-    "deep-api-pipeline",
-    "function-call",
-    "order-processing",
-    "chained-pipeline",
-    "config-load",
-    "callback-error",
-    "record-batch",
-    "variable-inspector",
-    "concurrent-failures",
-]
+BENCHMARK_KEYS = {
+    "longmsg",
+    "chainmsg",
+    "inspector",
+    "causechain",
+    "syntax",
+    "callfrom",
+    "callback",
+    "comprehension",
+    "concurrent",
+}
 
 SCENARIOS: dict[str, tuple[str, Callable[[], BaseException]]] = {
-    _slug(title): (title, _make_exc(func))
+    title: (title, _make_exc(func))
     for title, func in DEMO_SCENARIOS
-    if _slug(title) in BENCHMARK_KEYS
+    if title in BENCHMARK_KEYS
 }
 
 
@@ -119,7 +127,7 @@ def main() -> None:
         "-n",
         "--number",
         type=int,
-        default=1000,
+        default=100,
         help="Number of renders to time",
     )
     parser.add_argument(

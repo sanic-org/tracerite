@@ -1,164 +1,83 @@
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [ "tracerite" ]
+# tool.uv.sources.tracerite = { path = "../", editable = true }
+# ///
 """Console demo for TraceRite multi-line exception message formatting.
 
 Run with:
-    uv run python demo/console_demo.py
-or, after activating the project's virtual environment:
-    python demo/console_demo.py
-
-Use ``--interactive`` to choose scenarios one at a time.
+    ./demo/console_demo.py
+or:
+    uv run demo/console_demo.py
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
+import argparse
+import inspect
 import sys
 
 from tracerite import load
 
-from demo.helpers import async_tasks, calc, data, messages, objects
-
-load()
+from demo.helpers import scenarios
 
 
-def demo_mixed_content() -> None:
-    """Very long message mixing prose, code blocks, and a long list."""
-    messages.mixed_content()
-
-
-def demo_chained_multiline() -> None:
-    """Two chained exceptions, each with a multi-line message."""
-    messages.chained_multiline()
-
-
-def demo_deep_api_pipeline() -> None:
-    """Deep call chain jumping between modules and ending in a division by zero."""
-    calc.process_user_data(500)
-
-
-def demo_function_call() -> None:
-    """Error inside a multi-line function call with keyword arguments."""
-    calc.complex_function_call()
-
-
-def demo_order_processing() -> None:
-    """Cross-module order processing ending in a wrapped domain error."""
-    calc.process_order(42)
-
-
-def demo_chained_pipeline() -> None:
-    """Explicit three-level exception cause chain."""
-    calc.run_chained_pipeline()
-
-
-def demo_config_load() -> None:
-    """Malformed JSON parsed in another module, re-raised as a domain error."""
-    try:
-        data.load_config('{"host": "example.com" "port": 80}')
-    except json.JSONDecodeError as e:
-        raise RuntimeError("Configuration is malformed") from e
-
-
-def demo_callback_error() -> None:
-    """Failure inside a stdlib regex callback, wrapped at the call site."""
-    try:
-        data.apply_regex_discounts("50 0 25")
-    except ZeroDivisionError as e:
-        raise ValueError("Invalid percentage input") from e
-
-
-def demo_record_batch() -> None:
-    """Batch processing via ``map()`` combining JSON parsing and calculation."""
-    records = [
-        '{"value": 100, "divisor": 10}',
-        '{"value": 100, "divisor": 0}',
+def _discover() -> list[tuple[str, object]]:
+    """Return all public functions from the scenarios module in definition order."""
+    return [
+        (name, func)
+        for name, func in vars(scenarios).items()
+        if (
+            not name.startswith("_")
+            and inspect.isfunction(func)
+            and func.__module__ == scenarios.__name__
+        )
     ]
-    data.process_records(records)
-
-
-def demo_variable_inspector() -> None:
-    """Error with objects that have good and poor string representations."""
-    objects.inspect_variables()
-
-
-def demo_string_concat() -> None:
-    """Multi-line string concatenation with a type mismatch."""
-    objects.build_greeting("World", 123)
-
-
-def demo_concurrent_failures() -> None:
-    """Concurrent failures reported as a generic application crash."""
-    try:
-        asyncio.run(async_tasks.run_concurrent_tasks())
-    except Exception as e:
-        msg = "Application crashed inside asyncio.run()"
-        raise RuntimeError(msg) from e
-
-
-SCENARIOS = [
-    ("Mixed content", demo_mixed_content),
-    ("Chained multi-line", demo_chained_multiline),
-    ("Deep API pipeline", demo_deep_api_pipeline),
-    ("Function call", demo_function_call),
-    ("Order processing", demo_order_processing),
-    ("Chained pipeline", demo_chained_pipeline),
-    ("Config load", demo_config_load),
-    ("Callback error", demo_callback_error),
-    ("Record batch", demo_record_batch),
-    ("Variable inspector", demo_variable_inspector),
-    ("String concat", demo_string_concat),
-    ("Concurrent failures", demo_concurrent_failures),
-]
 
 
 def run_scenario(title: str, func: object) -> None:
     # Print to stderr so the header appears right before the tracerite
     # traceback, which is also written to stderr.
-    print("\n" + "=" * 60, file=sys.stderr)
-    print(f"Scenario: {title}", file=sys.stderr)
-    print("=" * 60, file=sys.stderr)
+    doc = (func.__doc__ or "").strip()
+    print(f"{title}: {doc}", file=sys.stderr)
     __tracebackhide__ = True
     try:
         func()  # type: ignore[operator]
     except Exception:
-        # Render with the tracerite hook that load() installed, then continue.
+        # Render with the current exception hook (TraceRite by default, or
+        # Python's builtin hook when --builtin is used), then continue.
         sys.excepthook(*sys.exc_info())
-
-
-def run_all() -> None:
-    for title, func in SCENARIOS:
-        run_scenario(title, func)
-
-
-def run_interactive() -> None:
-    print("\nTraceRite console demo")
-    print("=" * 60)
-    for i, (title, _) in enumerate(SCENARIOS, start=1):
-        print(f"{i}. {title}")
-    print("0. Run all")
-    print("q. Quit")
-
-    while True:
-        choice = input("\nChoice: ").strip().lower()
-        if choice in ("q", "quit", "exit"):
-            break
-        if choice == "0":
-            run_all()
-            continue
-        try:
-            index = int(choice) - 1
-            title, func = SCENARIOS[index]
-        except (ValueError, IndexError):
-            print("Unknown choice; try again.")
-            continue
-        run_scenario(title, func)
-
+    print(file=sys.stderr)  # blank line between scenarios
 
 def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] in ("-i", "--interactive"):
-        run_interactive()
+    parser = argparse.ArgumentParser(description="TraceRite console demo")
+    parser.add_argument(
+        "scenarios",
+        nargs="*",
+        help="scenario names to run (default: run all)",
+    )
+    parser.add_argument(
+        "--builtin",
+        action="store_true",
+        help="disable TraceRite and use Python's default exception handling",
+    )
+    args = parser.parse_args()
+
+    if not args.builtin:
+        load()
+
+    available = dict(_discover())
+    if args.scenarios:
+        for name in args.scenarios:
+            if name not in available:
+                parser.error(f"unknown scenario: {name!r}")
+        selected = [(name, available[name]) for name in args.scenarios]
     else:
-        run_all()
+        selected = list(available.items())
+
+    for title, func in selected:
+        run_scenario(title, func)
 
 
 if __name__ == "__main__":

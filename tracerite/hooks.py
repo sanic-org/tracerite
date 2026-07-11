@@ -35,7 +35,10 @@ _state = LoaderState()
 
 # Modules on which to set __tracebackhide__ when loaded.
 _SUPPRESSIONS: dict[str, bool | Literal["until"]] = {
-    "importlib._bootstrap": "until",
+    "asyncio.base_events": True,
+    "asyncio.runners": True,
+    "importlib": True,
+    "importlib._bootstrap": True,
 }
 
 
