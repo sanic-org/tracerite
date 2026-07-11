@@ -187,84 +187,30 @@ def extract_chain(exc=None, **kwargs) -> list:
 
 
 def _deduplicate_variables(chain: list) -> None:
-    """Remove duplicate variables from inspectors, showing each only once.
+    """Show the variable inspector only once per frame object.
 
-    Variables are only shown if they appear in the frame's highlighted code
-    (the lines indicated by the error range, expanded to include full
-    comprehensions). If a variable appears in multiple frames' highlighted
-    code (same filename/function), it's only shown in the last frame where
-    it appears.
+    When an exception is caught and re-raised inside the same function, the
+    traceback contains multiple entries pointing at the same frame object.
+    Only the last of those entries keeps its inspector; earlier entries are
+    cleared so the inspector is not shown multiple times.  Recursive calls have
+    distinct frame objects, so each level keeps its own inspector.  Because
+    exception-message filtering is already applied to the last entry, the
+    message variable is hidden from all entries for that frame automatically.
     """
 
-    def _get_highlighted_lines(frame: dict) -> str:
-        """Extract the highlighted lines from a frame based on its range.
-
-        Expands to include full comprehension if error is inside one.
-        """
-        lines = frame.get("lines", "")
-        range_obj = frame.get("range")
-        if not range_obj or not lines:
-            return lines  # Fall back to all lines if no range
-
-        start = frame.get("linenostart", 1)
-        lfirst, lfinal = range_obj.lfirst, range_obj.lfinal
-
-        # Check if error is inside a comprehension - if so, return full comprehension
-        comp_range = _find_comprehension_range(lines, lfirst, start)
-        if comp_range is not None:
-            # Error is inside a comprehension - return full lines (already trimmed to comprehension)
-            return lines
-
-        # No comprehension, return just the highlighted lines
-        lines_list = lines.splitlines()
-
-        # Convert to 0-based indices relative to displayed lines
-        first_idx = lfirst - start
-        final_idx = lfinal - start + 1
-
-        if first_idx < 0 or first_idx >= len(lines_list):
-            return lines  # Fall back if range is invalid
-
-        return "\n".join(lines_list[first_idx:final_idx])
-
-    def _variable_in_code(name: str, lines: str) -> bool:
-        """Check if a variable name appears in the code as a word."""
-        return bool(re.search(rf"\b{re.escape(name)}\b", lines))
-
-    # First pass: collect frames by (filename, function) key
-    # Maps key -> list of (exception_idx, frame_idx)
-    frame_groups: dict[tuple, list[tuple[int, int]]] = {}
+    # Group frames by the identity of the underlying frame object.  Two frames
+    # for the same recursive call are different objects, while two traceback
+    # entries produced by a re-raise inside the same function (or at module
+    # level) point at the same frame object.
+    frame_groups: dict[int, list[tuple[int, int]]] = {}
     for ei, exc in enumerate(chain):
-        for fi, frame in enumerate(exc.get("frames", [])):
-            if frame.get("relevance") == "call":
-                continue
-            key = (frame.get("filename"), frame.get("function"))
-            if key not in frame_groups:
-                frame_groups[key] = []
-            frame_groups[key].append((ei, fi))
+        for fi, frame in enumerate(exc["frames"]):
+            frame_groups.setdefault(frame["idframe"], []).append((ei, fi))
 
-    # Second pass: for each group, determine which variables to show in each frame
-    for _key, occurrences in frame_groups.items():
-        # For each variable, find the LAST frame where it appears in highlighted code
-        # variable_name -> (exception_idx, frame_idx) of last appearance in highlighted code
-        last_appearance: dict[str, tuple[int, int]] = {}
-
-        for ei, fi in occurrences:
-            frame = chain[ei]["frames"][fi]
-            highlighted = _get_highlighted_lines(frame)
-            for v in frame.get("variables", []):  # pragma: no cover
-                if v.name and _variable_in_code(v.name, highlighted):
-                    # Update to this frame (later frames overwrite earlier)
-                    last_appearance[v.name] = (ei, fi)
-
-        # Now filter each frame's variables: keep only if this is the last appearance
-        for ei, fi in occurrences:
-            frame = chain[ei]["frames"][fi]
-            frame["variables"] = [
-                v
-                for v in frame.get("variables", [])
-                if v.name and last_appearance.get(v.name) == (ei, fi)
-            ]
+    # Only the last occurrence of each frame object keeps its inspector.
+    for occurrences in frame_groups.values():
+        for ei, fi in occurrences[:-1]:
+            chain[ei]["frames"][fi]["variables"] = []
 
 
 def _create_summary(message):
@@ -352,7 +298,9 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         else "none"
     )
     try:
-        frames = extract_frames(tb, raw_tb, except_block=(f != "none"), exc=e)
+        frames = extract_frames(
+            tb, raw_tb, except_block=(f != "none"), exc=e, exc_message=message
+        )
         # For SyntaxError, add the synthetic frame showing the problematic code
         if syntax_frame:
             # Demote the previous frame (compile, exec, etc.) to call only
@@ -1430,6 +1378,7 @@ def _extract_syntax_error_frame(e):
     return {
         "id": f"tb-{token_urlsafe(12)}",
         "relevance": "error",
+        "idframe": id(e),
         "filename": fmt_filename,
         "location": location,
         "notebook_cell": notebook_cell,
@@ -1449,7 +1398,9 @@ def _extract_syntax_error_frame(e):
     }
 
 
-def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
+def extract_frames(
+    tb, raw_tb=None, *, except_block=False, exc=None, exc_message=None
+) -> list:
     if not tb:
         return []
 
@@ -1501,6 +1452,7 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
                         "id": f"tb-{token_urlsafe(12)}",
                         "relevance": relevance,
                         "hidden": True,
+                        "idframe": id(frame),
                         "lineno": lineno,
                         "full_source": full_source,
                         "full_source_start": full_source_start,
@@ -1594,6 +1546,7 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
                 "id": f"tb-{token_urlsafe(12)}",
                 "relevance": relevance,
                 "hidden": hidden,  # For chain analysis; filtered out after ordering
+                "idframe": id(frame),  # Identity used for inspector deduplication
                 "filename": filename,
                 "original_filename": original_filename,  # For chain analysis AST parsing
                 "location": location,
@@ -1609,7 +1562,11 @@ def extract_frames(tb, raw_tb=None, *, except_block=False, exc=None) -> list:
                 "function": function,
                 "function_suffix": "",
                 "urls": urls,
-                "variables": extract_variables(frame.f_locals, variable_source)
+                "variables": extract_variables(
+                    frame.f_locals,
+                    variable_source,
+                    exc_message=exc_message if is_last_frame else None,
+                )
                 if not hidden
                 else [],
                 # Full source for chain analysis (try-except matching via AST)

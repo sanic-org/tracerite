@@ -158,6 +158,42 @@ class TestExtractVariables:
         assert "broken" not in names
         assert "x" in names
 
+    def test_exc_message_variable_suppressed(self):
+        """Variables matching the exception message are suppressed."""
+        variables = {"msg": "something went wrong", "x": 1}
+        sourcecode = "raise ValueError(msg)\ny = x"
+
+        rows = extract_variables(variables, sourcecode)
+        names = {row[0] for row in rows}
+        assert "msg" in names  # Without exc_message it is included
+
+        rows_filtered = extract_variables(
+            variables, sourcecode, exc_message="something went wrong"
+        )
+        names_filtered = {row[0] for row in rows_filtered}
+        assert "msg" not in names_filtered
+        assert "x" in names_filtered
+
+    def test_exc_message_suppression_requires_min_length(self):
+        """Short exception messages are not suppressed to avoid collisions."""
+        variables = {"msg": "short", "x": 1}
+        sourcecode = "raise ValueError(msg)\ny = x"
+
+        rows = extract_variables(variables, sourcecode, exc_message="short")
+        names = {row[0] for row in rows}
+        assert "msg" in names
+        assert "x" in names
+
+    def test_exc_message_suppression_only_for_strings(self):
+        """Only string variables are suppressed, not other types with same str()."""
+        variables = {"code": 123456789012, "x": 1}
+        sourcecode = "raise ValueError(code)\ny = x"
+
+        rows = extract_variables(variables, sourcecode, exc_message="123456789012")
+        names = {row[0] for row in rows}
+        assert "code" in names
+        assert "x" in names
+
 
 class TestPrettyValue:
     """Test prettyvalue function with various data types."""
@@ -350,33 +386,64 @@ class TestMultilineFormatting:
         assert fmt == "inline"
 
     def test_block_format_many_lines(self):
-        """Test block format with > 20 lines (branch 176->177)."""
-        # Create a string with more than 20 lines
-        many_lines = "\n".join([f"Line {i}" for i in range(30)])
+        """Test block format with > 15 lines."""
+        # Create a string with more than 15 lines
+        many_lines = "\n".join([f"Line {i}" for i in range(45)])
         result, fmt = prettyvalue(many_lines)
-        # Should truncate to first 10 and last 10 lines with ellipsis
-        assert "⋯" in result
+        # Should truncate to first 5 and last 2 lines with vertical ellipsis
+        assert "⋮" in result
         assert "Line 0" in result  # First line
-        assert "Line 29" in result  # Last line
+        assert "Line 44" in result  # Last line
+        assert "Line 43" in result  # Second-to-last line
         assert (
-            result.count("\n") == 20
-        )  # 10 lines + ellipsis + 10 lines = 21 lines, 20 newlines
+            result.count("\n") == 7
+        )  # 5 lines + ellipsis + 2 lines = 8 lines, 7 newlines
         assert fmt == "block"
 
+    def test_block_format_trims_empty_around_marker(self):
+        """Empty/whitespace-only lines next to the truncation marker are omitted."""
+        leading = [f"Line {i}" for i in range(4)] + ["   "]
+        middle = [f"Mid {i}" for i in range(10)]
+        trailing = ["\t", "  Line 17", "    Line 18"]
+        lines = leading + middle + trailing
+        result, fmt = prettyvalue("\n".join(lines))
+        assert fmt == "block"
+        assert "⋮" in result
+        shown = result.split("\n")
+        # The trailing empty line in the leading group is dropped.
+        assert shown[:4] == leading[:4]
+        # Empty lines at the start of the trailing group are dropped, but
+        # indentation on the surviving trailing lines is preserved.
+        assert shown[-2:] == ["  Line 17", "    Line 18"]
+        assert result.count("\n") == 6  # 4 + marker + 2
+
+    def test_block_format_loop_exit_with_blanks(self):
+        """Blank lines exercise the loop-back/exit branches.
+
+        With only one non-empty line and many blanks, the loop that collects
+        trailing lines skips blanks and exits normally rather than breaking.
+        """
+        lines = [""] * 19 + ["only non-empty"]
+        result, fmt = prettyvalue("\n".join(lines))
+        assert fmt == "block"
+        assert "⋮" in result
+        assert result.endswith("only non-empty")
+        assert result.count("\n") == 1  # marker + one kept line
+
     def test_short_multiline_string(self):
-        """Test block format with <= 20 lines."""
+        """Test block format with <= 15 lines."""
         few_lines = "\n".join([f"Line {i}" for i in range(5)])
         result, fmt = prettyvalue(few_lines)
         # Should not truncate
-        assert "⋯" not in result
+        assert "⋮" not in result
         assert "Line 0" in result
         assert "Line 4" in result
         assert fmt == "block"
 
     def test_block_format_between_1_and_20_lines(self):
-        """Test block format with 2-20 lines (branch 176->185)."""
+        """Test block format with 15 lines (exact threshold)."""
         # This specifically tests the path where format_hint is "block"
-        # but neither the > 20 lines condition nor the single-line >= 200 char condition is true
+        # but the line count is exactly at the truncation threshold.
         medium_lines = "\n".join([f"Line number {i}" for i in range(15)])
         result, fmt = prettyvalue(medium_lines)
         # Should not truncate

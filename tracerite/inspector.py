@@ -12,6 +12,11 @@ from typing import Any
 
 from .logging import logger
 
+# Minimum length for a string value to be considered a match against the
+# exception message.  Short strings are too likely to collide with unrelated
+# variables by accident.
+_EXCEPTION_MESSAGE_MIN_MATCH_LEN = 12
+
 # Variable info with formatting metadata
 VarInfo = namedtuple("VarInfo", ["name", "typename", "value", "format_hint"])
 
@@ -192,7 +197,9 @@ def _extract_identifiers_regex(sourcecode: str) -> set[str]:
     }
 
 
-def extract_variables(variables: dict[str, Any], sourcecode: str) -> list[VarInfo]:
+def extract_variables(
+    variables: dict[str, Any], sourcecode: str, exc_message: str | None = None
+) -> list[VarInfo]:
     # Try AST-based extraction first, fall back to regex
     identifiers = _extract_identifiers_ast(sourcecode)
     if identifiers is None:
@@ -213,6 +220,17 @@ def extract_variables(variables: dict[str, Any], sourcecode: str) -> list[VarInf
             # Using repr is better for empty strings and some other cases
             if not strvalue and reprvalue:
                 strvalue = reprvalue
+            # Suppress the variable that was used as the exception message.
+            # The message is already shown in the exception banner.  Only exact
+            # matches for string variables are suppressed, and only when the
+            # message is long enough to avoid accidental collisions.
+            if (
+                exc_message is not None
+                and typename == "str"
+                and len(exc_message) >= _EXCEPTION_MESSAGE_MIN_MATCH_LEN
+                and strvalue == exc_message
+            ):
+                continue
             # Try to print members of objects that don't have proper __str__
             elif no_str_conv.fullmatch(strvalue):
                 found = False
@@ -445,8 +463,21 @@ def prettyvalue(val: Any) -> tuple[Any, str]:
     # For block format, don't truncate but limit line count if needed
     else:
         lines = ret.split("\n")
-        if len(lines) > 20:
-            # Show first 10 and last 10 lines
-            ret = "\n".join(lines[:10] + ["⋯"] + lines[-10:])
+        if len(lines) > 15:
+            # Show first 5 and last 2 lines once the string gets long, dropping
+            # empty/whitespace-only lines that sit right next to the marker.
+            first = lines[:5]
+            while first and first[-1].strip() == "":
+                first.pop()
+
+            last: list[str] = []
+            for line in reversed(lines):
+                if line.strip() != "":
+                    last.append(line)
+                    if len(last) == 2:
+                        break
+            last.reverse()
+
+            ret = "\n".join(first + ["⋮"] + last)
 
     return (ret, format_hint)

@@ -390,11 +390,11 @@ class TestPrettyValueAdditional:
 
     def test_very_long_multiline_string(self):
         """Test very long multiline string is truncated."""
-        lines = "\n".join([f"line{i}" for i in range(30)])
+        lines = "\n".join([f"line{i}" for i in range(45)])
         result, fmt = prettyvalue(lines)
 
         # Should show truncation marker
-        assert "⋯" in result
+        assert "⋮" in result
 
     def test_long_inline_string(self):
         """Test long inline value is truncated."""
