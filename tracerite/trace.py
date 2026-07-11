@@ -187,26 +187,25 @@ def extract_chain(exc=None, **kwargs) -> list:
 
 
 def _deduplicate_variables(chain: list) -> None:
-    """Show the variable inspector only once per distinct locals dict.
+    """Show the variable inspector only once per frame object.
 
     When an exception is caught and re-raised inside the same function, the
-    traceback contains multiple frames for that function that all share the
-    same ``f_locals`` dict.  Only the last of those frames keeps its inspector;
-    earlier frames are cleared so the inspector is not shown multiple times.
-    Recursive calls have distinct ``f_locals`` objects, so each level keeps its
-    own inspector.  Because exception-message filtering is already applied to
-    the last frame, the message variable is hidden from all frames that share
-    the same locals automatically.
+    traceback contains multiple entries pointing at the same frame object.
+    Only the last of those entries keeps its inspector; earlier entries are
+    cleared so the inspector is not shown multiple times.  Recursive calls have
+    distinct frame objects, so each level keeps its own inspector.  Because
+    exception-message filtering is already applied to the last entry, the
+    message variable is hidden from all entries for that frame automatically.
     """
 
-    # Group frames by the identity of their locals dict.  Two frames for the
-    # same recursive function have different ids, while two frames produced by
-    # a re-raise inside the same function (or at module level) share the same
-    # id because they share the same locals object.
+    # Group frames by the identity of the underlying frame object.  Two frames
+    # for the same recursive call are different objects, while two traceback
+    # entries produced by a re-raise inside the same function (or at module
+    # level) point at the same frame object.
     frame_groups: dict[int, list[tuple[int, int]]] = {}
     for ei, exc in enumerate(chain):
         for fi, frame in enumerate(exc.get("frames", [])):
-            key = frame["idlocal"]
+            key = frame["idframe"]
             if key not in frame_groups:
                 frame_groups[key] = []
             frame_groups[key].append((ei, fi))
@@ -1377,7 +1376,7 @@ def _extract_syntax_error_frame(e):
     return {
         "id": f"tb-{token_urlsafe(12)}",
         "relevance": "error",
-        "idlocal": id(e),
+        "idframe": id(e),
         "filename": fmt_filename,
         "location": location,
         "notebook_cell": notebook_cell,
@@ -1541,7 +1540,7 @@ def extract_frames(
                 "id": f"tb-{token_urlsafe(12)}",
                 "relevance": relevance,
                 "hidden": hidden,  # For chain analysis; filtered out after ordering
-                "idlocal": id(frame.f_locals),  # Identity used for inspector deduplication
+                "idframe": id(frame),  # Identity used for inspector deduplication
                 "filename": filename,
                 "original_filename": original_filename,  # For chain analysis AST parsing
                 "location": location,

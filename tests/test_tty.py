@@ -1069,6 +1069,43 @@ class TestVariableInspector:
         assert result == []
         assert min_width == 0
 
+    def test_truncate_inspector_line_narrow_value_space(self):
+        """When only the prefix fits, the value is replaced by a dim ellipsis."""
+        from tracerite.tty import DIM, RESET
+
+        colored = "var: str = some value"
+        width = len(colored)
+        value_start = len("var: str = ")
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content=value_start + 1
+        )
+        assert result == f"{DIM}…{RESET}"
+
+    def test_build_variable_inspector_dim_ellipsis(self):
+        """Standalone and trailing ellipsis markers get dim styling."""
+        from tracerite.inspector import VarInfo
+        from tracerite.tty import DIM, RESET
+
+        # Inline value ending with an ellipsis (as prettyvalue produces).
+        variables = [
+            VarInfo(name="s", typename="str", value="abc …", format_hint="inline")
+        ]
+        result, _ = _build_variable_inspector(variables, term_width=200)
+        assert result
+        colored, _, _ = result[0]
+        assert f"{DIM}…{RESET}" in colored
+
+        # Block value containing the vertical-ellipsis truncation marker.
+        variables = [
+            VarInfo(
+                name="b", typename="str", value="line1\n⋮\nline2", format_hint="block"
+            )
+        ]
+        result, _ = _build_variable_inspector(variables, term_width=200)
+        assert len(result) == 3
+        marker_line = result[1][0]
+        assert f"{DIM}⋮{RESET}" in marker_line
+
 
 class TestSymbols:
     """Tests for symbol definitions."""
@@ -2569,6 +2606,42 @@ class TestMergeChronoOutputBranches:
         assert "…" in result
         for line in result.splitlines():
             assert _display_width(line) <= 40
+
+    def test_inspector_skipped_when_narrow(self):
+        """A multi-line inspector that does not fit is skipped cleanly."""
+        from tracerite.inspector import VarInfo
+        from tracerite.tty import _build_variable_inspector, _merge_chrono_output
+
+        output_lines = [
+            ("short line", 10, 0, True),
+        ]
+        variables = [
+            VarInfo(
+                name="long_name",
+                typename="str",
+                value="line1\nline2\nline3",
+                format_hint="block",
+            ),
+        ]
+        inspector_lines, min_width = _build_variable_inspector(
+            variables, term_width=200
+        )
+        frame_info_list = [{"relevance": "error"}]
+
+        result, _ = _merge_chrono_output(
+            output_lines,
+            [inspector_lines],
+            [min_width],
+            term_width=20,
+            inspector_frame_indices=[0],
+            exception_banners=[],
+            frame_info_list=frame_info_list,
+        )
+        # The inspector was too wide for the terminal, so no variable content
+        # is rendered; the code line and frame border are still present.
+        assert "short line" in result
+        assert "line1" not in result
+        assert "long_name" not in result
 
 
 class TestPrintChronologicalBranches:

@@ -1237,7 +1237,9 @@ def _merge_chrono_output(
                 for extra_li in range(li + 1, inspector_end):
                     if extra_li not in inspector_at:
                         continue
-                    _, insp_line_idx, arrow_line, inspector_col = inspector_at[extra_li]
+                    _, insp_line_idx, _arrow_line, inspector_col = inspector_at[
+                        extra_li
+                    ]
                     insp_lines = all_inspector_lines[insp_idx]
                     insp_line, insp_width, value_start = insp_lines[insp_line_idx]
 
@@ -1250,16 +1252,8 @@ def _merge_chrono_output(
 
                     cursor_pos = f"{ESC}{inspector_col + 1}G"
                     is_last = insp_line_idx == len(insp_lines) - 1
-                    is_arrow = insp_line_idx == arrow_line
-
-                    if is_arrow:
-                        box_char = BOX_BR if is_last else BOX_VL
-                        output += f"{cursor_pos}{DIM}{ARROW_LEFT}{BOX_H}{box_char}{RESET} {insp_line}{EOL}"
-                    else:
-                        box_char = BOX_BL if is_last else BOX_V
-                        output += (
-                            f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}{EOL}"
-                        )
+                    box_char = BOX_BL if is_last else BOX_V
+                    output += f"{cursor_pos}  {DIM}{box_char}{RESET} {insp_line}{EOL}"
 
         # Insert exception banner if needed
         while banner_idx < len(exception_banners):

@@ -1357,7 +1357,7 @@ def test_recursive_frames_keep_distinct_inspectors():
 def test_exc_message_suppressed_at_module_level():
     """Module-level re-raises share the module dict, so the message var is hidden."""
     code = textwrap.dedent(
-        '''
+        """
         from tracerite import extract_chain
 
         msg = "unique long module error message"
@@ -1365,7 +1365,7 @@ def test_exc_message_suppressed_at_module_level():
             raise ValueError("inner")
         except ValueError:
             raise RuntimeError(msg)
-        '''
+        """
     )
     with tempfile.TemporaryDirectory() as tmpdir:
         modname = "_tracerite_module_level_test"
@@ -1385,9 +1385,9 @@ def test_exc_message_suppressed_at_module_level():
             ]
             assert len(module_frames) == 2
             # The stored value is the integer id of the locals dict.
-            assert all(isinstance(fr["idlocal"], int) for fr in module_frames)
-            # Both module frames share the same module dict.
-            assert module_frames[0]["idlocal"] == module_frames[1]["idlocal"]
+            assert all(isinstance(fr["idframe"], int) for fr in module_frames)
+            # Both module frames point at the same frame object.
+            assert module_frames[0]["idframe"] == module_frames[1]["idframe"]
             msg_names = {
                 v.name
                 for exc in chain
