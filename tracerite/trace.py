@@ -1447,6 +1447,7 @@ def extract_frames(
                         "id": f"tb-{token_urlsafe(12)}",
                         "relevance": relevance,
                         "hidden": True,
+                        "idframe": id(frame),
                         "lineno": lineno,
                         "full_source": full_source,
                         "full_source_start": full_source_start,
