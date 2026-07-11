@@ -5,7 +5,7 @@ import linecache
 import re
 import sys
 import tokenize
-from collections import namedtuple
+from collections import deque, namedtuple
 from contextlib import suppress
 from pathlib import Path
 from secrets import token_urlsafe
@@ -1219,7 +1219,7 @@ def _build_position_map(raw_tb):
         return position_map
     try:
         for frame_obj, positions in trace_cpy._walk_tb_with_full_positions(raw_tb):
-            position_map.setdefault(frame_obj, []).append(positions)
+            position_map.setdefault(frame_obj, deque()).append(positions)
     except Exception:
         logger.exception("Error extracting position information")
     return position_map
@@ -1429,7 +1429,7 @@ def extract_frames(
         # A frame object may occur multiple times in the traceback, so consume the
         # next stored position for this frame in order.
         frame_positions = position_map.get(frame)
-        pos = frame_positions.pop(0) if frame_positions else [None] * 4
+        pos = frame_positions.popleft() if frame_positions else [None] * 4
         pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
 
         # Check if this is a notebook cell (to reduce context)
