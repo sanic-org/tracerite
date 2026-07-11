@@ -1081,6 +1081,22 @@ class TestVariableInspector:
         )
         assert result == f"{DIM}…{RESET}"
 
+    def test_truncate_inspector_line_wide_chars(self):
+        """Truncation respects display columns, not character counts."""
+        colored = "var: str = 日本語の値"
+        plain = ANSI_ESCAPE_RE.sub("", colored)
+        width = _display_width(plain)
+        value_start = len("var: str = ")
+        available_for_content = value_start + 5  # room for 5 display columns
+
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content=available_for_content
+        )
+
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+        assert _display_width(result_plain) <= available_for_content
+        assert "…" in result
+
     def test_build_variable_inspector_dim_ellipsis(self):
         """Standalone and trailing ellipsis markers get dim styling."""
         from tracerite.inspector import VarInfo

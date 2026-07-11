@@ -1016,18 +1016,14 @@ def _truncate_inspector_line(
 
     The prefix (variable name/type/alignment) is preserved with its existing
     colouring; only the value portion is shortened, and a dim ellipsis is
-    appended when truncation occurs.
+    appended when truncation occurs.  All width calculations are done in
+    terminal display columns, so wide characters are accounted for.
     """
     if insp_width <= available_for_content or available_for_content <= 0:
         return insp_line
 
-    available_for_value = available_for_content - value_start
-    if available_for_value <= 1:
-        return f"{DIM}…{RESET}"
-
-    # Find the byte index in the coloured string that corresponds to
-    # ``value_start`` characters of plain text, so we can keep the prefix
-    # colouring intact.
+    # Split the coloured line into prefix and value at the value_start plain-text
+    # boundary, keeping the prefix's ANSI colouring intact.
     plain_idx = 0
     colored_idx = 0
     while plain_idx < value_start and colored_idx < len(insp_line):
@@ -1040,9 +1036,17 @@ def _truncate_inspector_line(
             colored_idx += 1
 
     prefix_colored = insp_line[:colored_idx]
-    value_plain = ANSI_ESCAPE_RE.sub("", insp_line)[value_start:]
-    truncated_value = value_plain[: available_for_value - 1]
-    return f"{prefix_colored}{VAR}{truncated_value}{DIM}…{RESET}"
+    value_colored = insp_line[colored_idx:]
+    prefix_width = _display_width(ANSI_ESCAPE_RE.sub("", prefix_colored))
+
+    available_for_value = available_for_content - prefix_width
+    if available_for_value <= 1:
+        return f"{DIM}…{RESET}"
+
+    # Truncate the value in display columns using the column-aware wrapper.
+    wrapped = _wrap_code_line(value_colored, available_for_value - 1)
+    truncated_value = wrapped[0] if wrapped else ""
+    return f"{prefix_colored}{truncated_value}{DIM}…{RESET}"
 
 
 def _merge_chrono_output(
