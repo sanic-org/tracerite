@@ -174,6 +174,26 @@ class TestExtractVariables:
         assert "msg" not in names_filtered
         assert "x" in names_filtered
 
+    def test_exc_message_suppression_requires_min_length(self):
+        """Short exception messages are not suppressed to avoid collisions."""
+        variables = {"msg": "short", "x": 1}
+        sourcecode = "raise ValueError(msg)\ny = x"
+
+        rows = extract_variables(variables, sourcecode, exc_message="short")
+        names = {row[0] for row in rows}
+        assert "msg" in names
+        assert "x" in names
+
+    def test_exc_message_suppression_only_for_strings(self):
+        """Only string variables are suppressed, not other types with same str()."""
+        variables = {"code": 123456789012, "x": 1}
+        sourcecode = "raise ValueError(code)\ny = x"
+
+        rows = extract_variables(variables, sourcecode, exc_message="123456789012")
+        names = {row[0] for row in rows}
+        assert "code" in names
+        assert "x" in names
+
 
 class TestPrettyValue:
     """Test prettyvalue function with various data types."""

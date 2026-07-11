@@ -1359,3 +1359,33 @@ def test_re_raise_in_same_function_has_distinct_frames():
         # same line because the frame object was used as a dictionary key.
         assert len({fr["lineno"] for fr in outer_frames}) == 2
         assert len({fr["cursor_line"] for fr in outer_frames}) == 2
+
+
+def test_exc_message_variable_suppressed_across_same_function_frames():
+    """The exception-message variable is hidden in every frame sharing locals.
+
+    When an exception is caught and a new one is raised inside the same
+    function, the same locals dict appears in multiple traceback frames.  The
+    message variable must be suppressed in all of them, not just the final
+    raising frame.
+    """
+
+    def _same_function_chain():
+        msg = "unique long error message"
+        try:
+            raise ValueError("first")
+        except ValueError:
+            raise RuntimeError(msg)
+
+    try:
+        _same_function_chain()
+    except RuntimeError as e:
+        chain = extract_chain(e)
+        msg_names = {
+            v.name
+            for exc in chain
+            for frame in exc["frames"]
+            for v in frame["variables"]
+            if v.name == "msg"
+        }
+        assert "msg" not in msg_names

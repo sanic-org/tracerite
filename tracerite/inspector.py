@@ -12,6 +12,11 @@ from typing import Any
 
 from .logging import logger
 
+# Minimum length for a string value to be considered a match against the
+# exception message.  Short strings are too likely to collide with unrelated
+# variables by accident.
+_EXCEPTION_MESSAGE_MIN_MATCH_LEN = 12
+
 # Variable info with formatting metadata
 VarInfo = namedtuple("VarInfo", ["name", "typename", "value", "format_hint"])
 
@@ -215,10 +220,16 @@ def extract_variables(
             # Using repr is better for empty strings and some other cases
             if not strvalue and reprvalue:
                 strvalue = reprvalue
-            # Suppress the variable that was used as the exception message in the
-            # frame where the exception was raised; the message is already shown
-            # in the exception banner.
-            if exc_message and strvalue == exc_message:
+            # Suppress the variable that was used as the exception message.
+            # The message is already shown in the exception banner.  Only exact
+            # matches for string variables are suppressed, and only when the
+            # message is long enough to avoid accidental collisions.
+            if (
+                exc_message is not None
+                and typename == "str"
+                and len(exc_message) >= _EXCEPTION_MESSAGE_MIN_MATCH_LEN
+                and strvalue == exc_message
+            ):
                 continue
             # Try to print members of objects that don't have proper __str__
             elif no_str_conv.fullmatch(strvalue):

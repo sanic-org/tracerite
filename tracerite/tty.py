@@ -1227,8 +1227,8 @@ def _merge_chrono_output(
         # Emit any inspector lines that extend past this frame before inserting
         # exception banners. The previous line's EOL already provides the box
         # border, so we only need to position the inspector content.
-        for insp_idx, frame_idx in enumerate(inspector_frame_indices):
-            frame_start, frame_end = _find_frame_line_range(output_lines, frame_idx)
+        for insp_idx, fidx in enumerate(inspector_frame_indices):
+            frame_start, frame_end = _find_frame_line_range(output_lines, fidx)
             if li == frame_end:
                 inspector_start = positions[insp_idx]
                 inspector_height = len(all_inspector_lines[insp_idx])
