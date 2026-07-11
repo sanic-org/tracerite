@@ -901,6 +901,19 @@ class TestApplyBaseExceptionSuppression:
         result = _apply_base_exception_suppression([], [])
         assert result == []
 
+    def test_suppression_transfers_exception_from_suppressed_frame(self):
+        """Exception info on a suppressed frame is transferred to the bug frame."""
+        chronological = [
+            {"lineno": 1, "relevance": "warning"},
+            {"lineno": 2, "relevance": "call", "exception": {"type": "RuntimeError"}},
+            {"lineno": 3, "relevance": "error", "exception": {"type": "ValueError"}},
+        ]
+        result = _apply_base_exception_suppression(
+            chronological, [{"suppress_inner": True}]
+        )
+        assert result[0]["exception"]["type"] == "RuntimeError"
+        assert result[1]["exception"]["type"] == "ValueError"
+
 
 class TestGetFrameLinenoFallbacks:
     """Tests for _get_frame_lineno function fallbacks."""
