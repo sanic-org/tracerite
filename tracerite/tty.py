@@ -1015,11 +1015,20 @@ def _truncate_inspector_line(
     """Truncate an inspector line to fit the space available at render time.
 
     The prefix (variable name/type/alignment) is preserved with its existing
-    colouring; only the value portion is shortened, and a dim ellipsis is
+    colouring; only the value portion is shortened, and a plain ellipsis is
     appended when truncation occurs.  All width calculations are done in
     terminal display columns, so wide characters are accounted for.
+
+    Values produced by ``prettyvalue`` for long inline strings already contain
+    a middle ellipsis (`` … ``).  When such a value must be shortened further,
+    characters are removed from the right-hand side of that marker first so the
+    end of the string is preserved.  If the right side is completely removed
+    and the result still does not fit, characters are stripped from the left
+    side as well, keeping the ellipsis at the end.
     """
-    if insp_width <= available_for_content or available_for_content <= 0:
+    if available_for_content <= 0:
+        return "…"
+    if insp_width <= available_for_content:
         return insp_line
 
     # Split the coloured line into prefix and value at the value_start plain-text
@@ -1037,16 +1046,58 @@ def _truncate_inspector_line(
 
     prefix_colored = insp_line[:colored_idx]
     value_colored = insp_line[colored_idx:]
-    prefix_width = _display_width(ANSI_ESCAPE_RE.sub("", prefix_colored))
+    prefix_width = _display_width(prefix_colored)
 
     available_for_value = available_for_content - prefix_width
     if available_for_value <= 1:
-        return f"{DIM}…{RESET}"
+        return "…"
 
-    # Truncate the value in display columns using the column-aware wrapper.
-    wrapped = _wrap_code_line(value_colored, available_for_value - 1)
-    truncated_value = wrapped[0] if wrapped else ""
-    return f"{prefix_colored}{truncated_value}{DIM}…{RESET}"
+    value_plain = ANSI_ESCAPE_RE.sub("", value_colored)
+    inline_marker = " … "
+    if inline_marker in value_plain:
+        left, _, right = value_plain.partition(inline_marker)
+        marker_width = _display_width(inline_marker)
+        left_width = _display_width(left)
+
+        # Shorten the right side, preserving its end.
+        best_right = ""
+        for i in range(1, len(right) + 1):
+            suffix = right[-i:]
+            if (
+                left_width + marker_width + _display_width(suffix)
+                <= available_for_value
+            ):
+                best_right = suffix
+            else:
+                break
+
+        if best_right:
+            truncated = f"{left}{inline_marker}{best_right}"
+        else:
+            # Right side removed entirely; shorten the left side and keep the
+            # ellipsis at the end.
+            end_marker = "…"
+            end_width = _display_width(end_marker)
+            best_left = ""
+            for i in range(1, len(left) + 1):
+                prefix = left[:i]
+                if _display_width(prefix) + end_width <= available_for_value:
+                    best_left = prefix
+                else:
+                    break
+            truncated = f"{best_left}{end_marker}"
+    else:
+        # Truncate the value in display columns using the column-aware wrapper,
+        # reserving one column for the trailing ellipsis.
+        truncated = _wrap_code_line(value_colored, available_for_value - 1)[0]
+        truncated = f"{truncated}…"
+
+    # Restore the trailing reset if the line was coloured so later output is
+    # not affected by leaked ANSI styles.
+    if "\x1b" in prefix_colored or "\x1b" in value_colored:
+        truncated = f"{truncated}{RESET}"
+
+    return f"{prefix_colored}{truncated}"
 
 
 def _merge_chrono_output(
@@ -1241,9 +1292,7 @@ def _merge_chrono_output(
                 for extra_li in range(li + 1, inspector_end):
                     if extra_li not in inspector_at:
                         continue
-                    _, insp_line_idx, _arrow_line, inspector_col = inspector_at[
-                        extra_li
-                    ]
+                    _, insp_line_idx, _, inspector_col = inspector_at[extra_li]
                     insp_lines = all_inspector_lines[insp_idx]
                     insp_line, insp_width, value_start = insp_lines[insp_line_idx]
 
@@ -1418,18 +1467,10 @@ def _build_variable_inspector(
         padding = " " * (max_name_part_len - len(name_part))
         indent = " " * prefix_width
 
-        def _dim_ellipsis(text: str) -> str:
-            """Return text with any standalone ellipsis wrapped in dim styling."""
-            if text == "⋮":
-                return f"{DIM}⋮{RESET}"
-            if text.endswith("…"):
-                return f"{text[:-1]}{DIM}…{RESET}"
-            return text
-
         # Handle multi-line block format
         if fmt_hint == "block" and "\n" in val_str:  # pragma: no cover
             for i, val_line in enumerate(val_str.split("\n")):
-                val_line_colored = _dim_ellipsis(val_line)
+                val_line_colored = val_line
                 if i == 0:
                     # First line with name and type
                     if typename:
@@ -1443,7 +1484,7 @@ def _build_variable_inspector(
                     result.append((line, _display_width(line), prefix_width))
         else:
             # Single line format
-            val_str_colored = _dim_ellipsis(val_str)
+            val_str_colored = val_str
             if typename:
                 line = f"{VAR}{padding}{name}: {TYPE_COLOR}{typename} = {VAR}{val_str_colored}{RESET}"
             else:

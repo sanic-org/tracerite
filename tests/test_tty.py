@@ -1070,16 +1070,14 @@ class TestVariableInspector:
         assert min_width == 0
 
     def test_truncate_inspector_line_narrow_value_space(self):
-        """When only the prefix fits, the value is replaced by a dim ellipsis."""
-        from tracerite.tty import DIM, RESET
-
+        """When only the prefix fits, the value is replaced by a plain ellipsis."""
         colored = "var: str = some value"
         width = len(colored)
         value_start = len("var: str = ")
         result = _truncate_inspector_line(
             colored, width, value_start, available_for_content=value_start + 1
         )
-        assert result == f"{DIM}…{RESET}"
+        assert result == "…"
 
     def test_truncate_inspector_line_wide_chars(self):
         """Truncation respects display columns, not character counts."""
@@ -1097,30 +1095,137 @@ class TestVariableInspector:
         assert _display_width(result_plain) <= available_for_content
         assert "…" in result
 
-    def test_build_variable_inspector_dim_ellipsis(self):
-        """Standalone and trailing ellipsis markers get dim styling."""
+    def test_build_variable_inspector_preserves_content_ellipsis(self):
+        """Ellipsis characters that are part of the value are not restyled."""
         from tracerite.inspector import VarInfo
-        from tracerite.tty import DIM, RESET
+        from tracerite.tty import DIM
 
-        # Inline value ending with an ellipsis (as prettyvalue produces).
         variables = [
             VarInfo(name="s", typename="str", value="abc …", format_hint="inline")
         ]
         result, _ = _build_variable_inspector(variables, term_width=200)
-        assert result
         colored, _, _ = result[0]
-        assert f"{DIM}…{RESET}" in colored
+        # No dim styling was applied to the content ellipsis.
+        assert DIM not in colored
 
-        # Block value containing the vertical-ellipsis truncation marker.
+    def test_truncate_inspector_line_inline_marker_shortens_right(self):
+        """Inline values shorten the right side of the middle ellipsis first."""
+        from tracerite.inspector import VarInfo
+
+        value = "head12345 … tail12345"
+        variables = [
+            VarInfo(name="s", typename="str", value=value, format_hint="inline")
+        ]
+        entries, _ = _build_variable_inspector(variables, term_width=200)
+        colored, width, value_start = entries[0]
+        prefix_width = _display_width(ANSI_ESCAPE_RE.sub("", colored[:value_start]))
+
+        available_for_content = prefix_width + 15
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content
+        )
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+
+        assert "head12345" in result_plain
+        assert " … " in result_plain
+        # The end of the right side is preserved, not its beginning.
+        assert result_plain.endswith("45")
+        assert "tail" not in result_plain
+        assert _display_width(result_plain) <= available_for_content
+        assert result.endswith(RESET)
+
+    def test_truncate_inspector_line_inline_marker_shortens_left(self):
+        """Once the right side is gone, shorten the left side and keep trailing ellipsis."""
+        from tracerite.inspector import VarInfo
+
+        value = "head12345 … tail12345"
+        variables = [
+            VarInfo(name="s", typename="str", value=value, format_hint="inline")
+        ]
+        entries, _ = _build_variable_inspector(variables, term_width=200)
+        colored, width, value_start = entries[0]
+        prefix_width = _display_width(ANSI_ESCAPE_RE.sub("", colored[:value_start]))
+
+        available_for_content = prefix_width + 8
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content
+        )
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+
+        assert result_plain.endswith("…")
+        assert "head123" in result_plain
+        assert "tail" not in result_plain
+        assert " … " not in result_plain
+        assert _display_width(result_plain) <= available_for_content
+        assert result.endswith(RESET)
+
+    def test_truncate_inspector_line_inline_marker_plain_line(self):
+        """Inline-marker truncation also works on uncoloured lines."""
+        colored = "var: str = head12345 … tail12345"
+        width = len(colored)
+        value_start = len("var: str = ")
+        available_for_content = value_start + 15
+
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content
+        )
+
+        assert result == "var: str = head12345 … 345"
+        assert "\x1b" not in result
+
+    def test_truncate_inspector_line_zero_available(self):
+        """When no content space is available, return a plain ellipsis."""
+        result = _truncate_inspector_line(
+            "var: str = value",
+            insp_width=17,
+            value_start=12,
+            available_for_content=0,
+        )
+        assert result == "…"
+
+    def test_truncate_inspector_line_inline_marker_empty_right(self):
+        """A marker with no right side falls back to trailing ellipsis."""
+        from tracerite.inspector import VarInfo
+
         variables = [
             VarInfo(
-                name="b", typename="str", value="line1\n⋮\nline2", format_hint="block"
+                name="s", typename="str", value="head12345 … ", format_hint="inline"
             )
         ]
-        result, _ = _build_variable_inspector(variables, term_width=200)
-        assert len(result) == 3
-        marker_line = result[1][0]
-        assert f"{DIM}⋮{RESET}" in marker_line
+        entries, _ = _build_variable_inspector(variables, term_width=200)
+        colored, width, value_start = entries[0]
+        prefix_width = _display_width(ANSI_ESCAPE_RE.sub("", colored[:value_start]))
+
+        available_for_content = prefix_width + 11
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content
+        )
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+
+        assert "head12345" in result_plain
+        assert result_plain.endswith("…")
+        assert "tail" not in result_plain
+        assert _display_width(result_plain) <= available_for_content
+
+    def test_truncate_inspector_line_inline_marker_both_sides_empty(self):
+        """A value that is only a marker collapses to a single ellipsis."""
+        from tracerite.inspector import VarInfo
+
+        variables = [
+            VarInfo(name="s", typename="str", value=" … ", format_hint="inline")
+        ]
+        entries, _ = _build_variable_inspector(variables, term_width=200)
+        colored, width, value_start = entries[0]
+        prefix_width = _display_width(ANSI_ESCAPE_RE.sub("", colored[:value_start]))
+
+        available_for_content = prefix_width + 2
+        result = _truncate_inspector_line(
+            colored, width, value_start, available_for_content
+        )
+        result_plain = ANSI_ESCAPE_RE.sub("", result)
+
+        assert result_plain.endswith("…")
+        assert _display_width(result_plain) <= available_for_content
 
 
 class TestSymbols:

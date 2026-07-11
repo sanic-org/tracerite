@@ -1329,9 +1329,9 @@ def test_exc_message_variable_suppressed_across_same_function_frames():
 def test_recursive_frames_keep_distinct_inspectors():
     """Each recursive call level must keep its own variable inspector.
 
-    Frames for the same function but different invocations have different
-    ``f_locals`` dicts, so the inspector should be shown for every level, not
-    just the deepest one.
+    Frames for the same function but different invocations are different
+    frame objects, so the inspector should be shown for every level, not just
+    the deepest one.
     """
 
     def recurse(n):
@@ -1344,7 +1344,7 @@ def test_recursive_frames_keep_distinct_inspectors():
     except ValueError as e:
         chain = extract_chain(e)
         recurse_frames = [
-            fr for fr in chain[0]["frames"] if fr.get("function") == "recurse"
+            fr for fr in chain[0]["frames"] if fr["function"] == "recurse"
         ]
         assert len(recurse_frames) == 4
         for fr in recurse_frames:
@@ -1378,13 +1378,10 @@ def test_exc_message_suppressed_at_module_level():
         except RuntimeError as e:
             chain = extract_chain(e)
             module_frames = [
-                fr
-                for exc in chain
-                for fr in exc["frames"]
-                if fr.get("function") is None
+                fr for exc in chain for fr in exc["frames"] if fr["function"] is None
             ]
             assert len(module_frames) == 2
-            # The stored value is the integer id of the locals dict.
+            # The stored value is the integer id of the frame object.
             assert all(isinstance(fr["idframe"], int) for fr in module_frames)
             # Both module frames point at the same frame object.
             assert module_frames[0]["idframe"] == module_frames[1]["idframe"]

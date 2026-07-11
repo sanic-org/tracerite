@@ -204,13 +204,10 @@ def _deduplicate_variables(chain: list) -> None:
     # level) point at the same frame object.
     frame_groups: dict[int, list[tuple[int, int]]] = {}
     for ei, exc in enumerate(chain):
-        for fi, frame in enumerate(exc.get("frames", [])):
-            key = frame["idframe"]
-            if key not in frame_groups:
-                frame_groups[key] = []
-            frame_groups[key].append((ei, fi))
+        for fi, frame in enumerate(exc["frames"]):
+            frame_groups.setdefault(frame["idframe"], []).append((ei, fi))
 
-    # Only the last frame of each group keeps its inspector.
+    # Only the last occurrence of each frame object keeps its inspector.
     for occurrences in frame_groups.values():
         for ei, fi in occurrences[:-1]:
             chain[ei]["frames"][fi]["variables"] = []
