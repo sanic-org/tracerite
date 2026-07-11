@@ -314,6 +314,10 @@ def _frame_in_except_handler(frame: dict) -> bool:
     try:
         if full_source:
             blocks = parse_source_string_for_try_except(full_source, full_source_start)
+            # Partial or mis-indented source may parse to nothing; fall back to
+            # the full file so handler detection still works.
+            if not blocks:
+                blocks = parse_source_for_try_except(filename)
         else:
             blocks = parse_source_for_try_except(filename)
     except Exception:

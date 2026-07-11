@@ -1144,6 +1144,29 @@ class TestFrameInExceptHandler:
         }
         assert _frame_in_except_handler(frame) is False
 
+    def test_string_parse_empty_falls_back_to_file(self):
+        """When full_source parses to nothing, file parsing is used as fallback."""
+        import os
+        import tempfile
+
+        source = "try:\n    pass\nexcept ValueError:\n    handler()\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(source)
+            temp_file = f.name
+
+        try:
+            # Mis-indented partial source fails string parsing, so we should
+            # fall back to parsing the full file and still detect the handler.
+            frame = {
+                "filename": temp_file,
+                "lineno": 4,
+                "full_source": "    except ValueError:\n        handler()\n",
+                "full_source_start": 1,
+            }
+            assert _frame_in_except_handler(frame) is True
+        finally:
+            os.unlink(temp_file)
+
 
 class TestExceptionGroupReRaise:
     """Tests for ExceptionGroup handler-frame reordering in chronological output."""
