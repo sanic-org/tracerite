@@ -543,11 +543,14 @@ def _filter_hidden_frames(chronological: list[dict]) -> list[dict]:
 def _apply_base_exception_suppression(
     chronological: list[dict], chain: list[dict]
 ) -> list[dict]:
-    """Suppress library frames after the last user code frame for BaseExceptions.
+    """Suppress library frames after the last user code frame.
 
-    For BaseExceptions (KeyboardInterrupt, SystemExit, etc.), we don't want to
-    show library internals - only show frames up to the last user code frame
-    (the "bug frame"). The exception info is transferred to the last shown frame.
+    When any exception in the chain has ``suppress_inner=True`` (e.g.
+    BaseExceptions such as KeyboardInterrupt/SystemExit, or ExceptionGroups),
+    library frames that appear after the last user code "bug frame" are hidden.
+    Subsequent user code frames (``except`` handlers, the final error frame,
+    etc.) are kept, and the exception info is transferred to the last shown
+    frame.
 
     Args:
         chronological: The full list of chronological frames
