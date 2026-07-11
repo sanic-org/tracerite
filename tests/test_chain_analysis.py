@@ -6,6 +6,7 @@ from tracerite.chain_analysis import (
     _apply_base_exception_suppression,
     _filter_hidden_frames,
     _find_chain_link,
+    _frame_in_except_handler,
     _get_frame_lineno,
     analyze_exception_chain_links,
     build_chronological_frames,
@@ -1105,3 +1106,147 @@ class TestSuppressionRelevanceChange:
         assert result[0]["parallel"] == [["existing"]]
         # The error frame keeps its own parallel
         assert result[-1]["parallel"] == [["suppressed"]]
+
+
+class TestFrameInExceptHandler:
+    """Tests for _frame_in_except_handler helper."""
+
+    def test_missing_filename_and_lineno_returns_false(self):
+        """Line 310: no filename/lineno means the frame can't be in an except."""
+        assert _frame_in_except_handler({}) is False
+        assert _frame_in_except_handler({"filename": None, "lineno": None}) is False
+
+    def test_parse_source_exception_returns_false(self):
+        """Lines 318-320: parsing failure falls back to False."""
+        frame = {
+            "filename": 123,  # non-string filename triggers an unexpected exception
+            "lineno": 1,
+        }
+        assert _frame_in_except_handler(frame) is False
+
+    def test_frame_inside_except_handler(self):
+        """Frame whose line is inside an except body is detected."""
+        frame = {
+            "filename": "test.py",
+            "lineno": 4,
+            "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+            "full_source_start": 1,
+        }
+        assert _frame_in_except_handler(frame) is True
+
+    def test_frame_outside_except_handler(self):
+        """Frame whose line is in the try body is not in the except handler."""
+        frame = {
+            "filename": "test.py",
+            "lineno": 2,
+            "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+            "full_source_start": 1,
+        }
+        assert _frame_in_except_handler(frame) is False
+
+
+class TestExceptionGroupReRaise:
+    """Tests for ExceptionGroup handler-frame reordering in chronological output."""
+
+    def test_exception_group_re_raise_moves_handler_to_end(self):
+        """Lines 724-767: re-raise handler frames move to the end and are promoted."""
+        sub_chain = [
+            {
+                "type": "ValueError",
+                "message": "sub",
+                "summary": "sub",
+                "from": "none",
+                "frames": [
+                    {
+                        "filename": "sub.py",
+                        "lineno": 5,
+                        "function": "sub_fn",
+                        "relevance": "error",
+                    }
+                ],
+            }
+        ]
+        group_exc = {
+            "type": "ExceptionGroup",
+            "message": "group",
+            "summary": "group",
+            "from": "none",
+            "subexceptions": [sub_chain],
+            "frames": [
+                {
+                    "filename": "main.py",
+                    "lineno": 4,
+                    "function": "handler",
+                    "relevance": "call",
+                    "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+                    "full_source_start": 1,
+                },
+                {
+                    "filename": "main.py",
+                    "lineno": 2,
+                    "function": "caller",
+                    "relevance": "error",
+                    "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+                    "full_source_start": 1,
+                },
+            ],
+        }
+
+        chrono = build_chronological_frames([group_exc])
+
+        assert len(chrono) == 2
+        # The original raise frame comes first, with parallel subexception branches
+        assert chrono[0]["function"] == "caller"
+        assert "parallel" in chrono[0]
+        # The handler frame is moved to the end and promoted
+        assert chrono[1]["function"] == "handler"
+        assert chrono[1]["relevance"] == "except"
+        assert chrono[1]["function_suffix"] == "⚡except"
+        assert chrono[1]["exception"]["type"] == "ExceptionGroup"
+
+    def test_exception_group_handler_error_relevance_not_promoted(self):
+        """Line 765->767: handler frame keeps its relevance if it isn't call/warning."""
+        group_exc = {
+            "type": "ExceptionGroup",
+            "message": "group",
+            "summary": "group",
+            "from": "none",
+            "subexceptions": [
+                [
+                    {
+                        "type": "ValueError",
+                        "message": "v",
+                        "summary": "v",
+                        "from": "none",
+                        "frames": [],
+                    }
+                ]
+            ],
+            "frames": [
+                {
+                    "filename": "main.py",
+                    "lineno": 4,
+                    "function": "handler",
+                    "relevance": "error",
+                    "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+                    "full_source_start": 1,
+                },
+                {
+                    "filename": "main.py",
+                    "lineno": 2,
+                    "function": "caller",
+                    "relevance": "error",
+                    "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+                    "full_source_start": 1,
+                },
+            ],
+        }
+
+        chrono = build_chronological_frames([group_exc])
+
+        assert len(chrono) == 2
+        # Handler frame moved to the end but keeps its original relevance
+        assert chrono[1]["function"] == "handler"
+        assert chrono[1]["relevance"] == "error"
+        assert chrono[1]["function_suffix"] == "⚡except"
+        assert chrono[1]["exception"]["type"] == "ExceptionGroup"

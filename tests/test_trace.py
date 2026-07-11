@@ -1309,6 +1309,7 @@ def test_re_raise_in_same_function_has_distinct_frames():
         assert len({fr["lineno"] for fr in outer_frames}) == 2
         assert len({fr["cursor_line"] for fr in outer_frames}) == 2
 
+
 def test_exc_message_variable_suppressed_in_raising_frame():
     """The variable used as the exception message is hidden in the inner frame."""
 
