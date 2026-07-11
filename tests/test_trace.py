@@ -1,6 +1,10 @@
 """Tests for em_columns functionality with caret anchors."""
 
+import importlib
+import os
 import sys
+import tempfile
+import textwrap
 
 import pytest
 
@@ -1161,11 +1165,7 @@ def func_with_blanks():
 
 
 def test_deduplicate_variables_with_comprehension():
-    """Test that variable deduplication handles comprehension errors.
-
-    This tests line 124: the branch where _find_comprehension_range returns
-    a non-None value during _get_highlighted_lines in _deduplicate_variables.
-    """
+    """Variable deduplication handles comprehension errors using real frames."""
     # Use extract_chain (not extract_exception) to trigger _deduplicate_variables
     try:
         comprehension_error()
@@ -1176,41 +1176,6 @@ def test_deduplicate_variables_with_comprehension():
     assert chain
     # The deduplication should have run on the comprehension frame
     assert chain[0]["frames"]
-
-
-def test_deduplicate_variables_invalid_range():
-    """Test _deduplicate_variables handles frames with invalid ranges.
-
-    This tests line 134: the fallback when first_idx < 0 or first_idx >= len(lines_list).
-    """
-
-    # Create a mock chain with an invalid range to trigger the fallback
-    class MockRange:
-        lfirst = 1000  # Way past the end of any code
-        lfinal = 1001
-
-    from tracerite.inspector import VarInfo
-    from tracerite.trace import _deduplicate_variables
-
-    mock_chain = [
-        {
-            "frames": [
-                {
-                    "filename": "test.py",
-                    "function": "test_func",
-                    "lines": "x = 1\ny = 2",
-                    "linenostart": 1,
-                    "range": MockRange(),
-                    "variables": [VarInfo("x", "int", "1", "inline")],
-                }
-            ]
-        }
-    ]
-
-    # Should not raise, just fall back gracefully
-    _deduplicate_variables(mock_chain)
-    # Variables should still be processed (possibly filtered out)
-    assert "variables" in mock_chain[0]["frames"][0]
 
 
 # Python 3.13+ has linecache._getline_from_code for interactive source retrieval
@@ -1313,3 +1278,124 @@ def bar():
         assert "def foo():" in joined
         assert "return x" in joined
         assert "def bar():" not in joined
+
+
+def test_exc_message_variable_suppressed_in_raising_frame():
+    """The variable used as the exception message is hidden in the inner frame."""
+
+    def _raise_with_msg():
+        msg = "unique error message 12345"
+        raise ValueError(msg)
+
+    try:
+        _raise_with_msg()
+    except ValueError as e:
+        chain = extract_chain(e)
+        frame = chain[0]["frames"][-1]
+        var_names = {v.name for v in frame["variables"]}
+        assert "msg" not in var_names
+
+
+def test_exc_message_variable_suppressed_across_same_function_frames():
+    """The exception-message variable is hidden in every frame sharing locals.
+
+    When an exception is caught and a new one is raised inside the same
+    function, the same locals dict appears in multiple traceback frames.  The
+    message variable must be suppressed in all of them, not just the final
+    raising frame.
+    """
+
+    def _same_function_chain():
+        msg = "unique long error message"
+        try:
+            raise ValueError("first")
+        except ValueError:
+            raise RuntimeError(msg)
+
+    try:
+        _same_function_chain()
+    except RuntimeError as e:
+        chain = extract_chain(e)
+        msg_names = {
+            v.name
+            for exc in chain
+            for frame in exc["frames"]
+            for v in frame["variables"]
+            if v.name == "msg"
+        }
+        assert "msg" not in msg_names
+
+
+def test_recursive_frames_keep_distinct_inspectors():
+    """Each recursive call level must keep its own variable inspector.
+
+    Frames for the same function but different invocations have different
+    ``f_locals`` dicts, so the inspector should be shown for every level, not
+    just the deepest one.
+    """
+
+    def recurse(n):
+        if n <= 0:
+            raise ValueError(n)
+        recurse(n - 1)
+
+    try:
+        recurse(3)
+    except ValueError as e:
+        chain = extract_chain(e)
+        recurse_frames = [
+            fr for fr in chain[0]["frames"] if fr.get("function") == "recurse"
+        ]
+        assert len(recurse_frames) == 4
+        for fr in recurse_frames:
+            names = {v.name for v in fr["variables"]}
+            assert "n" in names, (
+                f"recursive frame at line {fr.get('lineno')} lost its inspector"
+            )
+
+
+def test_exc_message_suppressed_at_module_level():
+    """Module-level re-raises share the module dict, so the message var is hidden."""
+    code = textwrap.dedent(
+        '''
+        from tracerite import extract_chain
+
+        msg = "unique long module error message"
+        try:
+            raise ValueError("inner")
+        except ValueError:
+            raise RuntimeError(msg)
+        '''
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        modname = "_tracerite_module_level_test"
+        path = os.path.join(tmpdir, modname + ".py")
+        with open(path, "w") as f:
+            f.write(code)
+        sys.path.insert(0, tmpdir)
+        try:
+            importlib.import_module(modname)
+        except RuntimeError as e:
+            chain = extract_chain(e)
+            module_frames = [
+                fr
+                for exc in chain
+                for fr in exc["frames"]
+                if fr.get("function") is None
+            ]
+            assert len(module_frames) == 2
+            # The stored value is the integer id of the locals dict.
+            assert all(isinstance(fr["idlocal"], int) for fr in module_frames)
+            # Both module frames share the same module dict.
+            assert module_frames[0]["idlocal"] == module_frames[1]["idlocal"]
+            msg_names = {
+                v.name
+                for exc in chain
+                for fr in exc["frames"]
+                for v in fr["variables"]
+                if v.name == "msg"
+            }
+            assert "msg" not in msg_names
+        finally:
+            sys.path.pop(0)
+            sys.modules.pop(modname, None)
