@@ -302,6 +302,28 @@ def _get_frame_lineno(frame: dict) -> int | None:
     return frame.get("linenostart")
 
 
+def _frame_in_except_handler(frame: dict) -> bool:
+    """Check whether a frame's line falls inside an ``except`` handler."""
+    filename = frame.get("original_filename") or frame.get("filename")
+    lineno = _get_frame_lineno(frame)
+    if not filename or lineno is None:
+        return False
+
+    full_source = frame.get("full_source")
+    full_source_start = frame.get("full_source_start", 1)
+    try:
+        blocks = []
+        if full_source:
+            blocks = parse_source_string_for_try_except(full_source, full_source_start)
+        # Fall back to the full file when source is missing or unparseable.
+        if not blocks:
+            blocks = parse_source_for_try_except(filename)
+    except Exception:
+        return False
+
+    return any(block.contains_in_except(lineno) for block in blocks)
+
+
 def _find_chain_link(inner_exc: dict, outer_exc: dict) -> ChainLink | None:
     """Find the try-except link between two consecutive exceptions.
 
@@ -519,66 +541,60 @@ def _filter_hidden_frames(chronological: list[dict]) -> list[dict]:
 def _apply_base_exception_suppression(
     chronological: list[dict], chain: list[dict]
 ) -> list[dict]:
-    """Suppress library frames after the last user code frame for BaseExceptions.
+    """Suppress library frames after the last user code frame.
 
-    For BaseExceptions (KeyboardInterrupt, SystemExit, etc.), we don't want to
-    show library internals - only show frames up to the last user code frame
-    (the "bug frame"). The exception info is transferred to the last shown frame.
-
-    Args:
-        chronological: The full list of chronological frames
-        chain: The exception chain (to check suppress_inner flag)
-
-    Returns:
-        Filtered list of frames with appropriate adjustments
+    When any exception has ``suppress_inner=True`` (BaseExceptions and
+    ExceptionGroups), hide library frames after the last user-code "bug frame",
+    but keep subsequent ``except``/``error`` frames. Exception info and parallel
+    branches are transferred to the bug frame unless already shown by a keeper.
     """
     if not chronological or not chain:
         return chronological
-
-    # Check if any exception in the chain has suppress_inner=True
-    # (This is set for BaseExceptions like KeyboardInterrupt, SystemExit)
-    has_suppress = any(exc.get("suppress_inner") for exc in chain)
-    if not has_suppress:
+    if not any(exc.get("suppress_inner") for exc in chain):
         return chronological
 
-    # Find the last "bug frame" (last user code frame before library code)
-    # This is marked by relevance="warning" during extraction
-    last_bug_frame_idx = None
-    for idx, frame in enumerate(chronological):
-        if frame.get("relevance") == "warning":
-            last_bug_frame_idx = idx
-
-    if last_bug_frame_idx is None:
-        # No bug frame found, return as-is
+    last_bug = next(
+        (
+            idx
+            for idx, frame in enumerate(chronological)
+            if frame.get("relevance") == "warning"
+        ),
+        None,
+    )
+    if last_bug is None:
         return chronological
 
-    # Suppress all frames after the bug frame
-    result = chronological[: last_bug_frame_idx + 1]
+    result = chronological[: last_bug + 1]
+    keepers = []
+    suppressed_exception = suppressed_parallel = None
+    for frame in chronological[last_bug + 1 :]:
+        if frame.get("relevance") in {"except", "error"}:
+            keepers.append(frame)
+            continue
+        if frame.get("exception") and suppressed_exception is None:
+            suppressed_exception = frame["exception"]
+        if frame.get("parallel") and suppressed_parallel is None:
+            suppressed_parallel = frame["parallel"]
 
-    # Transfer exception info and parallel branches from suppressed frames to the last shown frame
-    if result:  # pragma: no cover
-        # Check if any suppressed frame had an exception or parallel branches attached
-        suppressed_exception = None
-        suppressed_parallel = None
-        for suppressed in chronological[last_bug_frame_idx + 1 :]:
-            if suppressed.get("exception") and not suppressed_exception:
-                suppressed_exception = suppressed["exception"]
-            if suppressed.get("parallel") and not suppressed_parallel:
-                suppressed_parallel = suppressed["parallel"]
+    keeper_exc_types = {f.get("exception", {}).get("type") for f in keepers}
+    keeper_has_parallel = any(f.get("parallel") for f in keepers)
 
-        # If we're suppressing frames with an exception, transfer it to the last shown frame
-        if suppressed_exception and not result[-1].get("exception"):
-            result[-1] = {**result[-1], "exception": suppressed_exception}
+    if (
+        suppressed_exception
+        and not result[-1].get("exception")
+        and suppressed_exception.get("type") not in keeper_exc_types
+    ):
+        result[-1] = {**result[-1], "exception": suppressed_exception}
+    if (
+        suppressed_parallel
+        and not result[-1].get("parallel")
+        and not keeper_has_parallel
+    ):
+        result[-1] = {**result[-1], "parallel": suppressed_parallel}
 
-        # Transfer parallel branches (subexceptions) to the last shown frame
-        if suppressed_parallel and not result[-1].get("parallel"):
-            result[-1] = {**result[-1], "parallel": suppressed_parallel}
-
-        # Change relevance to "stop" to indicate suppression point
-        # (unless it already has an exception, which sets its own relevance)
-        if result[-1].get("relevance") in ("call", "warning"):  # pragma: no cover
-            result[-1] = {**result[-1], "relevance": "stop"}
-
+    # Mark the bug frame as the suppression point.
+    result[-1] = {**result[-1], "relevance": "stop"}
+    result.extend(keepers)
     return result
 
 
@@ -649,35 +665,47 @@ def _build_backbone_frames(
             chronological.append(chrono_frame)
     else:
         # No matched inner exception link - but still include inner exceptions (best effort)
-        # First, recursively process any inner exceptions
         if exc_idx > 0:
             inner_exc = chain[exc_idx - 1]
             inner_frames = inner_exc.get("frames", [])
             if inner_frames:
                 _build_backbone_frames(
-                    chronological,
-                    inner_exc,
-                    exc_idx - 1,
-                    inner_frames,
-                    links,
-                    chain,
+                    chronological, inner_exc, exc_idx - 1, inner_frames, links, chain
                 )
 
-        # Then output all frames for this exception
-        for frame_idx, frame in enumerate(frames):
-            chrono_frame = _copy_frame(frame)
-            is_last = frame_idx == len(frames) - 1
+        # For ExceptionGroups re-raised inside an ``except`` handler, move the
+        # handler frames to the end so they appear after the group and its
+        # subexceptions.
+        re_raise = [
+            i
+            for i, frame in enumerate(frames[:-1])
+            if exc.get("subexceptions") and _frame_in_except_handler(frame)
+        ]
+        order = [i for i in range(len(frames)) if i not in re_raise] + re_raise
+        last_idx = len(frames) - 1
+        banner = {
+            "type": exc.get("type"),
+            "message": exc.get("message"),
+            "summary": exc.get("summary"),
+            "from": exc.get("from"),
+            "exc_idx": exc_idx,
+        }
+
+        for idx, frame_idx in enumerate(order):
+            chrono_frame = _copy_frame(frames[frame_idx])
+            is_last = frame_idx == last_idx
+            is_final = idx == len(order) - 1
 
             if is_last:
-                chrono_frame["exception"] = {
-                    "type": exc.get("type"),
-                    "message": exc.get("message"),
-                    "summary": exc.get("summary"),
-                    "from": exc.get("from"),
-                    "exc_idx": exc_idx,
-                }
-                # Handle subexceptions for this ExceptionGroup
                 _add_subexceptions_to_frame(chrono_frame, exc)
+                if not re_raise:
+                    chrono_frame["exception"] = banner
+            if is_final and re_raise:
+                chrono_frame["exception"] = banner
+            if frame_idx in re_raise:
+                if chrono_frame.get("relevance") in ("call", "warning"):
+                    chrono_frame["relevance"] = "except"
+                chrono_frame["function_suffix"] = "⚡except"
 
             chronological.append(chrono_frame)
 

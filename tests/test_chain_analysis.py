@@ -6,6 +6,7 @@ from tracerite.chain_analysis import (
     _apply_base_exception_suppression,
     _filter_hidden_frames,
     _find_chain_link,
+    _frame_in_except_handler,
     _get_frame_lineno,
     analyze_exception_chain_links,
     build_chronological_frames,
@@ -865,24 +866,24 @@ class TestApplyBaseExceptionSuppression:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        # Should only have frames up to bug frame
-        assert len(result) == 2
-        # Last frame should have exception transferred
+        # Bug frame plus the final error frame are kept; the library call is suppressed
+        assert len(result) == 3
+        # The error frame keeps its own exception banner
         assert result[-1].get("exception") == {"type": "KeyboardInterrupt"}
-        # Relevance should be changed to "stop"
-        assert result[-1]["relevance"] == "stop"
+        # Bug frame relevance should be changed to "stop"
+        assert result[1]["relevance"] == "stop"
 
     def test_suppression_transfers_parallel(self):
         """Test that parallel branches are transferred during suppression."""
         chronological = [
             {"lineno": 1, "relevance": "warning"},  # Bug frame
-            {"lineno": 2, "relevance": "error", "parallel": [["branch1"]]},
+            {"lineno": 2, "relevance": "stop", "parallel": [["branch1"]]},
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
+        # The library stop frame is suppressed; its parallel moves to the bug frame
         assert len(result) == 1
-        # Parallel should be transferred
-        assert result[-1].get("parallel") == [["branch1"]]
+        assert result[0].get("parallel") == [["branch1"]]
 
     def test_suppression_no_bug_frame(self):
         """Test suppression when no bug frame exists."""
@@ -899,6 +900,19 @@ class TestApplyBaseExceptionSuppression:
         """Test with empty chain."""
         result = _apply_base_exception_suppression([], [])
         assert result == []
+
+    def test_suppression_transfers_exception_from_suppressed_frame(self):
+        """Exception info on a suppressed frame is transferred to the bug frame."""
+        chronological = [
+            {"lineno": 1, "relevance": "warning"},
+            {"lineno": 2, "relevance": "call", "exception": {"type": "RuntimeError"}},
+            {"lineno": 3, "relevance": "error", "exception": {"type": "ValueError"}},
+        ]
+        result = _apply_base_exception_suppression(
+            chronological, [{"suppress_inner": True}]
+        )
+        assert result[0]["exception"]["type"] == "RuntimeError"
+        assert result[1]["exception"]["type"] == "ValueError"
 
 
 class TestGetFrameLinenoFallbacks:
@@ -1022,8 +1036,12 @@ class TestSuppressionRelevanceChange:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        # Last frame should have relevance changed from warning to stop
-        assert result[-1]["relevance"] == "stop"
+        # Bug frame is followed by the kept error frame
+        assert len(result) == 2
+        # Bug frame relevance should be changed to "stop"
+        assert result[0]["relevance"] == "stop"
+        # The error frame keeps its own banner
+        assert result[-1].get("exception") == {"type": "KeyboardInterrupt"}
 
     def test_suppression_keeps_error_relevance(self):
         """Test that relevance='error' is not changed during suppression."""
@@ -1037,10 +1055,13 @@ class TestSuppressionRelevanceChange:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        # Only one frame returned (bug frame), and it should have the exception
-        assert len(result) == 1
+        # Both the bug frame and the error frame are kept
+        assert len(result) == 2
+        # The error frame keeps its exception and relevance
         assert result[-1].get("exception") == {"type": "KeyboardInterrupt"}
-        assert result[-1]["relevance"] == "stop"
+        assert result[-1]["relevance"] == "error"
+        # Bug frame's relevance becomes "stop"
+        assert result[0]["relevance"] == "stop"
 
     def test_suppression_does_not_change_error_relevance(self):
         """Test suppression with relevance='error' at bug frame (from edge case)."""
@@ -1052,9 +1073,11 @@ class TestSuppressionRelevanceChange:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        assert len(result) == 1
+        assert len(result) == 2
         # Bug frame's "warning" relevance gets changed to "stop"
-        assert result[-1]["relevance"] == "stop"
+        assert result[0]["relevance"] == "stop"
+        # Error frame keeps its exception
+        assert result[-1].get("exception") == {"type": "Error"}
 
     def test_suppression_not_change_except_relevance(self):
         """Test that relevance='except' on non-bug frame is preserved before suppression."""
@@ -1065,12 +1088,14 @@ class TestSuppressionRelevanceChange:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        # Frames up to and including bug frame are kept
-        assert len(result) == 2
+        # All three frames are kept
+        assert len(result) == 3
         # First frame keeps "except" relevance
         assert result[0]["relevance"] == "except"
-        # Bug frame (last) changes to "stop"
-        assert result[-1]["relevance"] == "stop"
+        # Bug frame changes to "stop"
+        assert result[1]["relevance"] == "stop"
+        # Error frame keeps its exception
+        assert result[-1].get("exception") == {"type": "Error"}
 
     def test_suppression_with_existing_parallel(self):
         """Test that existing parallel is not overwritten during suppression."""
@@ -1088,6 +1113,176 @@ class TestSuppressionRelevanceChange:
         ]
         chain = [{"suppress_inner": True}]
         result = _apply_base_exception_suppression(chronological, chain)
-        assert len(result) == 1
-        # Existing parallel should not be overwritten
-        assert result[-1]["parallel"] == [["existing"]]
+        # Error frames are kept, so both frames remain
+        assert len(result) == 2
+        # Existing parallel on the bug frame should not be overwritten
+        assert result[0]["parallel"] == [["existing"]]
+        # The error frame keeps its own parallel
+        assert result[-1]["parallel"] == [["suppressed"]]
+
+
+class TestFrameInExceptHandler:
+    """Tests for _frame_in_except_handler helper."""
+
+    def test_missing_filename_and_lineno_returns_false(self):
+        """Line 310: no filename/lineno means the frame can't be in an except."""
+        assert _frame_in_except_handler({}) is False
+        assert _frame_in_except_handler({"filename": None, "lineno": None}) is False
+
+    def test_parse_source_exception_returns_false(self):
+        """Lines 318-320: parsing failure falls back to False."""
+        frame = {
+            "filename": 123,  # non-string filename triggers an unexpected exception
+            "lineno": 1,
+        }
+        assert _frame_in_except_handler(frame) is False
+
+    def test_frame_inside_except_handler(self):
+        """Frame whose line is inside an except body is detected."""
+        frame = {
+            "filename": "test.py",
+            "lineno": 4,
+            "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+            "full_source_start": 1,
+        }
+        assert _frame_in_except_handler(frame) is True
+
+    def test_frame_outside_except_handler(self):
+        """Frame whose line is in the try body is not in the except handler."""
+        frame = {
+            "filename": "test.py",
+            "lineno": 2,
+            "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+            "full_source_start": 1,
+        }
+        assert _frame_in_except_handler(frame) is False
+
+    def test_string_parse_empty_falls_back_to_file(self):
+        """When full_source parses to nothing, file parsing is used as fallback."""
+        import os
+        import tempfile
+
+        source = "try:\n    pass\nexcept ValueError:\n    handler()\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(source)
+            temp_file = f.name
+
+        try:
+            # Mis-indented partial source fails string parsing, so we should
+            # fall back to parsing the full file and still detect the handler.
+            frame = {
+                "filename": temp_file,
+                "lineno": 4,
+                "full_source": "    except ValueError:\n        handler()\n",
+                "full_source_start": 1,
+            }
+            assert _frame_in_except_handler(frame) is True
+        finally:
+            os.unlink(temp_file)
+
+
+class TestExceptionGroupReRaise:
+    """Tests for ExceptionGroup handler-frame reordering in chronological output."""
+
+    def test_exception_group_re_raise_moves_handler_to_end(self):
+        """Lines 724-767: re-raise handler frames move to the end and are promoted."""
+        sub_chain = [
+            {
+                "type": "ValueError",
+                "message": "sub",
+                "summary": "sub",
+                "from": "none",
+                "frames": [
+                    {
+                        "filename": "sub.py",
+                        "lineno": 5,
+                        "function": "sub_fn",
+                        "relevance": "error",
+                    }
+                ],
+            }
+        ]
+        group_exc = {
+            "type": "ExceptionGroup",
+            "message": "group",
+            "summary": "group",
+            "from": "none",
+            "subexceptions": [sub_chain],
+            "frames": [
+                {
+                    "filename": "main.py",
+                    "lineno": 4,
+                    "function": "handler",
+                    "relevance": "call",
+                    "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+                    "full_source_start": 1,
+                },
+                {
+                    "filename": "main.py",
+                    "lineno": 2,
+                    "function": "caller",
+                    "relevance": "error",
+                    "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+                    "full_source_start": 1,
+                },
+            ],
+        }
+
+        chrono = build_chronological_frames([group_exc])
+
+        assert len(chrono) == 2
+        # The original raise frame comes first, with parallel subexception branches
+        assert chrono[0]["function"] == "caller"
+        assert "parallel" in chrono[0]
+        # The handler frame is moved to the end and promoted
+        assert chrono[1]["function"] == "handler"
+        assert chrono[1]["relevance"] == "except"
+        assert chrono[1]["function_suffix"] == "⚡except"
+        assert chrono[1]["exception"]["type"] == "ExceptionGroup"
+
+    def test_exception_group_handler_error_relevance_not_promoted(self):
+        """Line 765->767: handler frame keeps its relevance if it isn't call/warning."""
+        group_exc = {
+            "type": "ExceptionGroup",
+            "message": "group",
+            "summary": "group",
+            "from": "none",
+            "subexceptions": [
+                [
+                    {
+                        "type": "ValueError",
+                        "message": "v",
+                        "summary": "v",
+                        "from": "none",
+                        "frames": [],
+                    }
+                ]
+            ],
+            "frames": [
+                {
+                    "filename": "main.py",
+                    "lineno": 4,
+                    "function": "handler",
+                    "relevance": "error",
+                    "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+                    "full_source_start": 1,
+                },
+                {
+                    "filename": "main.py",
+                    "lineno": 2,
+                    "function": "caller",
+                    "relevance": "error",
+                    "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
+                    "full_source_start": 1,
+                },
+            ],
+        }
+
+        chrono = build_chronological_frames([group_exc])
+
+        assert len(chrono) == 2
+        # Handler frame moved to the end but keeps its original relevance
+        assert chrono[1]["function"] == "handler"
+        assert chrono[1]["relevance"] == "error"
+        assert chrono[1]["function_suffix"] == "⚡except"
+        assert chrono[1]["exception"]["type"] == "ExceptionGroup"
