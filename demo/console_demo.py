@@ -15,25 +15,11 @@ or:
 from __future__ import annotations
 
 import argparse
-import inspect
 import sys
 
 from tracerite import load
 
-from demo.helpers import scenarios
-
-
-def _discover() -> list[tuple[str, object]]:
-    """Return all public functions from the scenarios module in definition order."""
-    return [
-        (name, func)
-        for name, func in vars(scenarios).items()
-        if (
-            not name.startswith("_")
-            and inspect.isfunction(func)
-            and func.__module__ == scenarios.__name__
-        )
-    ]
+from demo.helpers import discover_scenarios
 
 
 def run_scenario(title: str, func: object) -> None:
@@ -67,7 +53,7 @@ def main() -> None:
     if not args.builtin:
         load()
 
-    available = dict(_discover())
+    available = dict(discover_scenarios())
     if args.scenarios:
         for name in args.scenarios:
             if name not in available:

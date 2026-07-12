@@ -20,7 +20,7 @@ from demo.helpers.types import Bar, Foo
 
 
 def syntax() -> None:
-    """SyntaxError raised while dynamically importing invalid source code."""
+    """SyntaxError while importing a malformed module."""
     importlib.import_module("demo.helpers.broken_syntax")
 
 
