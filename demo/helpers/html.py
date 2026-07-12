@@ -65,11 +65,11 @@ def _build_index_html(previews: list[tuple[str, str]]) -> str:
 PAGE_STYLE = """\
 body { font-family: var(--tracerite-ui-font); margin: 1em; }
 h1, h2 { margin: 1em 0 0 0; }
-.p { margin: 0 0 0.5em 0; }
+p { margin: 0 0 0.5em 0; }
 .open-link {
   display: inline-block;
   padding: 0.1em 0.5em;
-  margin: 0.5em 0;
+  margin: 0;
   font-size: 0.8em;
   font-variant: small-caps;
   background: #06c;
