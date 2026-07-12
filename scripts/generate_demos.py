@@ -20,6 +20,8 @@ from __future__ import annotations
 import argparse
 import ast
 import inspect
+import os
+import tempfile
 import textwrap
 from pathlib import Path
 from typing import Any
@@ -231,8 +233,21 @@ def _build_notebook(items: list[tuple[str, Any]]) -> nbformat.NotebookNode:
 
 
 def _execute_notebook(notebook: nbformat.NotebookNode) -> nbformat.NotebookNode:
-    client = nbclient.NotebookClient(notebook, timeout=60, allow_errors=True)
-    client.execute()
+    # Run in a clean IPython profile so local init scripts (e.g. ones that
+    # auto-load the tracerite extension) do not affect notebook outputs.
+    with tempfile.TemporaryDirectory() as ipython_dir:
+        old_ipython_dir = os.environ.get("IPYTHONDIR")
+        os.environ["IPYTHONDIR"] = ipython_dir
+        try:
+            client = nbclient.NotebookClient(
+                notebook, timeout=60, allow_errors=True
+            )
+            client.execute()
+        finally:
+            if old_ipython_dir is None:
+                os.environ.pop("IPYTHONDIR", None)
+            else:
+                os.environ["IPYTHONDIR"] = old_ipython_dir
     return notebook
 
 
