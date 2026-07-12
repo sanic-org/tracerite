@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run
 # /// script
 # requires-python = ">=3.11"
-# dependencies = [ "sanic" ]
+# dependencies = [ "sanic", "numpy" ]
 # tool.uv.sources.tracerite = { path = "../", editable = true }
 # ///
 
@@ -35,6 +35,20 @@ async def syntax(request):
 async def inspector(request):
     """Show variables at crash site."""
     acme.perform_calculation(Foo(), Bar(), divisor=0, multiplier=5)
+
+@app.get("/numpy")
+async def numpy(request):
+    """Inspector tensor matrix pretty printing (Numpy, Torch and others)."""
+    import numpy as np
+    a = np.diag((1, 1.5, np.pi))
+    rng = np.random.default_rng(42)
+    b = rng.normal(size=(4, 3)) * 1000000.0
+    a[1, 0] = 0.01
+    a[2, 0] = 1e-06
+    a[0, 1] = float('NaN')
+    a[1, 2] = float('inf')
+    a[2, 1] = float('-inf')
+    _ = a @ b
 
 @app.get("/recursion")
 async def recursion(request):

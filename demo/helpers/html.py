@@ -48,23 +48,35 @@ def _build_index_html(previews: list[tuple[str, str]]) -> str:
     preview_map = dict(previews)
     doc = Document("TraceRite Demo")
     doc.style(TRACERITE_STYLE)
-    doc.style(
-        "body { font-family: var(--tracerite-ui-font); margin: 1em; }"
-        "h1, h2 { margin: 1em 0 0 0; }"
-        "p { margin: 0 0 0.5em 0; }"
-        ".open-link { display: inline-block; padding: 0.1em 0.5em; margin: 0.5em 0; font-size: 0.8em;"
-        " background: #06c; color: #fff; border-radius: 0.1em; text-decoration: none; }"
-        ".open-link:hover { background: #0055aa; }"
-        "code { background: #f5f5f5; padding: 2px 5px; border-radius: 3px; }"
-    )
+    doc.style(PAGE_STYLE)
     doc.h1("TraceRite Demo")
     doc.p("The examples rendered below demonstrate the output in various error scenarios. You may click the buttons to run the code live, letting your framework handle it.")
-    for _name, _func in SCENARIOS:
+    for name, func in SCENARIOS:
         with doc.h2:
-            doc.a[".open-link"]("▶ ", _name.capitalize(), href=_name)
-        doc.p[".scenario-doc"](_func.__doc__)
-        _preview = preview_map.get(_name, "")
+            doc.a[".open-link"]("▶ ", name, href=name)
+        doc.p[".scenario-doc"](func.__doc__)
+        _preview = preview_map.get(name, "")
         if _preview:
             doc.div(HTML(_preview))
     doc._script(TRACERITE_JS)
     return str(doc)
+
+
+PAGE_STYLE = """\
+body { font-family: var(--tracerite-ui-font); margin: 1em; }
+h1, h2 { margin: 1em 0 0 0; }
+.p { margin: 0 0 0.5em 0; }
+.open-link {
+  display: inline-block;
+  padding: 0.1em 0.5em;
+  margin: 0.5em 0;
+  font-size: 0.8em;
+  font-variant: small-caps;
+  background: #06c;
+  color: #fff;
+  border-radius: 0.1em;
+  text-decoration: none;
+}
+.open-link:hover { background: #0055aa; }
+code { background: #f5f5f5; padding: 2px 5px; border-radius: 3px; }
+"""

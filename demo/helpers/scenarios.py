@@ -34,6 +34,21 @@ def inspector() -> None:
     )
 
 
+def numpy() -> None:
+    """Inspector tensor matrix pretty printing (Numpy, Torch and others)."""
+    import numpy as np
+
+    a = np.diag((1, 1.5, np.pi))
+    rng = np.random.default_rng(42)
+    b = rng.normal(size=(4, 3)) * 1e6
+    a[1, 0] = 0.01
+    a[2, 0] = 1e-6
+    a[0, 1] = float("NaN")
+    a[1, 2] = float("inf")
+    a[2, 1] = float("-inf")
+    _ = a @ b
+
+
 def recursion() -> None:
     """Deep recursion shortened."""
     acme.recurse(0)

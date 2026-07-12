@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run
 # /// script
 # requires-python = ">=3.11"
-# dependencies = [ "tracerite", "nbclient", "ipykernel", "nbformat" ]
+# dependencies = [ "tracerite", "nbclient", "ipykernel", "nbformat", "numpy" ]
 # tool.uv.sources.tracerite = { path = "../", editable = true }
 # ///
 """Generate FastAPI, Sanic and notebook demos from ``demo.helpers.scenarios``.
@@ -130,7 +130,7 @@ def _fastapi_app(items: list[tuple[str, Any]]) -> str:
     return rf'''#!/usr/bin/env -S uv run
 # /// script
 # requires-python = ">=3.11"
-# dependencies = [ "fastapi[standard]", "tracerite" ]
+# dependencies = [ "fastapi[standard]", "tracerite", "numpy" ]
 # tool.uv.sources.tracerite = {{ path = "../", editable = true }}
 # ///
 
@@ -175,7 +175,7 @@ def _sanic_app(items: list[tuple[str, Any]]) -> str:
     return rf'''#!/usr/bin/env -S uv run
 # /// script
 # requires-python = ">=3.11"
-# dependencies = [ "sanic" ]
+# dependencies = [ "sanic", "numpy" ]
 # tool.uv.sources.tracerite = {{ path = "../", editable = true }}
 # ///
 
@@ -252,8 +252,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--notebook-path",
-        default="demo/Scenarios.ipynb",
-        help="Output path for the generated notebook (default: demo/Scenarios.ipynb)",
+        default="demo/Notebook.ipynb",
+        help="Output path for the generated notebook (default: demo/Notebook.ipynb)",
     )
     args = parser.parse_args()
 
