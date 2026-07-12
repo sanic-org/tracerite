@@ -96,6 +96,73 @@ def _tracerite_stream_handler_emit(self, record: logging.LogRecord) -> None:
         self.handleError(record)
 
 
+def load_hooks() -> None:
+    """Replace ``sys.excepthook`` and ``threading.excepthook`` with TraceRite."""
+    if sys.excepthook is not _tracerite_excepthook:
+        _state.original_excepthook = sys.excepthook
+        sys.excepthook = _tracerite_excepthook
+
+    if threading.excepthook is not _tracerite_threading_excepthook:
+        _state.original_threading_excepthook = threading.excepthook
+        threading.excepthook = _tracerite_threading_excepthook
+
+
+def unload_hooks() -> None:
+    """Restore the original ``sys.excepthook`` and ``threading.excepthook``."""
+    if _state.original_excepthook is not None:
+        sys.excepthook = _state.original_excepthook
+        _state.original_excepthook = None
+
+    if _state.original_threading_excepthook is not None:
+        threading.excepthook = _state.original_threading_excepthook
+        _state.original_threading_excepthook = None
+
+
+def load_logging_capture() -> None:
+    """Patch ``logging.StreamHandler.emit`` to format exceptions with TraceRite."""
+    if logging.StreamHandler.emit is not _tracerite_stream_handler_emit:
+        _state.original_stream_handler_emit = logging.StreamHandler.emit
+        type.__setattr__(logging.StreamHandler, "emit", _tracerite_stream_handler_emit)
+
+
+def unload_logging_capture() -> None:
+    """Restore the original ``logging.StreamHandler.emit``."""
+    if _state.original_stream_handler_emit is not None:
+        type.__setattr__(
+            logging.StreamHandler, "emit", _state.original_stream_handler_emit
+        )
+        _state.original_stream_handler_emit = None
+
+
+def load_suppressions() -> None:
+    """Set ``__tracebackhide__`` on library modules whose frames should be hidden."""
+    for module_name, hide_value in _SUPPRESSIONS.items():
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            continue
+        old_value = getattr(module, "__tracebackhide__", Unset)
+        if old_value == hide_value:
+            # Already set to the desired value; nothing to restore on uninstall.
+            continue
+        if hide_value is Unset:
+            delattr(module, "__tracebackhide__")
+        else:
+            setattr(module, "__tracebackhide__", hide_value)  # noqa: B010
+        _state.suppressed[module] = old_value
+
+
+def unload_suppressions() -> None:
+    """Restore original ``__tracebackhide__`` values on suppressed modules."""
+    for module, old_value in _state.suppressed.items():
+        if old_value is Unset:
+            with contextlib.suppress(AttributeError):
+                delattr(module, "__tracebackhide__")
+        else:
+            setattr(module, "__tracebackhide__", old_value)  # noqa: B010
+    _state.suppressed.clear()
+
+
 def load(
     *, hooks: bool = True, suppressions: bool = True, capture_logging: bool = True
 ) -> None:
@@ -119,36 +186,11 @@ def load(
         tracerite.load(capture_logging=False)  # Installs hooks and suppressions only
     """
     if hooks:
-        if sys.excepthook is not _tracerite_excepthook:
-            _state.original_excepthook = sys.excepthook
-            sys.excepthook = _tracerite_excepthook
-
-        if threading.excepthook is not _tracerite_threading_excepthook:
-            _state.original_threading_excepthook = threading.excepthook
-            threading.excepthook = _tracerite_threading_excepthook
-
-    if (
-        capture_logging
-        and logging.StreamHandler.emit is not _tracerite_stream_handler_emit
-    ):
-        _state.original_stream_handler_emit = logging.StreamHandler.emit
-        type.__setattr__(logging.StreamHandler, "emit", _tracerite_stream_handler_emit)
-
+        load_hooks()
+    if capture_logging:
+        load_logging_capture()
     if suppressions:
-        for module_name, hide_value in _SUPPRESSIONS.items():
-            try:
-                module = importlib.import_module(module_name)
-            except Exception:
-                continue
-            old_value = getattr(module, "__tracebackhide__", Unset)
-            if old_value == hide_value:
-                # Already set to the desired value; nothing to restore on unload.
-                continue
-            if hide_value is Unset:
-                delattr(module, "__tracebackhide__")
-            else:
-                setattr(module, "__tracebackhide__", hide_value)  # noqa: B010
-            _state.suppressed[module] = old_value
+        load_suppressions()
 
 
 def unload() -> None:
@@ -158,24 +200,6 @@ def unload() -> None:
     logging.StreamHandler.emit, restoring the previous handlers.
     Also restores __tracebackhide__ values on modules modified by load().
     """
-    if _state.original_excepthook is not None:
-        sys.excepthook = _state.original_excepthook
-        _state.original_excepthook = None
-
-    if _state.original_threading_excepthook is not None:
-        threading.excepthook = _state.original_threading_excepthook
-        _state.original_threading_excepthook = None
-
-    if _state.original_stream_handler_emit is not None:
-        type.__setattr__(
-            logging.StreamHandler, "emit", _state.original_stream_handler_emit
-        )
-        _state.original_stream_handler_emit = None
-
-    for module, old_value in _state.suppressed.items():
-        if old_value is Unset:
-            with contextlib.suppress(AttributeError):
-                delattr(module, "__tracebackhide__")
-        else:
-            setattr(module, "__tracebackhide__", old_value)  # noqa: B010
-    _state.suppressed.clear()
+    unload_hooks()
+    unload_logging_capture()
+    unload_suppressions()

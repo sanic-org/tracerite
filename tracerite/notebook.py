@@ -5,6 +5,7 @@ import sys
 from typing import Any
 
 from . import trace
+from .hooks import load_suppressions
 from .html import html_traceback
 from .logging import logger
 from .tty import tty_traceback
@@ -25,6 +26,7 @@ def _can_display_html() -> bool:
 
 def load_ipython_extension(ipython: Any) -> None:
     trace.ipython = ipython
+    load_suppressions()
 
     # Hide IPython's internal frames from tracebacks
     try:
@@ -100,6 +102,10 @@ def load_ipython_extension(ipython: Any) -> None:
 
 
 def unload_ipython_extension(ipython: Any) -> None:
+    from .hooks import unload_suppressions
+
+    unload_suppressions()
+
     with contextlib.suppress(AttributeError):
         del ipython.showtraceback
     with contextlib.suppress(AttributeError):
