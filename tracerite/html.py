@@ -209,14 +209,31 @@ def _exception_banner(doc: Any, exc_info: dict[str, Any]) -> None:
 
     chain_suffix = chainmsg.get(from_type, "")
 
-    doc.h3(E.span(f"{exc_type}{chain_suffix}:", class_="exctype")(f" {summary}"))
-    # Show remaining lines in pre only if message has multiple lines
-    # Summary is always the first line, so we strip that from pre
+    doc.h3(
+        E.span(f"{exc_type}{chain_suffix}:", class_="exctype"),
+        E.span(f" {summary}", class_="excsummary"),
+    )
+    # Show remaining lines in pre only if message has multiple lines.
+    # Summary is always the first line, so we strip that from pre.
     parts = message.split("\n", 1)
     if len(parts) > 1:
         rest = parts[1].rstrip()  # Only strip trailing whitespace, preserve leading
         if rest:
-            doc.pre(rest, class_="excmessage")
+            lines = rest.split("\n")
+            visual_lines = sum(1 + len(line) // 80 for line in lines)
+            marker_index: int | None = None
+            if visual_lines > 100:
+                skipped = len(lines) - 40
+                lines = lines[:20] + [f"⋮ {skipped} more lines"] + lines[-20:]
+                marker_index = 20
+            with doc.pre(class_="excmessage"):
+                for i, line in enumerate(lines):
+                    if i > 0:
+                        doc("\n")
+                    if i == marker_index:
+                        doc.span(line, class_="excmessage-ellipsis")
+                    else:
+                        doc(line)
 
 
 def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
