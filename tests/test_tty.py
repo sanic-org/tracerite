@@ -533,7 +533,7 @@ class TestLoadUnload:
         try:
             import importlib._bootstrap
 
-            assert importlib._bootstrap.__tracebackhide__ == "until"
+            assert importlib._bootstrap.__tracebackhide__ is True
         finally:
             unload()
 
@@ -567,23 +567,23 @@ class TestLoadUnload:
     def test_unload_restores_existing_tracebackhide(self, monkeypatch):
         """Test that unload() restores a pre-existing __tracebackhide__ value."""
         fake_module = types.ModuleType("importlib._bootstrap")
-        fake_module.__tracebackhide__ = True
-        monkeypatch.setitem(sys.modules, "importlib._bootstrap", fake_module)
-        load()
-        try:
-            assert fake_module.__tracebackhide__ == "until"
-        finally:
-            unload()
-        assert fake_module.__tracebackhide__ is True
-
-    def test_load_suppressions_skips_same_value(self, monkeypatch):
-        """Test that load() doesn't track modules already set to the same value."""
-        fake_module = types.ModuleType("importlib._bootstrap")
         fake_module.__tracebackhide__ = "until"
         monkeypatch.setitem(sys.modules, "importlib._bootstrap", fake_module)
         load()
         try:
-            assert fake_module.__tracebackhide__ == "until"
+            assert fake_module.__tracebackhide__ is True
+        finally:
+            unload()
+        assert fake_module.__tracebackhide__ == "until"
+
+    def test_load_suppressions_skips_same_value(self, monkeypatch):
+        """Test that load() doesn't track modules already set to the same value."""
+        fake_module = types.ModuleType("importlib._bootstrap")
+        fake_module.__tracebackhide__ = True
+        monkeypatch.setitem(sys.modules, "importlib._bootstrap", fake_module)
+        load()
+        try:
+            assert fake_module.__tracebackhide__ is True
             assert "importlib._bootstrap" not in hooks._state.suppressed
         finally:
             unload()

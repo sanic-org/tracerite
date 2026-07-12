@@ -82,7 +82,7 @@ packages = ["tracerite"]
 
 [tool.ruff]
 line-length = 88
-extend-exclude = ["*.ipynb", "demo"]
+extend-exclude = ["*.ipynb", "demo", "demo/helpers/broken_syntax.py"]
 
 [tool.ty.src]
 exclude = ["*.ipynb", "demo"]
