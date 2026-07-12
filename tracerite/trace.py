@@ -1304,17 +1304,13 @@ def _extract_syntax_error_frame(e):
     lines_list = lines.splitlines(keepends=True)
     common_indent = _calculate_common_indent(lines_list)
 
-    # Python sometimes reports columns past the end of the line (e.g. indentation
-    # errors, missing colons, or EOF errors). Clamp to the actual line length so
-    # we still highlight something meaningful.
+    # Clamp columns reported past the end of the line so we still highlight
+    # something meaningful for errors like "expected ':'" or indentation errors.
     if lines_list and 1 <= lineno <= len(lines_list):
-        error_line_text = lines_list[lineno - 1].rstrip("\n\r")
-        max_col = len(error_line_text)
-        if start_col >= max_col:
-            start_col = max(0, max_col - 1)
+        max_col = len(lines_list[lineno - 1].rstrip("\n\r"))
+        start_col = min(start_col, max(0, max_col - 1))
+        end_col = max(min(end_col, max_col), start_col + 1)
         end_col = min(end_col, max_col)
-        if end_col <= start_col:
-            end_col = min(start_col + 1, max_col)
 
     # Try enhanced SyntaxError position extraction for better highlighting
     enhanced_mark, enhanced_em = extract_enhanced_positions(e, lines_list)
@@ -1328,38 +1324,19 @@ def _extract_syntax_error_frame(e):
         start_col = enhanced_mark.cbeg
         end_col = enhanced_mark.cend
 
-    # Determine the display range and add surrounding context. We show a couple
-    # of lines before and after the error so the user can see what construct is
-    # broken. e.text only contains the error line, so no slicing is possible
-    # there.
+    # Show two lines of context around the error. e.text only contains the
+    # error line, so no slicing is possible there.
     if not source_from_text:
-        display_first = lineno
-        display_last = end_lineno or lineno
+        display_first = min(lineno, len(lines_list))
+        display_last = min(end_lineno or lineno, len(lines_list))
 
-        context_before = 2
-        context_after = 2
+        slice_start = max(0, display_first - 3)
+        slice_end = min(len(lines_list), display_last + 2)
 
-        # Guard against positions that lie past the source we have.
-        display_first = min(display_first, len(lines_list))
-        display_last = min(display_last, len(lines_list))
-
-        slice_start = max(0, display_first - context_before - 1)
-        slice_end = min(len(lines_list), display_last + context_after)
-
-        # Trim empty/whitespace-only lines from the start/end of the context,
-        # but never trim into the error region itself.
-        while (
-            slice_start < display_first - 1
-            and slice_start < len(lines_list)
-            and lines_list[slice_start].strip() == ""
-        ):
+        # Trim empty context lines, but never trim into the error region.
+        while slice_start < display_first - 1 and not lines_list[slice_start].strip():
             slice_start += 1
-
-        while (
-            slice_end > display_last
-            and slice_end > 0
-            and lines_list[slice_end - 1].strip() == ""
-        ):
+        while slice_end > display_last and not lines_list[slice_end - 1].strip():
             slice_end -= 1
 
         lines_list = lines_list[slice_start:slice_end]

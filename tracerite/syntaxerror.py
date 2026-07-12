@@ -17,20 +17,15 @@ MISMATCH_PATTERN = re.compile(
 )
 UNCLOSED_PATTERN = re.compile(r"'([(\[{])' was never closed")
 INCOMPLETE_INPUT_PATTERN = re.compile(r"incomplete input")
-# Match "unterminated string literal" and "unterminated f-string literal"
-UNTERMINATED_STRING_PATTERN = re.compile(r"unterminated (?:f-)?string literal")
-# Match "unterminated triple-quoted string literal" and "unterminated triple-quoted f-string literal"
-UNTERMINATED_TRIPLE_PATTERN = re.compile(
-    r"unterminated triple-quoted (?:f-)?string literal"
+# Match "unterminated [triple-quoted] [f-]string literal"
+UNTERMINATED_STRING_PATTERN = re.compile(
+    r"unterminated (?:triple-quoted )?(?:f-)?string literal"
 )
 
 # Pattern to clean up redundant line info from messages
 DETECTED_AT_LINE_PATTERN = re.compile(r" \(detected at line \d+\)$")
 ON_LINE_PATTERN = re.compile(r" on line \d+$")
 FILENAME_LINE_PATTERN = re.compile(r" \([^)]+, line \d+\)$")
-
-# Pattern to extract the "detected at line N" number from SyntaxError messages
-DETECTED_AT_LINE_EXTRACT_PATTERN = re.compile(r"\(detected at line (\d+)\)")
 
 BRACKET_PAIRS = {")": "(", "]": "[", "}": "{"}
 BRACKET_PAIRS_REV = {"(": ")", "[": "]", "{": "}"}
@@ -101,17 +96,6 @@ def _iter_code_chars(source_lines, end_line=None, end_col=None):
             in_string = None
 
 
-def _detected_at_line(message):
-    """Extract the 'detected at line N' number from a SyntaxError message.
-
-    Returns the 1-based line number if present, otherwise None.
-    """
-    match = DETECTED_AT_LINE_EXTRACT_PATTERN.search(message)
-    if match:
-        return int(match.group(1))
-    return None
-
-
 def clean_syntax_error_message(message):
     """Clean up redundant information from SyntaxError messages.
 
@@ -125,6 +109,10 @@ def clean_syntax_error_message(message):
     message = ON_LINE_PATTERN.sub("", message)
     message = FILENAME_LINE_PATTERN.sub("", message)
     return message
+
+
+# Pattern to extract the "detected at line N" number from SyntaxError messages
+DETECTED_AT_LINE_EXTRACT_PATTERN = re.compile(r"\(detected at line (\d+)\)")
 
 
 def extract_enhanced_positions(e, source_lines):
@@ -151,14 +139,8 @@ def extract_enhanced_positions(e, source_lines):
     if match:
         return _handle_unclosed(e, source_lines, match)
 
-    # Try to handle unterminated triple-quoted string (check before single)
-    match = UNTERMINATED_TRIPLE_PATTERN.search(message)
-    if match:
-        return _handle_unterminated_triple_string(e, source_lines)
-
     # Try to handle unterminated string literal
-    match = UNTERMINATED_STRING_PATTERN.search(message)
-    if match:
+    if UNTERMINATED_STRING_PATTERN.search(message):
         return _handle_unterminated_string(e, source_lines)
 
     # Try to handle incomplete input (e.g., _IncompleteInputError)
@@ -231,22 +213,16 @@ def _handle_unclosed(e, source_lines, match):
     of the source. Mark from the opener to the last meaningful line.
     """
     opening_char = match.group(1)
-
-    # Python reports the opener's line in lineno/end_lineno; the construct runs
-    # to the end of input. Find the last line with meaningful content.
     error_line = e.lineno
     error_col = (e.offset - 1) if e.offset else 0
 
-    # Search backwards for the unclosed opener
+    # Search backwards for the unclosed opener. If it can't be found (e.g. an
+    # f-string brace inside a string), fall back to Python's reported position.
     opening_line, opening_col = _find_unclosed_opener(
         source_lines, error_line, opening_char
     )
-
-    if opening_line is None or opening_col is None:
-        # The opener may be inside a string (e.g. an f-string brace), in which
-        # case the tokenizer skips it. Fall back to Python's reported position.
-        opening_line = error_line
-        opening_col = error_col
+    if opening_line is None:
+        opening_line, opening_col = error_line, error_col
 
     # Guard against reported positions that lie past the source we have.
     if opening_line > len(source_lines):
@@ -416,52 +392,20 @@ def _handle_unterminated_string(e, source_lines):
 
     # The "detected at line" phrase tells us how far Python scanned before
     # giving up on the string. Use it to extend the highlight when available.
-    detected_line = _detected_at_line(str(e)) or error_line
-    end_line = max(error_line, min(detected_line, len(source_lines)))
-
-    line = source_lines[error_line - 1].rstrip("\n\r")
-    end_col = len(line)
-
-    # Get the full string opener length (prefix + quote)
-    opener_len = _get_string_opener_length(line, error_col)
-
-    # Mark from the opening quote to the end of the detected line
-    mark_range = Range(error_line, end_line, error_col, end_col)
-    # Emphasize the full opener (prefix + quote)
-    em_ranges = [Range(error_line, error_line, error_col, error_col + opener_len)]
-
-    return mark_range, em_ranges
-
-
-def _handle_unterminated_triple_string(e, source_lines):
-    """Handle unterminated triple-quoted string literal errors.
-
-    Mark from the opening triple quotes to the end of the line where Python
-    detected the unterminated string, and emphasize the full opener
-    (prefix + triple quotes).
-    """
-    error_line = e.lineno
-    error_col = (e.offset - 1) if e.offset else 0
-
-    if not source_lines or error_line < 1 or error_line > len(source_lines):
-        return None, None
-
-    # For multi-line triple-quoted strings Python reports the opener's line in
-    # lineno/end_lineno but adds "(detected at line N)" to indicate how far it
-    # scanned. Use that to highlight the whole runaway string.
-    detected_line = _detected_at_line(str(e)) or error_line
+    match = DETECTED_AT_LINE_EXTRACT_PATTERN.search(str(e))
+    detected_line = int(match.group(1)) if match else error_line
     end_line = max(error_line, min(detected_line, len(source_lines)))
 
     opener_line = source_lines[error_line - 1].rstrip("\n\r")
     final_line = source_lines[end_line - 1].rstrip("\n\r")
     end_col = len(final_line)
 
-    # Get the full string opener length (prefix + triple quotes)
+    # Get the full string opener length (prefix + quote)
     opener_len = _get_string_opener_length(opener_line, error_col)
 
-    # Mark from opening triple quotes to the end of the detected line
+    # Mark from the opening quote to the end of the detected line
     mark_range = Range(error_line, end_line, error_col, end_col)
-    # Emphasize the full opener (prefix + triple quotes)
+    # Emphasize the full opener (prefix + quote)
     em_ranges = [Range(error_line, error_line, error_col, error_col + opener_len)]
 
     return mark_range, em_ranges

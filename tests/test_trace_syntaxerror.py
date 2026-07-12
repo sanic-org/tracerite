@@ -182,19 +182,22 @@ class TestSyntaxErrorFrameExtraction:
                 assert frame["range"].lfinal == 2
 
                 # Both lines should be marked in the fragments
-                marked_lines = [
+                marked_lines = {
                     li["line"]
                     for li in frame["fragments"]
                     if any(f.get("mark") for f in li.get("fragments", []))
-                ]
-                assert 1 in marked_lines
-                assert 2 in marked_lines
+                }
+                assert marked_lines >= {1, 2}
         finally:
             Path(path).unlink(missing_ok=True)
 
-    def test_syntax_error_columns_clamped_to_line_length(self):
-        """Test offsets past line end are clamped so something is highlighted."""
-        # Python reports offset 9 on a line of length 8 for indentation errors.
+    def test_syntax_error_column_clamping(self):
+        """Test offsets past line end are clamped and out-of-range lineno handled."""
+
+        class MockSyntaxError(SyntaxError):
+            pass
+
+        # Indentation error: Python reports offset 9 on a line of length 8.
         code = "def f():\n    pass\n   x = 1\n"
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
             f.write(code)
@@ -205,10 +208,7 @@ class TestSyntaxErrorFrameExtraction:
                 compile(code, path, "exec")
             except SyntaxError as e:
                 frame = _extract_syntax_error_frame(e)
-
                 assert frame is not None
-                assert frame["range"] is not None
-                # The error line should have at least one marked fragment
                 error_line_fragments = frame["fragments"][frame["range"].lfirst - 1][
                     "fragments"
                 ]
@@ -216,12 +216,7 @@ class TestSyntaxErrorFrameExtraction:
         finally:
             Path(path).unlink(missing_ok=True)
 
-    def test_syntax_error_clamp_skipped_when_lineno_out_of_range(self):
-        """Test column clamping is skipped when lineno is outside source."""
-
-        class MockSyntaxError(SyntaxError):
-            pass
-
+        # lineno outside source: clamping skipped, frame still produced.
         e = MockSyntaxError("test error")
         e.filename = "/nonexistent/file.py"
         e.lineno = 99
@@ -229,68 +224,40 @@ class TestSyntaxErrorFrameExtraction:
         e.text = "x\n"
         e.end_lineno = 99
         e.end_offset = 6
+        assert _extract_syntax_error_frame(e) is not None
 
-        frame = _extract_syntax_error_frame(e)
-
-        # Should still produce a frame despite lineno out of range
-        assert frame is not None
-
-    def test_syntax_error_clamp_bumps_end_col_when_equal(self):
-        """Test clamping ensures end_col > start_col when they collide."""
-
-        class MockSyntaxError(SyntaxError):
-            pass
-
-        e = MockSyntaxError("test error")
-        e.filename = "/nonexistent/file.py"
+        # end_col collides with start_col after clamping.
         e.lineno = 1
         e.offset = 2
-        e.text = "x\n"
         e.end_lineno = 2
         e.end_offset = 1
+        assert _extract_syntax_error_frame(e) is not None
 
-        frame = _extract_syntax_error_frame(e)
+    def test_syntax_error_trims_empty_context(self):
+        """Test empty context lines are trimmed from start/end of snippet."""
 
-        # Should still produce a frame and not crash
-        assert frame is not None
-
-    def test_syntax_error_trims_leading_empty_context(self):
-        """Test leading empty context lines are trimmed."""
-        code = "\n\nfunc(\n[1,\n)\n"
-        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
-            f.write(code)
-            path = f.name
-
-        try:
+        def check(code, expected_start, expected_end):
+            with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
+                f.write(code)
+                path = f.name
             try:
-                compile(code, path, "exec")
-            except SyntaxError as e:
-                frame = _extract_syntax_error_frame(e)
+                try:
+                    compile(code, path, "exec")
+                except SyntaxError as e:
+                    frame = _extract_syntax_error_frame(e)
+                    assert frame is not None
+                    assert frame["linenostart"] == expected_start
+                    assert (
+                        frame["linenostart"] + len(frame["fragments"]) - 1
+                        == expected_end
+                    )
+            finally:
+                Path(path).unlink(missing_ok=True)
 
-                assert frame is not None
-                # First displayed line should be the non-empty context line
-                assert frame["linenostart"] == 3
-        finally:
-            Path(path).unlink(missing_ok=True)
-
-    def test_syntax_error_trims_trailing_empty_context(self):
-        """Test trailing empty context lines are trimmed."""
-        code = "func(\n[1,\n)\n\n\n"
-        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
-            f.write(code)
-            path = f.name
-
-        try:
-            try:
-                compile(code, path, "exec")
-            except SyntaxError as e:
-                frame = _extract_syntax_error_frame(e)
-
-                assert frame is not None
-                # Last displayed line should be the closing bracket line
-                assert frame["linenostart"] + len(frame["fragments"]) - 1 == 3
-        finally:
-            Path(path).unlink(missing_ok=True)
+        # Leading empty context lines trimmed.
+        check("\n\nfunc(\n[1,\n)\n", 3, 5)
+        # Trailing empty context lines trimmed.
+        check("func(\n[1,\n)\n\n\n", 1, 3)
 
     def test_is_notebook_cell_no_ipython(self):
         """Test _is_notebook_cell when ipython is None."""
