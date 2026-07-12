@@ -163,6 +163,135 @@ class TestSyntaxErrorFrameExtraction:
 
             assert frame is not None
 
+    def test_syntax_error_multiline_unterminated_triple_string(self):
+        """Test unterminated triple-quoted string highlights detected line."""
+        code = 'x = """A multi-line\nstring we forgot to close\n'
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
+            f.write(code)
+            path = f.name
+
+        try:
+            try:
+                compile(code, path, "exec")
+            except SyntaxError as e:
+                frame = _extract_syntax_error_frame(e)
+
+                assert frame is not None
+                assert frame["range"] is not None
+                assert frame["range"].lfirst == 1
+                assert frame["range"].lfinal == 2
+
+                # Both lines should be marked in the fragments
+                marked_lines = [
+                    li["line"]
+                    for li in frame["fragments"]
+                    if any(f.get("mark") for f in li.get("fragments", []))
+                ]
+                assert 1 in marked_lines
+                assert 2 in marked_lines
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+    def test_syntax_error_columns_clamped_to_line_length(self):
+        """Test offsets past line end are clamped so something is highlighted."""
+        # Python reports offset 9 on a line of length 8 for indentation errors.
+        code = "def f():\n    pass\n   x = 1\n"
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
+            f.write(code)
+            path = f.name
+
+        try:
+            try:
+                compile(code, path, "exec")
+            except SyntaxError as e:
+                frame = _extract_syntax_error_frame(e)
+
+                assert frame is not None
+                assert frame["range"] is not None
+                # The error line should have at least one marked fragment
+                error_line_fragments = frame["fragments"][frame["range"].lfirst - 1][
+                    "fragments"
+                ]
+                assert any(f.get("mark") for f in error_line_fragments)
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+    def test_syntax_error_clamp_skipped_when_lineno_out_of_range(self):
+        """Test column clamping is skipped when lineno is outside source."""
+
+        class MockSyntaxError(SyntaxError):
+            pass
+
+        e = MockSyntaxError("test error")
+        e.filename = "/nonexistent/file.py"
+        e.lineno = 99
+        e.offset = 5
+        e.text = "x\n"
+        e.end_lineno = 99
+        e.end_offset = 6
+
+        frame = _extract_syntax_error_frame(e)
+
+        # Should still produce a frame despite lineno out of range
+        assert frame is not None
+
+    def test_syntax_error_clamp_bumps_end_col_when_equal(self):
+        """Test clamping ensures end_col > start_col when they collide."""
+
+        class MockSyntaxError(SyntaxError):
+            pass
+
+        e = MockSyntaxError("test error")
+        e.filename = "/nonexistent/file.py"
+        e.lineno = 1
+        e.offset = 2
+        e.text = "x\n"
+        e.end_lineno = 2
+        e.end_offset = 1
+
+        frame = _extract_syntax_error_frame(e)
+
+        # Should still produce a frame and not crash
+        assert frame is not None
+
+    def test_syntax_error_trims_leading_empty_context(self):
+        """Test leading empty context lines are trimmed."""
+        code = "\n\nfunc(\n[1,\n)\n"
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
+            f.write(code)
+            path = f.name
+
+        try:
+            try:
+                compile(code, path, "exec")
+            except SyntaxError as e:
+                frame = _extract_syntax_error_frame(e)
+
+                assert frame is not None
+                # First displayed line should be the non-empty context line
+                assert frame["linenostart"] == 3
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+    def test_syntax_error_trims_trailing_empty_context(self):
+        """Test trailing empty context lines are trimmed."""
+        code = "func(\n[1,\n)\n\n\n"
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
+            f.write(code)
+            path = f.name
+
+        try:
+            try:
+                compile(code, path, "exec")
+            except SyntaxError as e:
+                frame = _extract_syntax_error_frame(e)
+
+                assert frame is not None
+                # Last displayed line should be the closing bracket line
+                assert frame["linenostart"] + len(frame["fragments"]) - 1 == 3
+        finally:
+            Path(path).unlink(missing_ok=True)
+
     def test_is_notebook_cell_no_ipython(self):
         """Test _is_notebook_cell when ipython is None."""
         from tracerite import trace
@@ -404,3 +533,38 @@ class TestSyntaxErrorNotebookCell:
             info = extract_exception(e, skip_until="myfile")
 
             assert info["type"] == "SyntaxError"
+
+    def test_syntax_error_notebook_cell_shows_context(self):
+        """Test notebook-cell SyntaxErrors include surrounding context lines."""
+        import linecache
+
+        from tracerite import trace
+
+        code = "func(\n[1,\n)\n"
+        mock_ipython = MagicMock()
+        mock_ipython.compile._filename_map = {"<ipython-input-5>": code}
+
+        original = trace.ipython
+        try:
+            trace.ipython = mock_ipython
+            linecache.cache["<ipython-input-5>"] = (
+                len(code),
+                None,
+                code.splitlines(keepends=True),
+                "<ipython-input-5>",
+            )
+
+            try:
+                compile(code, "<ipython-input-5>", "exec")
+            except SyntaxError as e:
+                frame = _extract_syntax_error_frame(e)
+
+                assert frame is not None
+                assert frame["notebook_cell"] is True
+                # linenostart should be 1 because context includes the first line
+                assert frame["linenostart"] == 1
+                # All three source lines should be present
+                assert len(frame["fragments"]) == 3
+        finally:
+            trace.ipython = original
+            linecache.cache.pop("<ipython-input-5>", None)

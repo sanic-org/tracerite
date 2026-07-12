@@ -29,6 +29,9 @@ DETECTED_AT_LINE_PATTERN = re.compile(r" \(detected at line \d+\)$")
 ON_LINE_PATTERN = re.compile(r" on line \d+$")
 FILENAME_LINE_PATTERN = re.compile(r" \([^)]+, line \d+\)$")
 
+# Pattern to extract the "detected at line N" number from SyntaxError messages
+DETECTED_AT_LINE_EXTRACT_PATTERN = re.compile(r"\(detected at line (\d+)\)")
+
 BRACKET_PAIRS = {")": "(", "]": "[", "}": "{"}
 BRACKET_PAIRS_REV = {"(": ")", "[": "]", "{": "}"}
 ALL_OPENERS = "([{"
@@ -96,6 +99,17 @@ def _iter_code_chars(source_lines, end_line=None, end_col=None):
         # Single-quoted strings don't span lines (would be a syntax error)
         if in_string and len(in_string) == 1:
             in_string = None
+
+
+def _detected_at_line(message):
+    """Extract the 'detected at line N' number from a SyntaxError message.
+
+    Returns the 1-based line number if present, otherwise None.
+    """
+    match = DETECTED_AT_LINE_EXTRACT_PATTERN.search(message)
+    if match:
+        return int(match.group(1))
+    return None
 
 
 def clean_syntax_error_message(message):
@@ -193,12 +207,33 @@ def _handle_mismatch(e, source_lines, match):
     return mark_range, em_ranges
 
 
+def _last_meaningful_line(source_lines):
+    """Return the 1-based line number and column of the last meaningful line.
+
+    A line is meaningful if it has non-comment, non-whitespace content.
+    """
+    end_line = len(source_lines)
+    end_col = 0
+    for i in range(len(source_lines) - 1, -1, -1):
+        line = source_lines[i].rstrip("\n\r")
+        code_part = line.split("#")[0].rstrip()
+        if code_part:
+            end_line = i + 1  # 1-based
+            end_col = len(line)
+            break
+    return end_line, end_col
+
+
 def _handle_unclosed(e, source_lines, match):
-    """Handle unclosed bracket errors."""
+    """Handle unclosed bracket errors.
+
+    The bracket is never closed, so the problematic construct runs to the end
+    of the source. Mark from the opener to the last meaningful line.
+    """
     opening_char = match.group(1)
 
-    # Python gives us the line where it detected the problem
-    # The opening bracket is somewhere before
+    # Python reports the opener's line in lineno/end_lineno; the construct runs
+    # to the end of input. Find the last line with meaningful content.
     error_line = e.lineno
     error_col = (e.offset - 1) if e.offset else 0
 
@@ -208,10 +243,20 @@ def _handle_unclosed(e, source_lines, match):
     )
 
     if opening_line is None or opening_col is None:
-        return None, None
+        # The opener may be inside a string (e.g. an f-string brace), in which
+        # case the tokenizer skips it. Fall back to Python's reported position.
+        opening_line = error_line
+        opening_col = error_col
 
-    # Mark from opener to error position
-    mark_range = Range(opening_line, error_line, opening_col, error_col + 1)
+    # Guard against reported positions that lie past the source we have.
+    if opening_line > len(source_lines):
+        opening_line = len(source_lines)
+        opening_col = 0
+
+    end_line, end_col = _last_meaningful_line(source_lines)
+
+    # Mark from opener to the end of the meaningful source
+    mark_range = Range(opening_line, end_line, opening_col, end_col)
     em_ranges = [Range(opening_line, opening_line, opening_col, opening_col + 1)]
 
     return mark_range, em_ranges
@@ -225,16 +270,7 @@ def _handle_incomplete(e, source_lines):
     We need to find the unclosed construct and mark from there to the end.
     """
     # Find the last non-empty line (trimmed, ignoring comments)
-    end_line = len(source_lines)
-    end_col = 0
-    for i in range(len(source_lines) - 1, -1, -1):
-        line = source_lines[i].rstrip("\n\r")
-        # Remove comments for checking if line is empty
-        code_part = line.split("#")[0].rstrip()
-        if code_part:
-            end_line = i + 1  # 1-based
-            end_col = len(line)
-            break
+    end_line, end_col = _last_meaningful_line(source_lines)
 
     # Try to find any unclosed bracket
     opening_line, opening_col, opener_char = _find_any_unclosed_opener(
@@ -369,8 +405,8 @@ def _get_string_opener_length(line, col):
 def _handle_unterminated_string(e, source_lines):
     """Handle unterminated string literal errors.
 
-    For single-line strings, mark from the opening to end of the line,
-    and emphasize the full opener (prefix + quote).
+    Mark from the opening quote to the end of the line where Python detected
+    the problem, and emphasize the full opener (prefix + quote).
     """
     error_line = e.lineno
     error_col = (e.offset - 1) if e.offset else 0
@@ -378,14 +414,19 @@ def _handle_unterminated_string(e, source_lines):
     if not source_lines or error_line < 1 or error_line > len(source_lines):
         return None, None
 
+    # The "detected at line" phrase tells us how far Python scanned before
+    # giving up on the string. Use it to extend the highlight when available.
+    detected_line = _detected_at_line(str(e)) or error_line
+    end_line = max(error_line, min(detected_line, len(source_lines)))
+
     line = source_lines[error_line - 1].rstrip("\n\r")
     end_col = len(line)
 
     # Get the full string opener length (prefix + quote)
     opener_len = _get_string_opener_length(line, error_col)
 
-    # Mark from the opening to end of line
-    mark_range = Range(error_line, error_line, error_col, end_col)
+    # Mark from the opening quote to the end of the detected line
+    mark_range = Range(error_line, end_line, error_col, end_col)
     # Emphasize the full opener (prefix + quote)
     em_ranges = [Range(error_line, error_line, error_col, error_col + opener_len)]
 
@@ -395,7 +436,9 @@ def _handle_unterminated_string(e, source_lines):
 def _handle_unterminated_triple_string(e, source_lines):
     """Handle unterminated triple-quoted string literal errors.
 
-    Mark from opening to end of line, emphasize the full opener (prefix + triple quotes).
+    Mark from the opening triple quotes to the end of the line where Python
+    detected the unterminated string, and emphasize the full opener
+    (prefix + triple quotes).
     """
     error_line = e.lineno
     error_col = (e.offset - 1) if e.offset else 0
@@ -403,14 +446,21 @@ def _handle_unterminated_triple_string(e, source_lines):
     if not source_lines or error_line < 1 or error_line > len(source_lines):
         return None, None
 
-    line = source_lines[error_line - 1].rstrip("\n\r")
-    end_col = len(line)
+    # For multi-line triple-quoted strings Python reports the opener's line in
+    # lineno/end_lineno but adds "(detected at line N)" to indicate how far it
+    # scanned. Use that to highlight the whole runaway string.
+    detected_line = _detected_at_line(str(e)) or error_line
+    end_line = max(error_line, min(detected_line, len(source_lines)))
+
+    opener_line = source_lines[error_line - 1].rstrip("\n\r")
+    final_line = source_lines[end_line - 1].rstrip("\n\r")
+    end_col = len(final_line)
 
     # Get the full string opener length (prefix + triple quotes)
-    opener_len = _get_string_opener_length(line, error_col)
+    opener_len = _get_string_opener_length(opener_line, error_col)
 
-    # Mark from opening to end of line (not end of input - per user feedback)
-    mark_range = Range(error_line, error_line, error_col, end_col)
+    # Mark from opening triple quotes to the end of the detected line
+    mark_range = Range(error_line, end_line, error_col, end_col)
     # Emphasize the full opener (prefix + triple quotes)
     em_ranges = [Range(error_line, error_line, error_col, error_col + opener_len)]
 
