@@ -239,9 +239,7 @@ def _execute_notebook(notebook: nbformat.NotebookNode) -> nbformat.NotebookNode:
         old_ipython_dir = os.environ.get("IPYTHONDIR")
         os.environ["IPYTHONDIR"] = ipython_dir
         try:
-            client = nbclient.NotebookClient(
-                notebook, timeout=60, allow_errors=True
-            )
+            client = nbclient.NotebookClient(notebook, timeout=60, allow_errors=True)
             client.execute()
         finally:
             if old_ipython_dir is None:

@@ -72,7 +72,9 @@ def causechain() -> None:
 def callfrom() -> None:
     """Error occurs in library code, but we show call site in user code."""
     try:
-        json.loads('{"host": "example.com" "port": 80}')
+        foo = json.loads(
+            '{"host": "example.com" "port": 80}'
+        )
     except json.JSONDecodeError as e:
         raise RuntimeError("Configuration is malformed") from e
 
