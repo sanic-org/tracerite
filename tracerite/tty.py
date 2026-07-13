@@ -9,14 +9,14 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from .trace import (
-    _call_run_ranges,
-    _exception_info,
-    _extract_chain_exceptions,
-    _function_display,
-    _normalize_variable,
     build_chain_header,
+    call_run_ranges,
     chainmsg,
+    exception_info,
     extract_chain,
+    extract_chain_exceptions,
+    function_display,
+    normalize_variable,
     symbols,
     symdesc,
 )
@@ -178,9 +178,9 @@ def tty_traceback(
 
     if not chain and exc is not None:
         # Exception with no frames: render banners directly
-        for exc_dict in _extract_chain_exceptions(exc):
+        for exc_dict in extract_chain_exceptions(exc):
             last_banner_start = len(output)
-            output += _build_exception_banner(_exception_info(exc_dict), term_width)
+            output += _build_exception_banner(exception_info(exc_dict), term_width)
         chrono_output = ""
     else:
         chrono_output, last_banner_start = _print_chronological(
@@ -282,7 +282,7 @@ def _find_collapsible_call_runs(
     Returns list of (start_idx, end_idx) tuples for runs of consecutive
     call frames with length >= min_run_length. end_idx is inclusive.
     """
-    runs = _call_run_ranges(frame_info_list, min_run_length)
+    runs = call_run_ranges(frame_info_list, min_run_length)
     # Chronological frames always end with a non-call (error) frame, so any
     # call run should have been closed above.
     assert not runs or runs[-1][1] < len(frame_info_list) - 1
@@ -666,16 +666,16 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     # Build label with colors: green filename, dark grey :lineno, light blue function
     # Location comes first, then function (if present)
     # Colon goes after function if present, otherwise after location
-    function_display = _function_display(frinfo["function"], frinfo["function_suffix"])
+    function_label = function_display(frinfo["function"], frinfo["function_suffix"])
 
     # Build the location text with colors
     location_text = (
         location if notebook_cell else f"{location}{LOC_LINENO}:{cursor_line}{RESET}"
     )
-    location_suffix = "" if function_display else ":"
+    location_suffix = "" if function_label else ":"
     location_part = f"{LOCFN}{location_text}{location_suffix}{RESET}"
 
-    function_part = f"{FUNC}{function_display}{RESET}:" if function_display else ""
+    function_part = f"{FUNC}{function_label}{RESET}:" if function_label else ""
 
     return location_part, function_part
 
@@ -1384,7 +1384,7 @@ def _build_variable_inspector(
     # First pass: collect variable info and filter out non-displayable values
     var_data = []  # [(name, typename, val_str, fmt_hint), ...]
     for var_info in variables:
-        name, typename, value, fmt_hint = _normalize_variable(var_info)
+        name, typename, value, fmt_hint = normalize_variable(var_info)
 
         # Format the value as a string
         if isinstance(value, str):

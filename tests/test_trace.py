@@ -10,8 +10,8 @@ import pytest
 
 from tracerite import extract_chain
 from tracerite.trace import (
-    _extract_chain_exceptions,
     build_chain_header,
+    extract_chain_exceptions,
     extract_exception,
     extract_frames,
 )
@@ -39,7 +39,7 @@ def test_em_columns_binary_operator():
     try:
         binomial_operator()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -76,7 +76,7 @@ def test_em_columns_multiline_operator():
     try:
         multiline_marking()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -110,7 +110,7 @@ def test_em_columns_function_call():
     try:
         max_type_error_case()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -146,7 +146,7 @@ def test_em_columns_not_empty():
     try:
         binomial_operator()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         frame = chain[0]["frames"][-1]
 
         # Check that we have position information in the Range format
@@ -172,7 +172,7 @@ def test_em_columns_structure():
     try:
         binomial_operator()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         frame = chain[0]["frames"][-1]
 
         for line_info in frame["fragments"]:
@@ -195,7 +195,7 @@ def test_em_columns_multiline_marking_comment():
     try:
         multiline_marking_comment()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -231,7 +231,7 @@ def test_em_columns_max_type_error():
     try:
         max_type_error_case()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -264,7 +264,7 @@ def test_em_columns_reraise_context():
     try:
         reraise_context()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -286,7 +286,7 @@ def test_em_columns_reraise_suppressed_context():
     try:
         reraise_suppressed_context()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -308,7 +308,7 @@ def test_em_columns_chained_exceptions():
     try:
         chained_from_and_without()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -333,7 +333,7 @@ def test_em_columns_unrelated_error_except():
     try:
         unrelated_error_in_except()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -370,7 +370,7 @@ def test_em_columns_unrelated_error_finally():
     try:
         unrelated_error_in_finally()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -415,7 +415,7 @@ def test_em_columns_comprehensive_structure():
         try:
             test_func()
         except Exception as e:
-            chain = _extract_chain_exceptions(e)
+            chain = extract_chain_exceptions(e)
             assert chain is not None, f"Chain is None for {test_func.__name__}"
             assert len(chain) > 0, f"Empty chain for {test_func.__name__}"
 
@@ -473,7 +473,7 @@ def test_em_columns_stdlib_mimetypes():
     try:
         error_in_stdlib_mimetypes()
     except Exception as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -1176,7 +1176,7 @@ def test_deduplicate_variables_with_comprehension():
     try:
         comprehension_error()
     except ZeroDivisionError as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
 
     # Verify the chain was processed
     assert chain
@@ -1302,7 +1302,7 @@ def test_re_raise_in_same_function_has_distinct_frames():
     try:
         _outer()
     except ValueError as e:
-        chain = _extract_chain_exceptions(e)
+        chain = extract_chain_exceptions(e)
         frames = chain[0]["frames"]
         outer_frames = [fr for fr in frames if fr.get("function") == "_outer"]
         # One frame at the _inner() call and one at the explicit ``raise e``.

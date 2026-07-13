@@ -7,14 +7,14 @@ from typing import Any, cast
 from html5tagger import HTML, Document, E, Template
 
 from .trace import (
-    _call_run_ranges,
-    _exception_info,
-    _extract_chain_exceptions,
-    _function_display,
-    _normalize_variable,
     build_chain_header,
+    call_run_ranges,
     chainmsg,
+    exception_info,
     extract_chain,
+    extract_chain_exceptions,
+    function_display,
+    normalize_variable,
     symbols,
     symdesc,
 )
@@ -117,7 +117,7 @@ def _collapse_call_runs(
 
     result = []
     prev_end = 0
-    for start, end in _call_run_ranges(frames, min_run_length):
+    for start, end in call_run_ranges(frames, min_run_length):
         result.extend(frames[prev_end:start])
         run_length = end - start + 1
         skipped = run_length - 2
@@ -167,8 +167,8 @@ def html_traceback(
         if chain:
             _chronological_output(doc, chain, local_urls=local_urls)
         elif exc is not None:
-            for exc_dict in _extract_chain_exceptions(exc):
-                _exception_banner(doc, _exception_info(exc_dict))
+            for exc_dict in extract_chain_exceptions(exc):
+                _exception_banner(doc, exception_info(exc_dict))
 
         if include_js_css:
             doc._script(javascript)
@@ -438,7 +438,7 @@ def _frame_label(
     local_urls: bool = False,
     toggle_id: str | None = None,
 ) -> None:
-    function_display = _function_display(
+    function_label = function_display(
         frinfo["function"], frinfo.get("function_suffix", "")
     )
 
@@ -477,17 +477,17 @@ def _frame_label(
     if toggle_id:
         # Wrap both location and function in a label for click-to-toggle
         with doc.label(for_=toggle_id, class_="frame-label-wrapper"):
-            if function_display:
+            if function_label:
                 render_location()
-                doc.span(function_display, colon, class_="frame-function")
+                doc.span(function_label, colon, class_="frame-function")
             else:
                 # No function: colon goes with location, empty span for grid column 2
                 render_location(with_colon=True)
                 doc.span(class_="frame-function")
     else:
-        if function_display:
+        if function_label:
             render_location()
-            doc.span(function_display, colon, class_="frame-function")
+            doc.span(function_label, colon, class_="frame-function")
         else:
             # No function: colon goes with location, empty span for grid column 2
             render_location(with_colon=True)
@@ -522,7 +522,7 @@ def variable_inspector(doc: Any, variables: list[Any]) -> None:
         return
     with doc.dl(class_="inspector"):
         for var_info in variables:
-            n, t, v, fmt = _normalize_variable(var_info)
+            n, t, v, fmt = normalize_variable(var_info)
 
             doc.dt.span(n, class_="var")
             if t:

@@ -94,7 +94,7 @@ symdesc = {
 symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑", "except": "⚠️"}
 
 
-def _exception_info(exc: dict[str, Any]) -> dict[str, Any]:
+def exception_info(exc: dict[str, Any]) -> dict[str, Any]:
     """Return a JSON-compatible exception-info dict."""
     return {
         "type": exc.get("type"),
@@ -104,14 +104,14 @@ def _exception_info(exc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _function_display(function: str | None, function_suffix: str) -> str | None:
+def function_display(function: str | None, function_suffix: str) -> str | None:
     """Return the display string for a function name with an optional suffix."""
     if function:
         return f"{function}{function_suffix}"
     return function_suffix or None
 
 
-def _normalize_variable(var_info: Any) -> tuple[str, str, Any, str]:
+def normalize_variable(var_info: Any) -> tuple[str, str, Any, str]:
     """Normalize a VarInfo namedtuple or old tuple into (name, typename, value, fmt)."""
     if hasattr(var_info, "name"):
         return (
@@ -124,7 +124,7 @@ def _normalize_variable(var_info: Any) -> tuple[str, str, Any, str]:
     return name, typename, value, "inline"
 
 
-def _call_run_ranges(
+def call_run_ranges(
     frames: list[dict[str, Any]], min_run_length: int = 10
 ) -> list[tuple[int, int]]:
     """Return (start, end) ranges of consecutive 'call' frames to collapse."""
@@ -218,14 +218,14 @@ def extract_chain(exc=None, **kwargs) -> list:
     fragments, location, relevance, and (on the chronologically final
     occurrence of each frame object) local variables for the inspector.
     """
-    exc_chain = _extract_chain_exceptions(exc, **kwargs)
+    exc_chain = extract_chain_exceptions(exc, **kwargs)
     chrono = build_chronological_frames(exc_chain)
     _fill_chronological_variables(chrono)
     _attach_leaf_types(exc_chain, chrono)
     return chrono
 
 
-def _extract_chain_exceptions(exc=None, **kwargs) -> list:
+def extract_chain_exceptions(exc=None, **kwargs) -> list:
     """Extract exception info dicts in built-in (oldest-first) order.
 
     This is an internal helper.  The returned dicts contain the raw
@@ -607,7 +607,7 @@ def extract_source_lines(
             lines, start, lineno, end_lineno, notebook_cell, except_start
         )
 
-        error_idx, end_idx = _error_indices(lineno, end_lineno, start, len(lines))
+        error_idx, end_idx = _error_indices(lineno, end_lineno, start)
         if not _valid_error_position(lines, error_idx):
             return "", lineno, ""
 
@@ -665,7 +665,7 @@ def _trim_to_except_line(lines, start, except_start):
     return lines, start
 
 
-def _error_indices(lineno, end_lineno, start, num_lines):
+def _error_indices(lineno, end_lineno, start):
     """Return (error_idx, end_idx) within the sliced source window."""
     error_idx = lineno - start
     end_idx = (end_lineno - start) if end_lineno else error_idx

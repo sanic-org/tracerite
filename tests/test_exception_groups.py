@@ -8,11 +8,11 @@ import pytest
 from tracerite.chain_analysis import build_chronological_frames
 from tracerite.html import html_traceback
 from tracerite.trace import (
-    _extract_chain_exceptions,
     _extract_subexceptions,
     _is_exception_group,
     build_chain_header,
     extract_chain,
+    extract_chain_exceptions,
     extract_exception,
 )
 from tracerite.tty import tty_traceback
@@ -199,7 +199,7 @@ class TestChronologicalFrames:
                 "test", [ValueError("a"), TypeError("b")]
             )
         except Exception as e:
-            chain = _extract_chain_exceptions(e)
+            chain = extract_chain_exceptions(e)
             frames = build_chronological_frames(chain)
 
         # Find frame with parallel branches
@@ -228,7 +228,7 @@ class TestChronologicalFrames:
                 "test", [ValueError("a"), TypeError("b")]
             )
         except Exception as e:
-            chain = _extract_chain_exceptions(e)
+            chain = extract_chain_exceptions(e)
             frames = build_chronological_frames(chain)
 
         parallel_frame = next((f for f in frames if f.get("parallel")), None)

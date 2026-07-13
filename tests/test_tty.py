@@ -9,7 +9,7 @@ import pytest
 
 from tracerite import extract_chain, hooks
 from tracerite.hooks import load, unload
-from tracerite.trace import _extract_chain_exceptions
+from tracerite.trace import extract_chain_exceptions
 from tracerite.tty import (
     ANSI_ESCAPE_RE,
     ARROW_LEFT,
@@ -875,7 +875,7 @@ class TestFrameFormatting:
         try:
             raise ValueError("label test")
         except Exception as e:
-            chain = _extract_chain_exceptions(e)
+            chain = extract_chain_exceptions(e)
             frame = chain[0]["frames"][-1]
             location_part, function_part = _get_frame_label(frame)
             # Combine and strip colors to get plain text
