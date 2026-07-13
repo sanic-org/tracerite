@@ -34,25 +34,23 @@ def risky_computation() -> float:
     return x / y
 
 
-def handle_error() -> None:
-    raise RuntimeError("Cannot handle")
-
-
 def innerstep() -> None:
-    """Middle of the cause chain: delegates error handling to handle_error."""
+    """Middle of the cause chain: accidentally raises TypeError in except:."""
+    where = "inner step"
     try:
         risky_computation()
     except ZeroDivisionError as e:
-        handle_error()
+        x = where + 123
 
 
 def outerstep() -> None:
-    """Top level: wraps ValueError in RuntimeError."""
+    """Top level: wraps the exception from innerstep in ValueError."""
+    action = "compute"
     try:
         innerstep()
-    except RuntimeError as e:
-        msg = "Could not compute"
-        raise ValueError(msg) from e
+    except Exception as e:
+        detail = "inner step failed"
+        raise ValueError(f"Could not {action}: {detail}") from e
 
 
 # ---------------------------------------------------------------------------
