@@ -156,7 +156,7 @@ class TestHtmlCornercases:
 
             # Should show "(no source code)" with symbol
             assert "(no source code)" in html_str
-            # Symbols must be wrapped so CSS can color call arrows yellow
+            # Symbols must be wrapped so CSS can color them
             assert 'class="tracerite-symbol"' in html_str
 
     def test_call_frame_without_source_code(self):
@@ -177,8 +177,8 @@ class TestHtmlCornercases:
             html_str = str(html)
 
             # The call arrow must be wrapped so CSS colors it yellow
-            assert f'data-symbol="{symbols["call"]}"' in html_str
             assert 'class="tracerite-symbol"' in html_str
+            assert f'data-text="{symbols["call"]} Call"' in html_str
 
     def test_source_not_available_on_last_frame(self):
         """Test message when source is not available on the last frame (where error was raised).
