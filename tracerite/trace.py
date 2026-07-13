@@ -195,34 +195,70 @@ def build_chain_header(frames: list[dict]) -> str:
     return " ".join(parts)
 
 
+# =============================================================================
+# Pipeline entry points
+# =============================================================================
+
+
 def extract_chain(exc=None, **kwargs) -> list:
     """Extract chronological traceback frames for the current exception."""
-    exc_chain = extract_chain_exceptions(exc, **kwargs)
-    chrono = build_chronological_frames(exc_chain)
-    _fill_chronological_variables(chrono)
-    _attach_leaf_types(exc_chain, chrono)
-    return chrono
+    exc = exc or sys.exc_info()[1]
+    chain = _collect_exception_chain(exc, **kwargs)
+    chain = _digest_exception_chain(chain)
+    chronological = build_chronological_frames(chain)
+    chronological = _finalize_chronological(chronological, chain)
+    return chronological
 
 
 def extract_chain_exceptions(exc=None, **kwargs) -> list:
     """Extract raw exception info dicts, oldest first (internal)."""
+    return _digest_exception_chain(_collect_exception_chain(exc, **kwargs))
+
+
+# =============================================================================
+# Stage 1: collect the raw exception chain
+# =============================================================================
+
+
+def _collect_exception_chain(exc=None, **kwargs) -> list[dict]:
+    """Return raw exception objects in chronological order, oldest first.
+
+    Each element is a small metadata dict with the live exception object and
+    the kwargs that should be passed when it is digested.  Skip-related kwargs
+    are attached only to the outermost (newest) exception.
+    """
     chain = []
     exc = exc or sys.exc_info()[1]
     while exc:
         chain.append(exc)
         exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
-    # Reverse to get oldest first (chain is built newest-first)
     chain = list(reversed(chain))
-    result = [
-        extract_exception(
-            e,
-            _defer_variables=True,
-            **(kwargs if e is chain[-1] else {}),
-        )
-        for e in reversed(chain)
+    return [{"exc": e, "kwargs": kwargs if e is chain[-1] else {}} for e in chain]
+
+
+# =============================================================================
+# Stage 2: digest each exception into raw frames
+# =============================================================================
+
+
+def _digest_exception_chain(raw_chain: list[dict]) -> list[dict]:
+    """Convert the raw chain into fully digested exception info dicts."""
+    return [
+        extract_exception(item["exc"], _defer_variables=True, **item["kwargs"])
+        for item in raw_chain
     ]
-    result.reverse()
-    return result
+
+
+# =============================================================================
+# Stage 4: finalize chronological frames
+# =============================================================================
+
+
+def _finalize_chronological(chronological: list[dict], chain: list[dict]) -> list[dict]:
+    """Fill variables and attach metadata that belongs to the final view."""
+    _fill_chronological_variables(chronological)
+    _attach_leaf_types(chain, chronological)
+    return chronological
 
 
 def _create_summary(message):
