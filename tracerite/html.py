@@ -153,6 +153,13 @@ def html_traceback(
     autodark: bool = True,
     **extract_args: Any,
 ) -> Any:
+    """Render an exception as an interactive HTML fragment.
+
+    Returns an html5tagger HTML fragment wrapped in a ``<div class="tracerite">``.
+    By default the fragment includes the TraceRite stylesheet and JavaScript;
+    set ``include_js_css=False`` when embedding it in a page that already
+    provides them.
+    """
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
     # Chain is oldest-first from extract_chain
     classes = "tracerite autodark" if autodark else "tracerite"
