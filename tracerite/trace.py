@@ -93,6 +93,59 @@ symdesc = {
 symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑", "except": "⚠️"}
 
 
+def _exception_info(exc: dict[str, Any]) -> dict[str, Any]:
+    """Return a JSON-compatible exception-info dict."""
+    return {
+        "type": exc.get("type"),
+        "message": exc.get("message"),
+        "summary": exc.get("summary"),
+        "from": exc.get("from"),
+    }
+
+
+def _function_display(function: str | None, function_suffix: str) -> str | None:
+    """Return the display string for a function name with an optional suffix."""
+    if function:
+        return f"{function}{function_suffix}"
+    return function_suffix or None
+
+
+def _normalize_variable(var_info: Any) -> tuple[str, str, Any, str]:
+    """Normalize a VarInfo namedtuple or old tuple into (name, typename, value, fmt)."""
+    if hasattr(var_info, "name"):
+        return (
+            var_info.name,
+            var_info.typename,
+            var_info.value,
+            var_info.format_hint,
+        )
+    name, typename, value = var_info
+    return name, typename, value, "inline"
+
+
+def _call_run_ranges(
+    frames: list[dict[str, Any]], min_run_length: int = 10
+) -> list[tuple[int, int]]:
+    """Return (start, end) ranges of consecutive 'call' frames to collapse."""
+    ranges = []
+    run_start = None
+    for i, frinfo in enumerate(frames):
+        if frinfo["relevance"] == "call":
+            if run_start is None:
+                run_start = i
+        else:
+            if run_start is not None:
+                run_length = i - run_start
+                if run_length >= min_run_length and run_length > 2:
+                    ranges.append((run_start, i - 1))
+                run_start = None
+    if run_start is not None:
+        run_length = len(frames) - run_start
+        if run_length >= min_run_length and run_length > 2:
+            ranges.append((run_start, len(frames) - 1))
+    return ranges
+
+
 def build_chain_header(chain: list[dict]) -> str:
     """Build a header message describing the exception chain."""
     if not chain:
