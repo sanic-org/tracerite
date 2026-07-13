@@ -53,7 +53,7 @@ def html_page(
     autodark: bool = True,
     local_urls: bool = False,
     **extract_args: Any,
-) -> str:
+) -> HTML:
     """Render a full HTML5 document containing a TraceRite traceback.
 
     The page uses html5tagger's Template feature. `Page` exposes the slots
@@ -62,9 +62,13 @@ def html_page(
     Ingress slots. The Header and Footer slots are empty by default so callers
     can inject site-wide header/footer content.
     """
-    chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
-    page_title = title or (chain[-1]["type"] if chain else "TraceRite")
-    page_heading = heading or page_title
+    chain = (
+        extract_chain(exc=exc, **extract_args)[-3:] if chain is None else chain
+    )
+    page_title = (
+        title if title is not None else (chain[-1]["type"] if chain else "TraceRite")
+    )
+    page_heading = heading if heading is not None else page_title
     page_ingress = (
         ingress
         if ingress is not None
@@ -78,14 +82,12 @@ def html_page(
         autodark=autodark,
         local_urls=local_urls,
     )
-    return str(
-        Page(
-            Title=page_title,
-            Header=header or "",
-            Heading=Header(Heading=page_heading, Ingress=page_ingress),
-            Content=traceback_html,
-            Footer=footer or "",
-        )
+    return Page(
+        Title=page_title,
+        Header="" if header is None else header,
+        Heading=Header(Heading=page_heading, Ingress=page_ingress),
+        Content=traceback_html,
+        Footer="" if footer is None else footer,
     )
 
 
