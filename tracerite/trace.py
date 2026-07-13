@@ -1302,7 +1302,7 @@ def _extract_syntax_error_frame(e):
 
     # Calculate common indentation
     lines_list = lines.splitlines(keepends=True)
-    common_indent = _calculate_common_indent(lines_list)
+    common_indent = ""
 
     # Clamp columns reported past the end of the line so we still highlight
     # something meaningful for errors like "expected ':'" or indentation errors.
@@ -1342,7 +1342,9 @@ def _extract_syntax_error_frame(e):
         lines_list = lines_list[slice_start:slice_end]
         lines = "".join(lines_list)
         start = slice_start + 1
-        common_indent = _calculate_common_indent(lines_list)
+        # The snippet is displayed with original indentation; keep common_indent
+        # empty because the highlight ranges stay in original column coordinates.
+        common_indent = ""
 
         error_line_in_context = lineno - start + 1
         end_line = end_lineno - start + 1 if end_lineno else None

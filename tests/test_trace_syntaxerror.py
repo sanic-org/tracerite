@@ -259,6 +259,43 @@ class TestSyntaxErrorFrameExtraction:
         # Trailing empty context lines trimmed.
         check("func(\n[1,\n)\n\n\n", 1, 3)
 
+    def test_syntax_error_indented_cursor_not_shifted(self):
+        """Indented SyntaxError cursor/URL must use original columns.
+
+        The displayed snippet may be entirely indented if the surrounding
+        top-level context is sliced away. In that case the highlight ranges are
+        still in original column coordinates, so compute_cursor_position must
+        not add the common indentation back.
+        """
+        code_lines = (
+            ["def foo():\n"]
+            + [f"    line{i}\n" for i in range(1, 8)]
+            + [
+                "    if True:\n",
+                "        x = (1 + 2\n",
+                "        y = 3\n",
+            ]
+        )
+        code = "".join(code_lines)
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+            f.write(code)
+            path = f.name
+        try:
+            compile(code, path, "exec")
+        except SyntaxError as e:
+            frame = _extract_syntax_error_frame(e)
+            assert frame is not None
+            # With the bug, cursor_col was shifted right by the common indent
+            # of the sliced snippet (4 spaces). It should stay at the original
+            # end column instead.
+            assert frame["cursor_col"] == frame["range"].cend
+            vs_code_url = frame["urls"].get("VS Code", "")
+            assert vs_code_url.endswith(
+                f":{frame['cursor_line']}:{frame['cursor_col']}"
+            )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
     def test_is_notebook_cell_no_ipython(self):
         """Test _is_notebook_cell when ipython is None."""
         from tracerite import trace
