@@ -531,23 +531,31 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
     first_line_width = max(1, term_width - _display_width(LINE_PREFIX))
     cont_width = max(1, term_width - _display_width(LINE_PREFIX) - _display_width("▐ "))
 
-    lines: list[str] = []
+    summary_lines: list[str] = []
     title_width = type_prefix_width + _display_width(summary)
 
     if title_width <= first_line_width:
-        lines.append(f"{type_prefix_colored}{BOLD}{summary}{RESET}")
+        summary_lines.append(f"{type_prefix_colored}{BOLD}{summary}{RESET}")
     else:
-        lines.append(type_prefix_colored)
-        lines.extend(f"{BOLD}{line}{RESET}" for line in _wrap_text(summary, cont_width))
+        summary_lines.append(type_prefix_colored)
+        summary_lines.extend(
+            f"{BOLD}{line}{RESET}" for line in _wrap_text(summary, cont_width)
+        )
 
+    body_lines_raw: list[str] = []
     if summary != message:
         body = message
         if summary and body.startswith(summary):
             body = body[len(summary) :]
             if body.startswith("\n"):
                 body = body[1:]
-        for para in body.split("\n"):
-            lines.extend(_wrap_text(para, cont_width) if para else [""])
+        body_lines_raw = body.split("\n")
+
+    body_lines_wrapped: list[str] = []
+    for para in body_lines_raw:
+        body_lines_wrapped.extend(_wrap_text(para, cont_width) if para else [""])
+
+    lines = summary_lines + body_lines_wrapped
 
     if len(lines) > 100:
         skipped = len(lines) - 40

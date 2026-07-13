@@ -597,3 +597,31 @@ def test_trailing_newline_message_html():
     assert "Single line with trailing" in str(soup)
     # Should NOT have a pre.excmessage because rest is empty after strip
     # (the message is "Single line with trailing\n", split gives ["Single line...", ""])
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="Demo scenarios require Python 3.11+"
+)
+def test_long_exception_message_html_truncation():
+    """Long exception messages are shortened in the middle in HTML output."""
+    from demo.helpers.scenarios import longmsg
+
+    try:
+        longmsg()
+    except Exception as e:
+        html_output = str(html_traceback(e))
+
+    soup = BeautifulSoup(html_output, "html.parser")
+
+    # The body of the message is rendered in a <pre class="excmessage">.
+    pre_elements = soup.find_all("pre", class_="excmessage")
+    assert len(pre_elements) > 0
+    pre_text = pre_elements[-1].get_text()
+
+    # The start and end of the message body should still be visible.
+    assert "The supplied manifest" in pre_text
+    assert "[079] validation error" in pre_text
+
+    # Middle content should be elided behind an ellipsis marker.
+    assert "more lines" in pre_text
+    assert "[039] validation error" not in pre_text
