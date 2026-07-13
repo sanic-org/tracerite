@@ -40,9 +40,9 @@ def _collapse_call_runs(
             if run_start is not None:
                 run_length = i - run_start
                 if run_length >= min_run_length:
-                    # Keep first and last of the run, add ellipsis
+                    # Keep first and last of the run, add ellipsis with count
                     result.append(frames[run_start])
-                    result.append(...)
+                    result.append((..., run_length - 2))
                     result.append(frames[i - 1])
                 else:
                     # Run too short, keep all
@@ -56,7 +56,7 @@ def _collapse_call_runs(
         run_length = len(frames) - run_start
         if run_length >= min_run_length:
             result.append(frames[run_start])
-            result.append(...)
+            result.append((..., run_length - 2))
             result.append(frames[-1])
         else:
             result.extend(frames[run_start:])
@@ -134,8 +134,9 @@ def _render_frame_list(
     limited_frames = _collapse_call_runs(frames, min_run_length=10)
 
     for frinfo in limited_frames:
-        if frinfo is ...:
-            doc.p("...", class_="traceback-ellipsis")
+        if isinstance(frinfo, tuple) and frinfo[0] is ...:
+            skipped = frinfo[1]
+            doc.p(f"⋮ {skipped} more calls", class_="traceback-ellipsis")
             continue
 
         relevance = frinfo["relevance"]
