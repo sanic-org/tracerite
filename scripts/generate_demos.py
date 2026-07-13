@@ -261,6 +261,15 @@ def _strip_execution_metadata(notebook: nbformat.NotebookNode) -> nbformat.Noteb
     return notebook
 
 
+def _assign_deterministic_cell_ids(
+    notebook: nbformat.NotebookNode,
+) -> nbformat.NotebookNode:
+    """Assign stable cell IDs so regenerated notebooks diff cleanly."""
+    for i, cell in enumerate(notebook.cells):
+        cell.id = f"cell-{i}"
+    return notebook
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate FastAPI/Sanic demo apps and a scenarios notebook."
@@ -296,6 +305,7 @@ def main() -> None:
     sanic_path.chmod(0o755)
     notebook = _execute_notebook(_build_notebook(items))
     notebook = _strip_execution_metadata(notebook)
+    notebook = _assign_deterministic_cell_ids(notebook)
     notebook_path.write_text(nbformat.writes(notebook), encoding="utf-8")
 
     print(f"Wrote {fastapi_path}")
