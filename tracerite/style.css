@@ -13,8 +13,6 @@
   --tracerite-call-highlight: #da0;
   --tracerite-caret: #f00;
   --tracerite-exception: #777;
-  --tracerite-tooltip: #000;
-  --tracerite-tooltip-text: inherit;
   --tracerite-code: inherit;
   --tracerite-lineno: #888;
   --tracerite-link-bg: #fff5;
@@ -41,8 +39,6 @@
     --tracerite-call-highlight: #ff0;
     --tracerite-caret: #f55;
     --tracerite-exception: #aaa;
-    --tracerite-tooltip: #fff;
-    --tracerite-tooltip-text: #fff;
     --tracerite-code: #ccc;
     --tracerite-lineno: #888;
     --tracerite-link-bg: #0005;
@@ -108,16 +104,16 @@
 :root .tracerite .traceback-details mark { background: var(--tracerite-highlight); color: var(--tracerite-highlight-text); padding: 0.2em; margin: -0.1em; }
 :root .tracerite .traceback-details em { font-style: normal; color: var(--tracerite-caret); }
 
-/* Symbol element - display symbol with specific styling */
+/* Symbol element - display symbol emoji and description together */
 :root .tracerite .traceback-details .tracerite-symbol {
   display: inline-block;
-  margin-left: 0.5ch;
+  margin: -0.25em 0 -0.25em 0.5ch;
   padding: 0.1em;
-  font-size: 1.5em;
-  margin: -0.25em 0 -.25em 0.3em;
+  font-size: 1.1em;
   font-weight: bold;
   vertical-align: middle;
   font-family: var(--tracerite-ui-font);
+  white-space: nowrap;
 }
 
 /* Call symbols get special color and shadow */
@@ -126,23 +122,8 @@
   text-shadow: var(--tracerite-call-symbol-shadow);
 }
 
-/* Display symbol using pseudo-element and data attribute */
-:root .tracerite .traceback-details .tracerite-symbol::before { content: attr(data-symbol); }
-
-/* Tooltip text element - display text with different styling */
-:root .tracerite .traceback-details .tracerite-tooltip-text {
-  display: inline-block;
-  margin-left: 0.3ch;
-  font-size: 0.9em;
-  font-weight: bold;
-  vertical-align: middle;
-  font-family: var(--tracerite-ui-font);
-  white-space: nowrap;
-  color: var(--tracerite-tooltip-text);
-}
-
-/* Display tooltip text using pseudo-element and data attribute */
-:root .tracerite .traceback-details .tracerite-tooltip-text::before { content: attr(data-tooltip); }
+/* Display symbol and description using pseudo-element and data attribute */
+:root .tracerite .traceback-details .tracerite-symbol::before { content: attr(data-text); }
 
 :root .tracerite .traceback-details {
   position: relative;
