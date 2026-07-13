@@ -8,7 +8,6 @@ import pytest
 from tracerite.chain_analysis import build_chronological_frames
 from tracerite.html import html_traceback
 from tracerite.trace import (
-    _collect_leaf_exception_types,
     _extract_chain_exceptions,
     _extract_subexceptions,
     _is_exception_group,
@@ -185,30 +184,6 @@ class TestChainHeader:
         # Should show leaf types from all levels
         assert "ValueError" in header
         assert "KeyError" in header
-
-    def test_collect_leaf_exception_types(self):
-        """Test _collect_leaf_exception_types helper."""
-        # Simulate subexceptions structure
-        subexceptions = [
-            [{"type": "ValueError"}],
-            [{"type": "TypeError"}],
-        ]
-        result = _collect_leaf_exception_types(subexceptions)
-        assert result == ["ValueError", "TypeError"]
-
-    def test_collect_leaf_exception_types_nested(self):
-        """Test _collect_leaf_exception_types with nested groups."""
-        subexceptions = [
-            [{"type": "ValueError"}],
-            [
-                {
-                    "type": "ExceptionGroup",
-                    "subexceptions": [[{"type": "KeyError"}], [{"type": "IndexError"}]],
-                }
-            ],
-        ]
-        result = _collect_leaf_exception_types(subexceptions)
-        assert result == ["ValueError", "KeyError", "IndexError"]
 
 
 @pytest.mark.skipif(
@@ -410,16 +385,6 @@ class TestAsyncTaskGroup:
 class TestCoverageEdgeCases:
     """Tests for edge cases to achieve 100% coverage in trace.py."""
 
-    def test_collect_leaf_types_empty_subchain(self):
-        """Test _collect_leaf_exception_types with empty sub_chain (line 100)."""
-        # Simulate subexceptions with an empty chain
-        subexceptions = [
-            [],  # Empty chain - should be skipped
-            [{"type": "ValueError"}],
-        ]
-        result = _collect_leaf_exception_types(subexceptions)
-        assert result == ["ValueError"]
-
     def test_chain_header_empty_leaf_types(self):
         """Test build_chain_header when leaf_types is empty (lines 67->74, 70).
 
@@ -580,6 +545,28 @@ class TestCoverageEdgeCases:
         # Should return "Uncaught ExceptionGroup" since leaf_types is empty
         assert "Uncaught" in header
         assert "ExceptionGroup" in header
+
+    def test_build_chain_header_no_exceptions(self):
+        """Test build_chain_header with frames that have no exception banner."""
+        assert build_chain_header([{"idframe": 1}]) == ""
+
+    def test_attach_leaf_types_empty_leaf_types(self):
+        """Test _attach_leaf_types returns early when leaf_types is empty."""
+        from tracerite.trace import _attach_leaf_types
+
+        chain = [{"type": "ExceptionGroup", "subexceptions": [[], []]}]
+        _attach_leaf_types(chain, [])
+        _attach_leaf_types(chain, [{"idframe": 1}])
+
+    def test_attach_leaf_types_no_banner_frame(self):
+        """Test _attach_leaf_types when no frame carries an exception banner."""
+        from tracerite.trace import _attach_leaf_types
+
+        chain = [
+            {"type": "ExceptionGroup", "subexceptions": [[{"type": "ValueError"}]]}
+        ]
+        _attach_leaf_types(chain, [])
+        _attach_leaf_types(chain, [{"idframe": 1}])
 
     def test_extract_source_lines_notebook_no_except(self):
         """Test extract_source_lines for notebook cell without except block (line 478)."""

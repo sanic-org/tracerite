@@ -154,7 +154,21 @@ def _attach_leaf_types(exc_chain: list[dict], chrono_frames: list[dict]) -> None
     subexceptions = exc_chain[-1].get("subexceptions")
     if not subexceptions:
         return
-    leaf_types = _collect_leaf_exception_types(subexceptions)
+
+    def _collect(subs: list[list[dict]]) -> list[str]:
+        types = []
+        for sub in subs:
+            if not sub:
+                continue
+            last = sub[-1]
+            nested = last.get("subexceptions")
+            if nested:
+                types.extend(_collect(nested))
+            else:
+                types.append(last.get("type", "Exception"))
+        return types
+
+    leaf_types = _collect(subexceptions)
     if not leaf_types:
         return
     for frame in reversed(chrono_frames):
@@ -193,29 +207,6 @@ def build_chain_header(frames: list[dict]) -> str:
         parts.append(f"{joiner} {exc.get('type', 'Exception')}")
 
     return " ".join(parts)
-
-
-def _collect_leaf_exception_types(subexceptions: list[list[dict]]) -> list[str]:
-    """Collect the final exception types from all subexception chains.
-
-    For nested ExceptionGroups, recursively collects leaf exception types.
-    Returns a flat list of exception type names.
-    """
-    leaf_types = []
-    for sub_chain in subexceptions:
-        if not sub_chain:
-            continue
-        # Get the last exception in this chain (the one that was raised)
-        last_exc = sub_chain[-1]
-        # Check if this is itself an ExceptionGroup with subexceptions
-        nested_subs = last_exc.get("subexceptions")
-        if nested_subs:
-            # Recursively collect from nested ExceptionGroup
-            leaf_types.extend(_collect_leaf_exception_types(nested_subs))
-        else:
-            # This is a leaf exception
-            leaf_types.append(last_exc.get("type", "Exception"))
-    return leaf_types
 
 
 def extract_chain(exc=None, **kwargs) -> list:
