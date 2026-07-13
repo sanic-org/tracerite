@@ -25,7 +25,7 @@ def test_html_page_doctype_and_structure():
     assert soup.html is not None
     assert soup.find("meta", charset="utf-8") is not None
     assert soup.title is not None
-    assert soup.header is not None
+    assert soup.h1 is not None
     assert soup.main is not None
 
 
@@ -50,8 +50,7 @@ def test_html_page_custom_title_and_heading():
 def test_html_page_default_ingress():
     html = html_page(_sample_exception())
     soup = BeautifulSoup(html, "html.parser")
-    assert soup.header is not None
-    ingress = soup.header.find("p")
+    ingress = soup.find("p")
     assert ingress is not None
     assert "error occurred" in ingress.get_text()
 
@@ -64,10 +63,11 @@ def test_html_page_custom_ingress():
     )
     soup = BeautifulSoup(html, "html.parser")
     assert _text(soup.h1) == "Oops"
-    assert soup.header is not None
-    ingress = soup.header.find("p")
-    assert ingress is not None
-    assert ingress.get_text() == "Something went wrong."
+    # Ingress appears inside <main>, before the traceback.
+    main = soup.find("main")
+    assert main is not None
+    main_html = str(main)
+    assert "Something went wrong." in main_html
 
 
 def test_html_page_header_footer_override():
@@ -85,6 +85,13 @@ def test_html_page_header_footer_override():
     assert _text(soup.footer) == "Support"
 
 
+def test_html_page_default_has_no_header_footer_tags():
+    """By default Page inserts Header/Footer slots without wrapper tags."""
+    html = html_page(_sample_exception())
+    assert "<header>" not in html
+    assert "<footer>" not in html
+
+
 def test_html_page_includes_tracerite_assets():
     html = html_page(_sample_exception())
     assert "--tracerite-ui-font" in html
@@ -93,7 +100,7 @@ def test_html_page_includes_tracerite_assets():
 
 def test_html_page_body_font():
     html = html_page(_sample_exception())
-    assert "body {\n  font-family: var(--tracerite-ui-font);" in html
+    assert "body { font-family: var(--tracerite-ui-font);" in html
 
 
 def test_html_page_traceback_embedded_without_fragment_assets():
