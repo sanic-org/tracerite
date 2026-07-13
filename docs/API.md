@@ -41,6 +41,52 @@ async def handle_error(request, exception):
 
 The same pattern works with FastAPI, Flask, or any framework that lets you return HTML responses.
 
+## `html_page`
+
+Renders a complete HTML5 document containing a TraceRite traceback. Use this when you want a ready-to-serve page rather than an HTML fragment.
+
+```python
+from tracerite import html_page
+
+try:
+    risky_operation()
+except Exception as exc:
+    html = html_page(exc)
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `exc` | `Exception` | `None` | Exception to render. If `None`, uses the current exception from `sys.exc_info()`. |
+| `title` | `str` | `None` | Document `<title>` and default `<h1>`. Defaults to the exception type. Can be an empty string. |
+| `heading` | `str` | `None` | `<h1>` text. Defaults to `title`. Can be an empty string. |
+| `ingress` | `str` | `None` | Introductory paragraph below the heading. Defaults to a generic message. Can be an empty string. |
+| `header` | `Any` | `None` | Content injected before `<main>` (e.g. site navigation or extra `<style>` tags). Defaults to empty. |
+| `footer` | `Any` | `None` | Content injected after `<main>`. Defaults to empty. |
+| `msg` | `str` / `...` / `None` | `...` | Override the exception summary heading. `...` uses the default, `None` omits it. |
+| `chain` | `list` | `None` | Pre-extracted exception chain (from `extract_chain`). Overrides `exc`. |
+| `autodark` | `bool` | `True` | Enable automatic dark-mode support. |
+| `local_urls` | `bool` | `False` | Use `file://` URLs for source links (for local development). |
+
+Any additional keyword arguments are passed through to `extract_chain`.
+
+### Web Framework Integration
+
+```python
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+from tracerite import html_page
+
+app = FastAPI()
+
+@app.exception_handler(Exception)
+async def handle_error(request, exc):
+    return HTMLResponse(html_page(exc, title="My App Error"), status_code=500)
+```
+
+For FastAPI there is also `tracerite.fastapi.patch_fastapi()`, which replaces Starlette's default debug error page with `html_page` automatically.
+
 ## `extract_chain`
 
 Extracts exception information without rendering. Useful for logging or custom formatting.

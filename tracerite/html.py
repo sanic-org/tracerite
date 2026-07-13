@@ -56,11 +56,18 @@ def html_page(
 ) -> HTML:
     """Render a full HTML5 document containing a TraceRite traceback.
 
-    The page uses html5tagger's Template feature. `Page` exposes the slots
-    Title, Header, Heading, Content and Footer. The default heading inside
-    `<main>` is built from the `Header` template, which has Heading and
-    Ingress slots. The Header and Footer slots are empty by default so callers
-    can inject site-wide header/footer content.
+    This returns an html5tagger `HTML` string. The underlying `Page` template
+    includes TraceRite's CSS and JavaScript, an optional site-wide header and
+    footer, a heading/ingress block inside `<main>`, and the traceback itself.
+
+    The default heading inside `<main>` is built from the `Header` template,
+    which exposes `Heading` and `Ingress` slots. The `Header` and `Footer`
+    slots of `Page` are empty by default so callers can inject site-wide
+    header/footer content.
+
+    Parameters with a default of `None` can be overridden with an empty string
+    or any other falsy value; the default is only used when the parameter is
+    omitted.
     """
     chain = extract_chain(exc=exc, **extract_args)[-3:] if chain is None else chain
     page_title = (
