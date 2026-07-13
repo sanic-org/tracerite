@@ -642,10 +642,20 @@ def test_trailing_newline_message_html():
 )
 def test_long_exception_message_html_truncation():
     """Long exception messages are shortened in the middle in HTML output."""
-    from demo.helpers.scenarios import longmsg
+    msg = (
+        "Configuration validation failed for the requested pipeline.\n"
+        "\n"
+        "The supplied manifest references several deprecated fields and "
+        "contains sections that cannot be parsed automatically.\n"
+        + "\n".join(
+            f"[{i:03d}] validation error in field `spec.paths.{i}.method`: method "
+            f"name is too long and contains invalid characters"
+            for i in range(80)
+        )
+    )
 
     try:
-        longmsg()
+        raise ValueError(msg)
     except Exception as e:
         html_output = str(html_traceback(e))
 
