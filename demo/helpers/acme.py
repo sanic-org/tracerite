@@ -35,7 +35,7 @@ def risky_computation() -> float:
 
 
 def innerstep() -> None:
-    """Middle of the cause chain: wraps ZeroDivisionError in RuntimeError."""
+    """Middle of the cause chain: accidentally raises TypeError in except:."""
     where = "inner step"
     try:
         risky_computation()
@@ -44,7 +44,7 @@ def innerstep() -> None:
 
 
 def outerstep() -> None:
-    """Top level: wraps RuntimeError in ValueError."""
+    """Top level: wraps the exception from innerstep in ValueError."""
     action = "compute"
     try:
         innerstep()
