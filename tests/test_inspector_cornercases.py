@@ -1,6 +1,7 @@
 """Corner case and edge case tests for inspector.py to achieve 100% coverage."""
 
 import numpy as np
+import pytest
 
 from tracerite.inspector import (
     _extract_identifiers_ast,
@@ -351,6 +352,18 @@ class TestInspectorCornercases:
         # Should handle AttributeError gracefully
         rows = extract_variables(variables, sourcecode)
         assert len(rows) > 0
+
+    def test_non_cpu_device_shown_in_typename(self):
+        """Non-CPU devices are reported in the type annotation."""
+        torch = pytest.importorskip("torch")
+
+        tensor = torch.tensor([1.0, 2.0], device="meta")
+        variables = {"tensor": tensor}
+        sourcecode = "tensor"
+
+        rows = extract_variables(variables, sourcecode)
+        row_dict = {row[0]: row[1] for row in rows}
+        assert "@meta" in row_dict["tensor"]
 
     def test_numpy_scalar_no_extra_dtype(self):
         """Test numpy scalar where dtype equals typename (raises AttributeError on line 69)."""

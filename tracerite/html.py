@@ -7,7 +7,17 @@ from typing import Any, cast
 from html5tagger import HTML, Document, E, Template
 
 from .chain_analysis import build_chronological_frames
-from .trace import build_chain_header, chainmsg, extract_chain, symbols, symdesc
+from .trace import (
+    _call_run_ranges,
+    _exception_info,
+    _function_display,
+    _normalize_variable,
+    build_chain_header,
+    chainmsg,
+    extract_chain,
+    symbols,
+    symdesc,
+)
 
 style = files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
 javascript = (
@@ -104,40 +114,16 @@ def _collapse_call_runs(
         return frames
 
     result = []
-    run_start = None
-
-    for i, frinfo in enumerate(frames):
-        if frinfo["relevance"] == "call":
-            if run_start is None:
-                run_start = i
-        else:
-            # End of a call run - process it
-            if run_start is not None:
-                run_length = i - run_start
-                skipped = run_length - 2
-                if run_length >= min_run_length and skipped > 0:
-                    # Keep first and last of the run, add ellipsis with count
-                    result.append(frames[run_start])
-                    result.append((..., skipped))
-                    result.append(frames[i - 1])
-                else:
-                    # Run too short, keep all
-                    result.extend(frames[run_start:i])
-                run_start = None
-            # Add the non-call frame
-            result.append(frinfo)
-
-    # Handle final run at end
-    if run_start is not None:
-        run_length = len(frames) - run_start
+    prev_end = 0
+    for start, end in _call_run_ranges(frames, min_run_length):
+        result.extend(frames[prev_end:start])
+        run_length = end - start + 1
         skipped = run_length - 2
-        if run_length >= min_run_length and skipped > 0:
-            result.append(frames[run_start])
-            result.append((..., skipped))
-            result.append(frames[-1])
-        else:
-            result.extend(frames[run_start:])
-
+        result.append(frames[start])
+        result.append((..., skipped))
+        result.append(frames[end])
+        prev_end = end + 1
+    result.extend(frames[prev_end:])
     return result
 
 
@@ -195,13 +181,7 @@ def _chronological_output(
     if not chrono_frames:
         # No frames, but still show exception banners for any exceptions in chain
         for exc in chain:
-            exc_info = {
-                "type": exc.get("type"),
-                "message": exc.get("message"),
-                "summary": exc.get("summary"),
-                "from": exc.get("from"),
-            }
-            _exception_banner(doc, exc_info)
+            _exception_banner(doc, _exception_info(exc))
         return
 
     _render_frame_list(doc, chrono_frames, local_urls=local_urls)
@@ -460,14 +440,9 @@ def _frame_label(
     local_urls: bool = False,
     toggle_id: str | None = None,
 ) -> None:
-    function_name = frinfo["function"]
-    function_suffix = frinfo.get("function_suffix", "")
-    if function_name:
-        function_display = f"{function_name}{function_suffix}"
-    elif function_suffix:
-        function_display = function_suffix
-    else:
-        function_display = None  # No function to display
+    function_display = _function_display(
+        frinfo["function"], frinfo.get("function_suffix", "")
+    )
 
     # Location comes first, with line number for non-notebook frames
     # Notebook cells (In [N]) don't need line numbers displayed
@@ -549,18 +524,7 @@ def variable_inspector(doc: Any, variables: list[Any]) -> None:
         return
     with doc.dl(class_="inspector"):
         for var_info in variables:
-            # Handle both old tuple format and new VarInfo namedtuple
-            if hasattr(var_info, "name"):
-                n, t, v, fmt = (
-                    var_info.name,
-                    var_info.typename,
-                    var_info.value,
-                    var_info.format_hint,
-                )
-            else:
-                # Backwards compatibility with old tuple format
-                n, t, v = var_info
-                fmt = "inline"
+            n, t, v, fmt = _normalize_variable(var_info)
 
             doc.dt.span(n, class_="var")
             if t:
