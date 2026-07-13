@@ -326,6 +326,7 @@
 :root .tracerite .expand-content > pre {
   grid-column: 1 / 4;
   width: auto;
+  max-width: calc(112ch + 1em);  /* 108 code chars + 4ch line-number gutter + .5em padding each side */
   white-space: pre-wrap;
   word-wrap: break-word;
   text-overflow: clip;
