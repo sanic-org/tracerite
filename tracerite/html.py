@@ -62,9 +62,7 @@ def html_page(
     Ingress slots. The Header and Footer slots are empty by default so callers
     can inject site-wide header/footer content.
     """
-    chain = (
-        extract_chain(exc=exc, **extract_args)[-3:] if chain is None else chain
-    )
+    chain = extract_chain(exc=exc, **extract_args)[-3:] if chain is None else chain
     page_title = (
         title if title is not None else (chain[-1]["type"] if chain else "TraceRite")
     )
