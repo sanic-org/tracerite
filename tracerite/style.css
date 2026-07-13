@@ -75,8 +75,9 @@
 }
 
 :root .tracerite strong,
-:root .tracerite > h3 { font-weight: bold; padding: 0.2em 0; }
-:root .tracerite .excmessage { font-size: 0.8em; max-height: 12em; overflow: auto; border-left: .2em solid var(--tracerite-exception); margin-left: 0.2em; padding-left: 0.5em;}
+:root .tracerite > h3 { font-weight: bold; padding: 0.2em 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+:root .tracerite .excmessage { font-size: 0.8em; border-left: .2em solid var(--tracerite-exception); margin-left: 0.2em; padding-left: 0.5em; white-space: pre-wrap; overflow-wrap: break-word; overflow: hidden; }
+:root .tracerite .excmessage-ellipsis { color: var(--tracerite-lineno); }
 :root .tracerite .exctype { color: var(--tracerite-exception); }
 
 :root .tracerite .traceback-details { font-size: 0.8em; }
@@ -463,4 +464,10 @@
 :root .tracerite .parallel-branch > h3,
 :root .tracerite .parallel-branch > pre.excmessage {
   grid-column: 1 / -1;
+}
+:root .tracerite .parallel-branch > h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
