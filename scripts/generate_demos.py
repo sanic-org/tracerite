@@ -21,6 +21,7 @@ import argparse
 import ast
 import inspect
 import os
+import re
 import tempfile
 import textwrap
 from pathlib import Path
@@ -261,6 +262,44 @@ def _strip_execution_metadata(notebook: nbformat.NotebookNode) -> nbformat.Noteb
     return notebook
 
 
+def _normalize_traceback_ids(notebook: nbformat.NotebookNode) -> nbformat.NotebookNode:
+    """Replace random tracerite frame IDs with deterministic short IDs.
+
+    tracerite generates unique ``tb-<random>`` IDs for frames; these change on
+    every render and make notebook diffs noisy.  Map each original ID to a
+    short sequential ID so the same traceback produces the same HTML anchors.
+    """
+    id_pattern = re.compile(r"(toggle-)?(tb-[A-Za-z0-9_-]{12,})\b")
+    id_map: dict[str, str] = {}
+    counter = 0
+
+    def _replace(html: str) -> str:
+        nonlocal counter
+
+        def _map_id(m: re.Match[str]) -> str:
+            nonlocal counter
+            prefix = m.group(1) or ""
+            base = m.group(2)
+            if base not in id_map:
+                id_map[base] = f"tb-{counter}"
+                counter += 1
+            return prefix + id_map[base]
+
+        return id_pattern.sub(_map_id, html)
+
+    for cell in notebook.cells:
+        for output in cell.get("outputs", []):
+            data = output.get("data", {})
+            html = data.get("text/html")
+            if html is None:
+                continue
+            if isinstance(html, list):
+                data["text/html"] = [_replace(part) for part in html]
+            elif isinstance(html, str):
+                data["text/html"] = _replace(html)
+    return notebook
+
+
 def _assign_deterministic_cell_ids(
     notebook: nbformat.NotebookNode,
 ) -> nbformat.NotebookNode:
@@ -305,6 +344,7 @@ def main() -> None:
     sanic_path.chmod(0o755)
     notebook = _execute_notebook(_build_notebook(items))
     notebook = _strip_execution_metadata(notebook)
+    notebook = _normalize_traceback_ids(notebook)
     notebook = _assign_deterministic_cell_ids(notebook)
     notebook_path.write_text(nbformat.writes(notebook), encoding="utf-8")
 
