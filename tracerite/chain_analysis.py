@@ -24,7 +24,6 @@ from __future__ import annotations
 import ast
 import linecache
 from dataclasses import dataclass
-from functools import lru_cache
 
 from .logging import logger
 
@@ -152,7 +151,6 @@ def parse_source_for_try_except(
     return _parse_source_for_try_except(filename, function_name)
 
 
-@lru_cache(maxsize=128)
 def _parse_source_for_try_except(
     filename: str, function_name: str | None = None
 ) -> list[TryExceptBlock]:
