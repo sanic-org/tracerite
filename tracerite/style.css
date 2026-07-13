@@ -66,7 +66,13 @@
 :root .tracerite pre,
 :root .tracerite code {
   font-family: var(--tracerite-code-font);
-  font-feature-settings: "liga" 1, "ss01" 1, "ss02" 1;
+  font-feature-settings:
+    "calt" 1,   /* texture healing / contextual alternates */
+    "liga" 1,   /* standard & repeating-character ligatures */
+    "ss01" 1, "ss02" 1, "ss03" 1, "ss04" 1,
+    "ss05" 1, "ss06" 1, "ss07" 1, "ss08" 1, "ss09" 1,  /* coding ligatures */
+    "cv01" 2,   /* slashed zero */
+    "cv31" 1;   /* six-pointed asterisk */
   font-variant-ligatures: common-ligatures;
   background: none;
   color: var(--tracerite-code);
