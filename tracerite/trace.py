@@ -1398,6 +1398,7 @@ def _extract_single_frame(
         "relevance": "call",
         "hidden": hidden,
         "idframe": id(frame),
+        "frame_obj": frame,
         "filename": filename,
         "original_filename": original_filename,
         "location": location,
@@ -1413,35 +1414,37 @@ def _extract_single_frame(
         "function": function,
         "function_suffix": "",
         "urls": urls,
+        "variable_source": variable_source,
         "full_source": full_source,
         "full_source_start": full_source_start,
     }
 
-    if hidden:
-        result["variables"] = []
-    else:
-        result["variables"] = []
-        result["_locals"] = dict(frame.f_locals)
-        result["_variable_source"] = variable_source
-        result["_is_error_frame"] = is_last_frame
-
     return result
 
 
-def _fill_variables(frames, exc_message):
-    """Populate the variables field for frames and remove private metadata."""
-    for frame in reversed(frames):
-        if "_variable_source" not in frame:
-            frame.setdefault("variables", [])
-        else:
-            frame["variables"] = extract_variables(
-                frame["_locals"],
-                frame["_variable_source"],
-                exc_message=exc_message if frame.get("_is_error_frame") else None,
-            )
-        frame.pop("_locals", None)
-        frame.pop("_variable_source", None)
-        frame.pop("_is_error_frame", None)
+def _fill_frame_variables(frame: dict, exc_message: str | None = None) -> None:
+    """Extract variables for a single frame and drop its live frame object."""
+    frame_obj = frame.pop("frame_obj", None)
+    variable_source = frame.pop("variable_source", None)
+
+    if frame.get("hidden") or frame_obj is None or variable_source is None:
+        frame.setdefault("variables", [])
+        return
+
+    frame["variables"] = extract_variables(
+        frame_obj.f_locals,
+        variable_source,
+        exc_message=exc_message,
+    )
+
+
+def _fill_variables(frames: list[dict], exc_message: str | None = None) -> None:
+    """Populate the variables field for a Python-order frame list."""
+    last_idx = len(frames) - 1
+    for idx, frame in enumerate(frames):
+        _fill_frame_variables(
+            frame, exc_message=exc_message if idx == last_idx else None
+        )
 
 
 def _fill_chronological_variables(chrono_frames: list[dict]) -> None:
@@ -1451,21 +1454,14 @@ def _fill_chronological_variables(chrono_frames: list[dict]) -> None:
     def _process_branch(branch: list[dict]) -> None:
         for frame in reversed(branch):
             idframe = frame.get("idframe")
-            if (
-                idframe is not None
-                and idframe not in seen
-                and "_variable_source" in frame
-            ):
+            if idframe is not None and idframe not in seen and "frame_obj" in frame:
                 exc_message = frame.get("exception", {}).get("message")
-                frame["variables"] = extract_variables(
-                    frame["_locals"], frame["_variable_source"], exc_message=exc_message
-                )
+                _fill_frame_variables(frame, exc_message=exc_message)
                 seen.add(idframe)
             else:
                 frame.setdefault("variables", [])
-            frame.pop("_locals", None)
-            frame.pop("_variable_source", None)
-            frame.pop("_is_error_frame", None)
+                frame.pop("frame_obj", None)
+                frame.pop("variable_source", None)
             for sub_branch in frame.get("parallel", []):
                 _process_branch(sub_branch)
 
