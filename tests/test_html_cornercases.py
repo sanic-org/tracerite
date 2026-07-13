@@ -3,6 +3,7 @@
 import sys
 
 import pytest
+from bs4 import BeautifulSoup
 
 from tracerite.html import html_traceback, javascript, style
 from tracerite.trace import extract_chain, extract_exception, symbols
@@ -104,8 +105,11 @@ class TestHtmlCornercases:
             html = html_traceback(exc=e)
             html_str = str(html)
 
-            # Should contain ellipsis when frames are limited
-            assert "..." in html_str
+            # Should contain skipped call count when frames are limited
+            soup = BeautifulSoup(html_str, "html.parser")
+            ellipsis = soup.find("p", class_="traceback-ellipsis")
+            assert ellipsis is not None, "Expected ellipsis paragraph in HTML output"
+            assert "more calls" in ellipsis.get_text()
 
     def test_exception_with_no_frames(self):
         """Test HTML rendering when exception has no frames."""
@@ -156,7 +160,7 @@ class TestHtmlCornercases:
 
             # Should show "(no source code)" with symbol
             assert "(no source code)" in html_str
-            # Symbols must be wrapped so CSS can color call arrows yellow
+            # Symbols must be wrapped so CSS can color them
             assert 'class="tracerite-symbol"' in html_str
 
     def test_call_frame_without_source_code(self):
@@ -177,8 +181,8 @@ class TestHtmlCornercases:
             html_str = str(html)
 
             # The call arrow must be wrapped so CSS colors it yellow
-            assert f'data-symbol="{symbols["call"]}"' in html_str
             assert 'class="tracerite-symbol"' in html_str
+            assert f'data-text="{symbols["call"]} Call"' in html_str
 
     def test_source_not_available_on_last_frame(self):
         """Test message when source is not available on the last frame (where error was raised).

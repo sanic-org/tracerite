@@ -124,10 +124,11 @@ def _collapse_call_runs(
             # End of a call run - process it
             if run_start is not None:
                 run_length = i - run_start
-                if run_length >= min_run_length:
-                    # Keep first and last of the run, add ellipsis
+                skipped = run_length - 2
+                if run_length >= min_run_length and skipped > 0:
+                    # Keep first and last of the run, add ellipsis with count
                     result.append(frames[run_start])
-                    result.append(...)
+                    result.append((..., skipped))
                     result.append(frames[i - 1])
                 else:
                     # Run too short, keep all
@@ -139,9 +140,10 @@ def _collapse_call_runs(
     # Handle final run at end
     if run_start is not None:
         run_length = len(frames) - run_start
-        if run_length >= min_run_length:
+        skipped = run_length - 2
+        if run_length >= min_run_length and skipped > 0:
             result.append(frames[run_start])
-            result.append(...)
+            result.append((..., skipped))
             result.append(frames[-1])
         else:
             result.extend(frames[run_start:])
@@ -219,8 +221,10 @@ def _render_frame_list(
     limited_frames = _collapse_call_runs(frames, min_run_length=10)
 
     for frinfo in limited_frames:
-        if frinfo is ...:
-            doc.p("...", class_="traceback-ellipsis")
+        if isinstance(frinfo, tuple):
+            assert frinfo[0] is ...
+            skipped = frinfo[1]
+            doc.p(f"⋮ {skipped} more calls", class_="traceback-ellipsis")
             continue
 
         relevance = frinfo["relevance"]
@@ -398,12 +402,14 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
     """Render frame detail in chronological mode."""
     fragments = frinfo["fragments"]
     relevance = frinfo["relevance"]
+    symbol = symbols.get(relevance, "")
+    desc = symdesc.get(relevance, "")
+    symbol_text = f"{symbol} {desc}" if desc else symbol
 
     if not fragments:
         # Show "(no source code)" with the symbol emoji like a code line would have
-        symbol = symbols.get(relevance, "")
         doc.p("(no source code) ")
-        doc.span(class_="tracerite-symbol", data_symbol=symbol)
+        doc.span(class_="tracerite-symbol", data_text=symbol_text)
         return
 
     with doc.pre, doc.code:
@@ -413,18 +419,11 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
             abs_line = start + line_num - 1
             line_fragments = line_info["fragments"]
 
-            # Prepare tooltip attributes for tooltip span on final line
-            tooltip_attrs = {}
+            # Show the symbol next to the final line of the frame range
+            show_symbol = False
             frame_range = frinfo["range"]
             if frame_range and abs_line == frame_range.lfinal:
-                relevance = frinfo["relevance"]
-                symbol = symbols.get(relevance, relevance)
-                text = symdesc.get(relevance, relevance)
-                tooltip_attrs = {
-                    "class": "tracerite-tooltip",
-                    "data-symbol": symbol,
-                    "data-tooltip": text,
-                }
+                show_symbol = True
 
             with doc.span(class_="codeline", data_lineno=abs_line):
                 non_trailing_fragments = []
@@ -447,24 +446,11 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
                         }
                         non_trailing_fragments[0] = first_fragment_modified
 
-                if tooltip_attrs and non_trailing_fragments:
-                    with doc.span(
-                        class_="tracerite-tooltip",
-                        data_tooltip=tooltip_attrs["data-tooltip"],
-                    ):
-                        for fragment in non_trailing_fragments:
-                            _render_fragment(doc, fragment)
-                    doc.span(
-                        class_="tracerite-symbol",
-                        data_symbol=tooltip_attrs["data-symbol"],
-                    )
-                    doc.span(
-                        class_="tracerite-tooltip-text",
-                        data_tooltip=tooltip_attrs["data-tooltip"],
-                    )
-                else:
-                    for fragment in non_trailing_fragments:
-                        _render_fragment(doc, fragment)
+                for fragment in non_trailing_fragments:
+                    _render_fragment(doc, fragment)
+
+                if show_symbol and non_trailing_fragments:
+                    doc.span(class_="tracerite-symbol", data_text=symbol_text)
 
                 fragment = trailing_fragment
             if fragment:

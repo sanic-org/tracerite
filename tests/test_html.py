@@ -387,11 +387,11 @@ def test_collapse_call_runs_final_run_collapsed():
 
     result = _collapse_call_runs(frames)
 
-    # Should have: error frame, first call frame, ..., last call frame
+    # Should have: error frame, first call frame, ellipsis with count, last call frame
     expected = [
         {"relevance": "error", "id": 1},
         {"relevance": "call", "id": 2},  # First of the run
-        ...,  # Ellipsis
+        (..., 10),  # 10 calls skipped between first and last
         {"relevance": "call", "id": 13},  # Last of the run
     ]
     assert result == expected
@@ -415,6 +415,44 @@ def test_collapse_call_runs_final_run_not_collapsed():
     expected = [
         {"relevance": "error", "id": 1},
     ] + [{"relevance": "call", "id": i} for i in range(2, 10)]
+    assert result == expected
+
+
+def test_collapse_call_runs_small_min_run_length():
+    """Short runs must not be collapsed even when min_run_length is very small."""
+    from tracerite.html import _collapse_call_runs
+
+    frames = [
+        {"relevance": "error", "id": 1},
+        {"relevance": "call", "id": 2},
+        {"relevance": "call", "id": 3},
+    ]
+
+    # A run of two call frames has nothing to skip, so it should not be
+    # collapsed even when min_run_length is 2 or less.
+    result = _collapse_call_runs(frames, min_run_length=1)
+    expected = [
+        {"relevance": "error", "id": 1},
+        {"relevance": "call", "id": 2},
+        {"relevance": "call", "id": 3},
+    ]
+    assert result == expected
+
+
+def test_collapse_call_runs_single_call_not_collapsed():
+    """A single call frame must not be collapsed."""
+    from tracerite.html import _collapse_call_runs
+
+    frames = [
+        {"relevance": "error", "id": 1},
+        {"relevance": "call", "id": 2},
+    ]
+
+    result = _collapse_call_runs(frames, min_run_length=1)
+    expected = [
+        {"relevance": "error", "id": 1},
+        {"relevance": "call", "id": 2},
+    ]
     assert result == expected
 
 
