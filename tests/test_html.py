@@ -637,9 +637,6 @@ def test_trailing_newline_message_html():
     # (the message is "Single line with trailing\n", split gives ["Single line...", ""])
 
 
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="Demo scenarios require Python 3.11+"
-)
 def test_long_exception_message_html_truncation():
     """Long exception messages are shortened in the middle in HTML output."""
     msg = (
