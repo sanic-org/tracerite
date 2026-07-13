@@ -552,21 +552,13 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
         body_lines_raw = body.split("\n")
 
     body_lines_wrapped: list[str] = []
-    raw_idx_for_body_wrapped: list[int] = []
-    for raw_idx, para in enumerate(body_lines_raw):
-        wrapped = _wrap_text(para, cont_width) if para else [""]
-        body_lines_wrapped.extend(wrapped)
-        raw_idx_for_body_wrapped.extend([raw_idx] * len(wrapped))
+    for para in body_lines_raw:
+        body_lines_wrapped.extend(_wrap_text(para, cont_width) if para else [""])
 
     lines = summary_lines + body_lines_wrapped
 
     if len(lines) > 100:
-        head_body_count = max(0, 20 - len(summary_lines))
-        shown_body_raw: set[int] = set()
-        if head_body_count:
-            shown_body_raw.update(raw_idx_for_body_wrapped[:head_body_count])
-        shown_body_raw.update(raw_idx_for_body_wrapped[-20:])
-        skipped = len(body_lines_raw) - len(shown_body_raw)
+        skipped = len(lines) - 40
         lines = lines[:20] + [f"{ELLIPSIS}⋮ {skipped} more lines{RESET}"] + lines[-20:]
 
     if len(lines) > 1:

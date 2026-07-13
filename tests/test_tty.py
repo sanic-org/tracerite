@@ -3271,8 +3271,8 @@ class TestMultilineExceptionMessage:
         assert "line 119" in result_plain
         assert "line 30" not in result_plain
         assert "line 90" not in result_plain
-        # Should report how many lines were skipped, same style as hidden calls.
-        assert "more lines" in result_plain
+        # Should report how many visual lines were skipped.
+        assert "80 more lines" in result_plain
 
     def test_first_banner_line_uses_full_terminal_width(self):
         """The first line of an exception banner fills the terminal width."""

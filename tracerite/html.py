@@ -220,10 +220,12 @@ def _exception_banner(doc: Any, exc_info: dict[str, Any]) -> None:
         rest = parts[1].rstrip()  # Only strip trailing whitespace, preserve leading
         if rest:
             lines = rest.split("\n")
-            visual_lines = sum(1 + len(line) // 80 for line in lines)
+            visual_counts = [1 + len(line) // 80 for line in lines]
+            total_visual = sum(visual_counts)
             marker_index: int | None = None
-            if visual_lines > 100:
-                skipped = len(lines) - 40
+            if total_visual > 100 and len(lines) > 40:
+                shown_visual = sum(visual_counts[:20]) + sum(visual_counts[-20:])
+                skipped = total_visual - shown_visual
                 lines = lines[:20] + [f"⋮ {skipped} more lines"] + lines[-20:]
                 marker_index = 20
             with doc.pre(class_="excmessage"):
