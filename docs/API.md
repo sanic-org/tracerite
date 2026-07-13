@@ -85,7 +85,17 @@ async def handle_error(request, exc):
     return HTMLResponse(html_page(exc, title="My App Error"), status_code=500)
 ```
 
-For FastAPI there is also `tracerite.fastapi.patch_fastapi()`, which replaces Starlette's default debug error page with `html_page` automatically.
+### `patch_fastapi`
+
+Monkey-patches Starlette's debug error handler so FastAPI returns TraceRite HTML pages instead of the default debug HTML. Call once when your app starts.
+
+```python
+from tracerite import patch_fastapi
+
+patch_fastapi()
+```
+
+It also installs TTY formatting for console output by default. Pass `patch_fastapi(tty=False)` to skip that.
 
 ## `extract_chain`
 
@@ -123,6 +133,16 @@ tracerite.unload()
 ```
 
 This replaces both `sys.excepthook` and `threading.excepthook`, so exceptions in threads are also handled.
+
+### Granular loaders
+
+For finer control, use the individual loader functions instead of `load()`:
+
+| Function | Effect |
+|----------|--------|
+| `load_hooks()` / `unload_hooks()` | Replace / restore `sys.excepthook` and `threading.excepthook`. |
+| `load_logging_capture()` / `unload_logging_capture()` | Patch / restore `logging.StreamHandler.emit` to format `logging.exception()` with TraceRite. |
+| `load_suppressions()` / `unload_suppressions()` | Set / restore `__tracebackhide__` on library modules such as `asyncio` and `importlib`. |
 
 ### `tty_traceback`
 

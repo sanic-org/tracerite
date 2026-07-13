@@ -71,6 +71,10 @@ Comes with TraceRite built in whenever running in debug mode.
 
 Renders an exception as interactive HTML that can be included on a page. Pass an exception object, or call with no arguments inside an `except` block to use the current exception.
 
+### `html_page(exc)`
+
+Renders a complete HTML5 document with a TraceRite traceback, ready to serve from a web framework error handler. See `tracerite.fastapi.patch_fastapi()` for FastAPI integration.
+
 ### `extract_chain(exc)`
 
 Extracts exception information as a list of dictionaries—useful for logging, custom formatting, or machine processing.
@@ -86,6 +90,8 @@ Extracts and formats variables mentioned in a line of source code.
 ### `load()` / `unload()`
 
 Load or remove TraceRite as the default exception handler for terminal applications. Handles both `sys.excepthook` and `threading.excepthook`.
+
+Granular loaders are also available: `load_hooks()` / `unload_hooks()`, `load_logging_capture()` / `unload_logging_capture()`, and `load_suppressions()` / `unload_suppressions()`.
 
 ### `tty_traceback(exc)`
 
