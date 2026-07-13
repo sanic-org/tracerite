@@ -36,15 +36,14 @@ _SUPERSCRIPT_DIGITS = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸�
 
 def _format_scalar(v: Any) -> str:
     """Format a single numeric value intelligently."""
-    # Integer types (including numpy integers) - display without decimals
-    if isinstance(v, int) or (hasattr(v, "dtype") and "int" in str(v.dtype)):
+    dtype = str(v.dtype) if hasattr(v, "dtype") else ""
+    if isinstance(v, int) or "int" in dtype:
         return str(int(v))
-    # Float types
-    if isinstance(v, float) or (hasattr(v, "dtype") and "float" in str(v.dtype)):
+    if isinstance(v, float) or "float" in dtype:
         v = float(v)
-        if v != v:  # NaN
+        if math.isnan(v):
             return "NaN"
-        if abs(v) == float("inf"):
+        if math.isinf(v):
             return "∞" if v > 0 else "-∞"
         if v == 0:
             return "0"
@@ -55,7 +54,7 @@ def _format_scalar(v: Any) -> str:
     return str(v)
 
 
-def _get_flat(arr: Any) -> list[Any]:
+def _get_flat(arr: Any) -> Any:
     """Get a flat/1D view of an array, supporting numpy and torch."""
     if hasattr(arr, "flat"):
         return arr.flat
@@ -86,15 +85,14 @@ def _array_formatter(arr: Any) -> tuple[Callable[[Any], str], str]:
     if "float" in dtype_str or "complex" in dtype_str:
         flat = _get_flat(arr)
         n = len(flat)
-        if n <= 200:
-            sample = [float(v) for v in flat]
-        else:
-            sample = [float(flat[i]) for i in range(100)]
-            sample += [float(flat[n - 100 + i]) for i in range(100)]
+        sample = [float(v) for v in (flat if n <= 200 else (*flat[:100], *flat[-100:]))]
 
-        finite = [abs(v) for v in sample if v == v and abs(v) != float("inf")]
+        finite = [abs(v) for v in sample if math.isfinite(v)]
         if not finite:
-            return lambda v: "NaN" if v != v else ("∞" if v > 0 else "-∞"), ""
+            return (
+                lambda v: "NaN" if math.isnan(float(v)) else ("∞" if v > 0 else "-∞"),
+                "",
+            )
 
         max_abs = max(finite)
         log_max = math.log10(max_abs) if max_abs > 0 else 0
@@ -111,12 +109,11 @@ def _array_formatter(arr: Any) -> tuple[Callable[[Any], str], str]:
         decimals = max(0, 2 - math.floor(log_scaled)) if max_abs > 0 else 0
 
         def fmt(v: Any, sf: float = scale_factor, d: int = decimals) -> str:
-            if v != v:
+            v = float(v)
+            if math.isnan(v):
                 return "NaN"
-            if v == float("inf"):
-                return "∞"
-            if v == float("-inf"):
-                return "-∞"
+            if math.isinf(v):
+                return "∞" if v > 0 else "-∞"
             scaled = v * sf
             if scaled == 0:
                 return "0"
@@ -124,7 +121,7 @@ def _array_formatter(arr: Any) -> tuple[Callable[[Any], str], str]:
 
         return fmt, scale_suffix
 
-    return (lambda v: f"{v}"), ""
+    return lambda v: f"{v}", ""
 
 
 class _IdentifierVisitor(ast.NodeVisitor):
@@ -138,16 +135,16 @@ class _IdentifierVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        parts = [node.attr]
-        current = node.value
+        parts: list[str] = []
+        current: ast.AST = node
         while isinstance(current, ast.Attribute):
             parts.append(current.attr)
             current = current.value
         if isinstance(current, ast.Name):
             parts.append(current.id)
-            self.identifiers.add(".".join(reversed(parts)))
-            for i in range(len(parts)):
-                self.identifiers.add(".".join(reversed(parts[i:])))
+            self.identifiers.update(
+                ".".join(reversed(parts[i:])) for i in range(len(parts))
+            )
         self.generic_visit(node)
 
 
@@ -158,19 +155,16 @@ def _extract_identifiers_ast(sourcecode: str) -> set[str] | None:
     Returns a set of variable names (including attribute access like "obj.attr"),
     or None if AST parsing fails.
     """
-    # Try parsing as an expression first (most common case for error lines)
+    tree: ast.AST | None = None
     for wrapper in ("({})", "{}"):
-        try:
-            code = wrapper.format(sourcecode)
-            tree = ast.parse(code, mode="eval")
+        with contextlib.suppress(SyntaxError):
+            tree = ast.parse(wrapper.format(sourcecode), mode="eval")
             break
-        except SyntaxError:
-            continue
-    else:
-        try:
+    if tree is None:
+        with contextlib.suppress(SyntaxError):
             tree = ast.parse(sourcecode, mode="exec")
-        except SyntaxError:
-            return None
+    if tree is None:
+        return None
 
     visitor = _IdentifierVisitor()
     visitor.visit(tree)
@@ -197,7 +191,7 @@ def extract_variables(
     if identifiers is None:
         identifiers = _extract_identifiers_regex(sourcecode)
 
-    rows = []
+    rows: list[VarInfo] = []
     for name, value in variables.items():
         if name in blacklist_names or isinstance(value, blacklist_types):
             continue
@@ -220,7 +214,6 @@ def _extract_variable_rows(
     exc_message: str | None,
 ) -> list[VarInfo]:
     """Return VarInfo rows for a single variable, expanding members if needed."""
-    typename = type(value).__name__
     if name not in identifiers:
         return []
 
@@ -233,6 +226,7 @@ def _extract_variable_rows(
     if not strvalue and reprvalue:
         strvalue = reprvalue
 
+    typename = type(value).__name__
     if _is_exception_message_variable(strvalue, typename, exc_message):
         return []
 
@@ -254,40 +248,38 @@ def _is_exception_message_variable(
 ) -> bool:
     """Check whether a string variable is the exception message itself."""
     return (
-        exc_message is not None
-        and typename == "str"
+        typename == "str"
+        and exc_message is not None
         and len(exc_message) >= _EXCEPTION_MESSAGE_MIN_MATCH_LEN
         and strvalue == exc_message
     )
+
+
+def _safe_str(obj: Any) -> str | None:
+    """Return str(obj), or None if it raises."""
+    with contextlib.suppress(Exception):
+        return str(obj)
+    return None
 
 
 def _extract_member_rows(
     name: str, value: Any, identifiers: set[str], sourcecode: str
 ) -> list[VarInfo]:
     """Extract members of an object with a poor __str__ representation."""
-    rows = []
     try:
         members = safe_vars(value).items()
     except Exception:
         members = []
 
     typename = type(value).__name__
-    for n, v in members:
-        mname = f"{name}.{n}"
-        if sourcecode and mname not in identifiers:
-            continue
-        if isinstance(v, blacklist_types):
-            continue
-        try:
-            member_str = str(v)
-            if no_str_conv.fullmatch(member_str):
-                continue
-        except Exception:
-            continue
-        tname = f"{type(v).__name__} in {typename}"
-        val_str, val_fmt = prettyvalue(v)
-        rows.append(VarInfo(mname, tname, val_str, val_fmt))
-    return rows
+    return [
+        VarInfo(mname, f"{type(v).__name__} in {typename}", *prettyvalue(v))
+        for n, v in members
+        if (not sourcecode or (mname := f"{name}.{n}") in identifiers)
+        and not isinstance(v, blacklist_types)
+        and (member_str := _safe_str(v)) is not None
+        and not no_str_conv.fullmatch(member_str)
+    ]
 
 
 def _annotate_array_type(typename: str, value: Any) -> str:
@@ -297,24 +289,34 @@ def _annotate_array_type(typename: str, value: Any) -> str:
         if typename == dtype:
             raise AttributeError
         shape = object.__getattribute__(value, "shape")
-        dims = "×".join(str(d + 0) for d in shape) + " " if shape else ""
-        try:
-            dev = object.__getattribute__(value, "device")
-            dev = f"@{dev}" if dev and dev.type != "cpu" else ""
-        except AttributeError:
-            dev = ""
+        dims = "×".join(str(d) for d in shape) + " " if shape else ""
+        dev = ""
+        with contextlib.suppress(AttributeError):
+            device = object.__getattribute__(value, "device")
+            if device and device.type != "cpu":
+                dev = f"@{device}"
         return f"{typename} of {dims}{dtype}{dev}"
     except AttributeError:
         return typename
 
 
+_MISSING = object()
+
+
+def _get_attr_safe(obj: Any, attr: str) -> Any:
+    """Return object.__getattribute__(obj, attr), or _MISSING if it raises."""
+    with contextlib.suppress(AttributeError):
+        return object.__getattribute__(obj, attr)
+    return _MISSING
+
+
 def safe_vars(obj: Any) -> dict[str, Any]:
     """Like vars(), but also supports objects with slots."""
-    ret = {}
-    for attr in dir(obj):
-        with contextlib.suppress(AttributeError):
-            ret[attr] = object.__getattribute__(obj, attr)
-    return ret
+    return {
+        attr: val
+        for attr in dir(obj)
+        if (val := _get_attr_safe(obj, attr)) is not _MISSING
+    }
 
 
 def prettyvalue(val: Any) -> tuple[Any, str]:
@@ -331,9 +333,9 @@ def prettyvalue(val: Any) -> tuple[Any, str]:
         return result
 
     if isinstance(val, (list, tuple)):
-        if not 0 < len(val) <= 10:
-            return (f"({len(val)} items)", "inline")
-        return (", ".join(repr(v)[:80] for v in val), "inline")
+        if 0 < len(val) <= 10:
+            return (", ".join(repr(v)[:80] for v in val), "inline")
+        return (f"({len(val)} items)", "inline")
 
     if isinstance(val, type):
         return (f"{val.__module__}.{val.__name__}", "inline")
@@ -376,6 +378,11 @@ def _format_keyvalue_container(val: Any) -> tuple[Any, str] | None:
     return None
 
 
+def _truncated(s: str, limit: int = 60) -> str:
+    """Truncate a string with an ellipsis if it exceeds the limit."""
+    return s if len(s) <= limit else s[: limit - 3] + "…"
+
+
 def _build_keyvalue_table(
     val: Any,
     fields: tuple[Any, ...] | list[Any],
@@ -388,14 +395,10 @@ def _build_keyvalue_table(
     if len(fields) > 10:
         return (f"({len(fields)} {item_label})", "inline")
 
-    rows = []
-    for name in fields:
-        key_str = name if len(name) <= 40 else name[:37] + "…"
-        field_val = getter(val, name)
-        val_str = f"{field_val!s}"
-        if len(val_str) > 60:
-            val_str = val_str[:57] + "…"
-        rows.append([key_str, val_str])
+    rows = [
+        [_truncated(name, 40), _truncated(f"{getter(val, name)!s}", 60)]
+        for name in fields
+    ]
     return ({"type": "keyvalue", "rows": rows}, "inline")
 
 
@@ -412,11 +415,10 @@ def _format_array_like(val: Any) -> tuple[Any, str] | None:
     """Format numpy/torch arrays and similar array-like objects."""
     try:
         shape = object.__getattribute__(val, "shape")
-        if not (isinstance(shape, tuple) and val.shape):
+        if not (isinstance(shape, tuple) and shape):
             return None
 
-        numelem = math.prod(shape)
-        if numelem <= 1:
+        if math.prod(shape) <= 1:
             flat = _get_flat(val)
             return (_format_scalar(flat[0]), "inline")
 
@@ -440,11 +442,9 @@ def _format_1d_array(val: Any, length: int) -> tuple[str, str]:
     if length <= 100:
         result = ", ".join(fmt(v) for v in val)
     else:
-        formatted = [fmt(v) for v in (*val[:3], *val[-3:])]
-        result = ", ".join([*formatted[:3], "…", *formatted[-3:]])
-    if suffix:
-        result = f"{result} {suffix}"
-    return result, "inline"
+        items = [fmt(v) for v in (*val[:3], *val[-3:])]
+        result = ", ".join([*items[:3], "…", *items[-3:]])
+    return (f"{result} {suffix}".rstrip(), "inline")
 
 
 def _format_2d_array(val: Any) -> tuple[Any, str]:
@@ -462,8 +462,9 @@ def _format_scalar_value(val: Any) -> tuple[Any, str] | None:
         dtype_str = str(getattr(val, "dtype", ""))
         shape = getattr(val, "shape", ())
         is_scalar = not shape or (isinstance(shape, tuple) and len(shape) == 0)
-        is_numeric = isinstance(val, (int, float)) or (dtype_str and is_scalar)
-        if is_numeric and not isinstance(val, bool):
+        if (
+            isinstance(val, (int, float)) or (dtype_str and is_scalar)
+        ) and not isinstance(val, bool):
             return (_format_scalar(val), "inline")
     except (AttributeError, TypeError, ValueError):
         pass
@@ -504,12 +505,7 @@ def _format_block_string(ret: str) -> tuple[str, str]:
     while first and first[-1].strip() == "":
         first.pop()
 
-    last: list[str] = []
-    for line in reversed(lines):
-        if line.strip() != "":
-            last.append(line)
-            if len(last) == 2:
-                break
+    last = [line for line in reversed(lines) if line.strip() != ""][:2]
     last.reverse()
 
     return "\n".join(first + ["⋮"] + last), "block"
