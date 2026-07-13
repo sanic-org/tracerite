@@ -147,6 +147,21 @@ def _call_run_ranges(
     return ranges
 
 
+def _collect_leaf_exception_types(subexceptions: list[list[dict]]) -> list[str]:
+    """Recursively collect leaf exception type names from subexception chains."""
+    return [
+        leaf
+        for sub in subexceptions
+        for leaf in (
+            _collect_leaf_exception_types(sub[-1]["subexceptions"])
+            if sub and sub[-1].get("subexceptions")
+            else [sub[-1].get("type", "Exception")]
+            if sub
+            else []
+        )
+    ]
+
+
 def _attach_leaf_types(exc_chain: list[dict], chrono_frames: list[dict]) -> None:
     """Attach ExceptionGroup leaf types to the final exception banner in frames."""
     if not exc_chain:
@@ -154,21 +169,7 @@ def _attach_leaf_types(exc_chain: list[dict], chrono_frames: list[dict]) -> None
     subexceptions = exc_chain[-1].get("subexceptions")
     if not subexceptions:
         return
-
-    def _collect(subs: list[list[dict]]) -> list[str]:
-        types = []
-        for sub in subs:
-            if not sub:
-                continue
-            last = sub[-1]
-            nested = last.get("subexceptions")
-            if nested:
-                types.extend(_collect(nested))
-            else:
-                types.append(last.get("type", "Exception"))
-        return types
-
-    leaf_types = _collect(subexceptions)
+    leaf_types = _collect_leaf_exception_types(subexceptions)
     if not leaf_types:
         return
     for frame in reversed(chrono_frames):
