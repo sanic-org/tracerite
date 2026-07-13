@@ -648,70 +648,73 @@ def extract_source_lines(
         return "", lineno, ""  # Source not available (non-Python module)
 
 
-def _count_bracket_depth(text: str) -> int:
-    """Count net bracket depth change in text, ignoring brackets in strings/comments.
+class _CodeScanner:
+    """Stateful scanner that skips Python strings, comments, and escapes.
 
-    Returns positive for more opens than closes, negative for more closes.
+    Tracks whether the scanner is currently inside a string literal and the
+    net bracket nesting depth. The state can be queried across multiple lines,
+    allowing callers to find safe split points in source code.
     """
-    depth = 0
-    in_string = False
-    string_char = None
-    escape_next = False
-    i = 0
 
-    while i < len(text):
+    __slots__ = ("in_string", "bracket_depth", "escape_next")
+
+    def __init__(self):
+        self.in_string = None
+        self.bracket_depth = 0
+        self.escape_next = False
+
+    def step(self, text: str, i: int) -> int:
+        """Process one logical unit starting at index i; return next index."""
+        if self.escape_next:
+            self.escape_next = False
+            return i + 1
+
         char = text[i]
-
-        if escape_next:
-            escape_next = False
-            i += 1
-            continue
-
         if char == "\\":
-            escape_next = True
-            i += 1
-            continue
+            self.escape_next = True
+            return i + 1
 
-        # Handle comments (outside strings)
-        if not in_string and char == "#":
-            break  # Rest of line is comment
+        if self.in_string is None and char == "#":
+            return len(text)
 
-        # Handle string boundaries
-        if not in_string:
-            # Check for triple-quoted strings
+        if self.in_string is None:
             if char in ('"', "'") and text[i : i + 3] in ('"""', "'''"):
-                in_string = True
-                string_char = text[i : i + 3]
-                i += 3
-                continue
-            elif char in ('"', "'"):
-                in_string = True
-                string_char = char
-        else:
-            # Check for end of string
-            if string_char in ('"""', "'''") and text[i : i + 3] == string_char:
-                in_string = False
-                string_char = None
-                i += 3
-                continue
-            elif (
-                string_char is not None
-                and len(string_char) == 1
-                and char == string_char
-            ):
-                in_string = False
-                string_char = None
-
-        # Count brackets only outside strings
-        if not in_string:
+                self.in_string = text[i : i + 3]
+                return i + 3
+            if char in ('"', "'"):
+                self.in_string = char
+                return i + 1
             if char in "([{":
-                depth += 1
-            elif char in ")]}":
-                depth -= 1
+                self.bracket_depth += 1
+            elif char in ")]}:":
+                self.bracket_depth -= 1
+            return i + 1
 
-        i += 1
+        # Inside a string literal
+        if self.in_string in ('"""', "'''") and text[i : i + 3] == self.in_string:
+            self.in_string = None
+            return i + 3
+        if len(self.in_string) == 1 and char == self.in_string:
+            self.in_string = None
+        return i + 1
 
-    return depth
+    def process(self, text: str) -> None:
+        """Advance scanner state across a whole string."""
+        i = 0
+        while i < len(text):
+            i = self.step(text, i)
+
+    @property
+    def in_code_context(self) -> bool:
+        """Return True if scanner is not inside a string or unclosed brackets."""
+        return self.in_string is None and self.bracket_depth <= 0
+
+
+def _count_bracket_depth(text: str) -> int:
+    """Count net bracket depth change, ignoring brackets in strings/comments."""
+    scanner = _CodeScanner()
+    scanner.process(text)
+    return scanner.bracket_depth
 
 
 def _find_clean_start_line(lines: list[str], target_idx: int) -> int:
@@ -723,140 +726,23 @@ def _find_clean_start_line(lines: list[str], target_idx: int) -> int:
 
     If so, scans forward from target_idx to find where that context closes,
     returning the index of the first "clean" line.
-
-    Args:
-        lines: List of source lines (with newlines)
-        target_idx: The 0-based index we want to start displaying from
-
-    Returns:
-        Index >= target_idx of the first line not inside an unclosed context
     """
     if target_idx <= 0 or target_idx >= len(lines):
         return target_idx
 
-    # Parse all lines before target to determine state at target_idx
-    in_string = False
-    string_char = None  # The quote char(s) that opened the string
-    bracket_depth = 0
-
+    scanner = _CodeScanner()
     for line in lines[:target_idx]:
-        i = 0
-        text = line
-        escape_next = False
+        scanner.process(line)
 
-        while i < len(text):
-            char = text[i]
-
-            if escape_next:
-                escape_next = False
-                i += 1
-                continue
-
-            if char == "\\" and in_string:
-                escape_next = True
-                i += 1
-                continue
-
-            # Handle comments (outside strings)
-            if not in_string and char == "#":
-                break  # Rest of line is comment
-
-            # Handle string boundaries
-            if not in_string:
-                # Check for triple-quoted strings first
-                if char in ('"', "'") and text[i : i + 3] in ('"""', "'''"):
-                    in_string = True
-                    string_char = text[i : i + 3]
-                    i += 3
-                    continue
-                elif char in ('"', "'"):
-                    in_string = True
-                    string_char = char
-            else:
-                # Check for end of string
-                if string_char in ('"""', "'''") and text[i : i + 3] == string_char:
-                    in_string = False
-                    string_char = None
-                    i += 3
-                    continue
-                elif (
-                    string_char is not None
-                    and len(string_char) == 1
-                    and char == string_char
-                ):
-                    in_string = False
-                    string_char = None
-
-            # Count brackets only outside strings
-            if not in_string:
-                if char in "([{":
-                    bracket_depth += 1
-                elif char in ")]}":
-                    bracket_depth -= 1
-
-            i += 1
-
-    # If we're not in a bad context, target_idx is fine
-    if not in_string and bracket_depth <= 0:
+    if scanner.in_code_context:
         return target_idx
 
-    # Scan forward from target_idx until context closes
-    # This is defensive code for rare edge cases (multiline strings/brackets at slice boundary)
+    # Scan forward until the unclosed context ends.
     for idx in range(target_idx, len(lines)):  # pragma: no cover
-        text = lines[idx]
-        i = 0
-        escape_next = False
+        scanner.process(lines[idx])
+        if scanner.in_code_context:
+            return idx + 1
 
-        while i < len(text):
-            char = text[i]
-
-            if escape_next:
-                escape_next = False
-                i += 1
-                continue
-
-            if char == "\\" and in_string:
-                escape_next = True
-                i += 1
-                continue
-
-            # Handle comments (outside strings)
-            if not in_string and char == "#":
-                break
-
-            # Handle string boundaries
-            if not in_string:
-                if char in ('"', "'") and text[i : i + 3] in ('"""', "'''"):
-                    in_string = True
-                    string_char = text[i : i + 3]
-                    i += 3
-                    continue
-                elif char in ('"', "'"):
-                    in_string = True
-                    string_char = char
-            else:
-                if string_char in ('"""', "'''") and text[i : i + 3] == string_char:
-                    in_string = False
-                    string_char = None
-                    i += 3
-                    continue
-                elif string_char and len(string_char) == 1 and char == string_char:
-                    in_string = False
-                    string_char = None
-
-            if not in_string:
-                if char in "([{":
-                    bracket_depth += 1
-                elif char in ")]}":
-                    bracket_depth -= 1
-
-            i += 1
-
-        # After processing this line, check if we've exited the bad context
-        if not in_string and bracket_depth <= 0:
-            return idx + 1  # Start from the line AFTER the context closes
-
-    # Couldn't find clean exit, fall back to target
     return target_idx  # pragma: no cover
 
 
@@ -1834,28 +1720,14 @@ def _process_indentation(line_content, common_indent):
     return fragments, remaining, pos
 
 
-def _find_comment_start(text):
+def _find_comment_start(text: str) -> int | None:
     """Find the start of a comment, ignoring # inside strings."""
-    in_string = False
-    string_char = None
-    escape_next = False
-
-    for i, char in enumerate(text):
-        if escape_next:
-            escape_next = False
-            continue
-        if char == "\\":
-            escape_next = True
-            continue
-        if not in_string and char == "#":
+    scanner = _CodeScanner()
+    i = 0
+    while i < len(text):
+        if scanner.in_string is None and not scanner.escape_next and text[i] == "#":
             return i
-        if not in_string and char in ('"', "'"):
-            in_string = True
-            string_char = char
-        elif in_string and char == string_char:
-            in_string = False
-            string_char = None
-
+        i = scanner.step(text, i)
     return None
 
 
