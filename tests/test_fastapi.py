@@ -217,9 +217,9 @@ class TestFastAPIDebugResponse:
 
             test_exc = ValueError("test error")
 
-            # Mock html_traceback to fail
+            # Mock html_page to fail
             with mock.patch(
-                "tracerite.fastapi.html_traceback",
+                "tracerite.fastapi.html_page",
                 side_effect=Exception("render failed"),
             ):
                 middleware = ServerErrorMiddleware(app=mock.MagicMock())

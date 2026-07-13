@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Software Development :: Debuggers",
 ]
 dependencies = [
-    "html5tagger>=1.2.1",
+    "html5tagger>=2.0.0",
 ]
 
 [project.urls]

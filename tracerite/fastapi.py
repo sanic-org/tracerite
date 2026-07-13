@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .hooks import load as load_tty
-from .html import html_traceback
+from .html import html_page
 from .logging import logger
 
 _original_debug_response = None
@@ -39,11 +39,8 @@ def patch_fastapi(*, tty: bool = True) -> None:
         if "text/html" not in accept:
             return _original_debug_response(self, request, exc)
         try:
-            html = str(html_traceback(exc=exc, include_js_css=True))
-            return HTMLResponse(
-                "<!DOCTYPE html><title>FastAPI TraceRite</title>" + html,
-                status_code=500,
-            )
+            html = html_page(exc=exc, title="FastAPI TraceRite")
+            return HTMLResponse(html, status_code=500)
         except Exception as e:
             logger.error(f"Failed to generate TraceRite response: {e}")
             return _original_debug_response(self, request, exc)

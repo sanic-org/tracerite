@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from html5tagger import Document, HTML
-from tracerite.html import html_traceback, style as TRACERITE_STYLE, javascript as TRACERITE_JS
+from html5tagger import HTML, E
 
 from demo.helpers import discover_scenarios
-
+from tracerite.html import Header, Page, html_traceback
 
 SCENARIOS = discover_scenarios()
 
@@ -46,26 +45,35 @@ async def build_index_html() -> str:
 def _build_index_html(previews: list[tuple[str, str]]) -> str:
     """Build the demo index page HTML from generated previews."""
     preview_map = dict(previews)
-    doc = Document("TraceRite Demo")
-    doc.style(TRACERITE_STYLE)
-    doc.style(PAGE_STYLE)
-    doc.h1("TraceRite Demo")
-    doc.p("The examples rendered below demonstrate the output in various error scenarios. You may click the buttons to run the code live, letting your framework handle it.")
-    for name, func in SCENARIOS:
-        with doc.h2:
-            doc.a[".open-link"]("▶ ", name, href=name)
-        doc.p[".scenario-doc"](func.__doc__)
-        _preview = preview_map.get(name, "")
-        if _preview:
-            doc.div(HTML(_preview))
-    doc._script(TRACERITE_JS)
-    return str(doc)
+    with E.div() as content:
+        for name, func in SCENARIOS:
+            with content.h2:
+                content.a[".open-link"]("▶ ", name, href=name)
+            content.p[".scenario-doc"](func.__doc__)
+            _preview = preview_map.get(name, "")
+            if _preview:
+                content.div(HTML(_preview))
+
+    return str(
+        Page(
+            Title="TraceRite Demo",
+            Header=E.style(INDEX_STYLE),
+            Heading=Header(
+                Heading="TraceRite Demo",
+                Ingress=(
+                    "The examples rendered below demonstrate the output in various "
+                    "error scenarios. You may click the buttons to run the code live, "
+                    "letting your framework handle it."
+                ),
+            ),
+            Content=content,
+            Footer="",
+        )
+    )
 
 
-PAGE_STYLE = """\
-body { font-family: var(--tracerite-ui-font); margin: 1em; }
-h1, h2 { margin: 1em 0 0 0; }
-p { margin: 0 0 0.5em 0; }
+INDEX_STYLE = """\
+h2 { margin: 1em 0 0 0; }
 .open-link {
   display: inline-block;
   padding: 0.1em 0.5em;

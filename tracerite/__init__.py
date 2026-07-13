@@ -9,7 +9,7 @@ from .hooks import (
     unload_logging_capture,
     unload_suppressions,
 )
-from .html import html_traceback
+from .html import html_page, html_traceback
 from .inspector import extract_variables, prettyvalue
 from .notebook import load_ipython_extension, unload_ipython_extension
 from .trace import extract_chain
@@ -25,6 +25,7 @@ __all__ = [
     "unload_logging_capture",
     "unload_suppressions",
     "tty_traceback",
+    "html_page",
     "html_traceback",
     "extract_chain",
     "prettyvalue",

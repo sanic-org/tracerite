@@ -4,7 +4,7 @@ from importlib.resources import files
 from types import EllipsisType
 from typing import Any, cast
 
-from html5tagger import HTML, E
+from html5tagger import HTML, Document, E, Template
 
 from .chain_analysis import build_chronological_frames
 from .trace import build_chain_header, chainmsg, extract_chain, symbols, symdesc
@@ -15,6 +15,81 @@ javascript = (
 )
 
 detail_show = "{display: inherit}"
+
+PAGE_STYLE = """\
+:root { color-scheme: light dark; }
+body { font-family: var(--tracerite-ui-font); margin: 1em; }
+header { margin-bottom: 1em; }
+main { margin: 0; }
+h1 { margin: 0 0 0.25em 0; }
+p { margin: 0 0 0.5em 0; }
+"""
+
+# fmt: off
+Page = Template(
+    Document(E.Title, lang="en")
+    .style(style)
+    .style(PAGE_STYLE)
+    .script(javascript)
+    .Header
+    .main(E.Heading.Content)
+    .Footer
+)
+# fmt: on
+
+Header = Template(E.h1.Heading.p.Ingress)
+
+
+def html_page(
+    exc: BaseException | None = None,
+    *,
+    title: str | None = None,
+    heading: str | None = None,
+    ingress: str | None = None,
+    header: Any | None = None,
+    footer: Any | None = None,
+    msg: str | None | EllipsisType = ...,
+    chain: list[dict[str, Any]] | None = None,
+    autodark: bool = True,
+    local_urls: bool = False,
+    **extract_args: Any,
+) -> HTML:
+    """Render a full HTML5 document containing a TraceRite traceback.
+
+    Returns an html5tagger `HTML` string. The underlying `Page` template
+    includes TraceRite's CSS and JavaScript, an optional site-wide header and
+    footer, a heading/ingress block inside `<main>`, and the traceback itself.
+
+    The default heading inside `<main>` is built from the `Header` template,
+    which exposes `Heading` and `Ingress` slots. The `Header` and `Footer`
+    slots of `Page` are empty by default so callers can inject site-wide
+    header/footer content.
+    """
+    chain = extract_chain(exc=exc, **extract_args)[-3:] if chain is None else chain
+    page_title = (
+        title if title is not None else (chain[-1]["type"] if chain else "TraceRite")
+    )
+    page_heading = heading if heading is not None else page_title
+    page_ingress = (
+        ingress
+        if ingress is not None
+        else "An unexpected error occurred while processing."
+    )
+    traceback_html = html_traceback(
+        exc=exc,
+        chain=chain,
+        msg=msg,
+        include_js_css=False,
+        autodark=autodark,
+        local_urls=local_urls,
+    )
+    return Page(
+        Title=page_title,
+        Header="" if header is None else header,
+        Heading=Header(Heading=page_heading, Ingress=page_ingress),
+        Content=traceback_html,
+        Footer="" if footer is None else footer,
+    )
 
 
 def _collapse_call_runs(
@@ -78,6 +153,13 @@ def html_traceback(
     autodark: bool = True,
     **extract_args: Any,
 ) -> Any:
+    """Render an exception as an interactive HTML fragment.
+
+    Returns an html5tagger HTML fragment wrapped in a ``<div class="tracerite">``.
+    By default the fragment includes the TraceRite stylesheet and JavaScript;
+    set ``include_js_css=False`` when embedding it in a page that already
+    provides them.
+    """
     chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
     # Chain is oldest-first from extract_chain
     classes = "tracerite autodark" if autodark else "tracerite"

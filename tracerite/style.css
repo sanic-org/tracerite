@@ -82,7 +82,6 @@
 :root .tracerite .excmessage-ellipsis { color: var(--tracerite-lineno); }
 :root .tracerite .exctype { color: var(--tracerite-exception); }
 
-:root .tracerite .traceback-details { font-size: 0.8em; }
 :root .tracerite .traceback-details p { margin: 1em 0; }
 :root .tracerite .traceback-details pre { width: 50vw; padding: .5em; font-size: 0.8em; }
 :root .tracerite .traceback-details .codeline { text-indent: 4ch each-line; }
@@ -107,9 +106,9 @@
 /* Symbol element - display symbol emoji and description together */
 :root .tracerite .traceback-details .tracerite-symbol {
   display: inline-block;
-  margin: -0.25em 0 -0.25em 0.5ch;
+  margin: -0.15em 0 -0.15em 0.5ch;
   padding: 0.1em;
-  font-size: 1.1em;
+  font-size: 1.25em;
   font-weight: bold;
   vertical-align: middle;
   font-family: var(--tracerite-ui-font);
