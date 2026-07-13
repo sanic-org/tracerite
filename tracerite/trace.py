@@ -169,38 +169,17 @@ def extract_chain(exc=None, **kwargs) -> list:
         exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
     # Reverse to get oldest first (chain is built newest-first)
     chain = list(reversed(chain))
-    result = [extract_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
-    # Deduplicate variable inspectors: only keep variables for the last occurrence
-    # of each (filename, function) pair across the entire chain
-    _deduplicate_variables(result)
+    seen_frame_ids = set()
+    result = [
+        extract_exception(
+            e,
+            _seen_frame_ids=seen_frame_ids,
+            **(kwargs if e is chain[-1] else {}),
+        )
+        for e in reversed(chain)
+    ]
+    result.reverse()
     return result
-
-
-def _deduplicate_variables(chain: list) -> None:
-    """Show the variable inspector only once per frame object.
-
-    When an exception is caught and re-raised inside the same function, the
-    traceback contains multiple entries pointing at the same frame object.
-    Only the last of those entries keeps its inspector; earlier entries are
-    cleared so the inspector is not shown multiple times.  Recursive calls have
-    distinct frame objects, so each level keeps its own inspector.  Because
-    exception-message filtering is already applied to the last entry, the
-    message variable is hidden from all entries for that frame automatically.
-    """
-
-    # Group frames by the identity of the underlying frame object.  Two frames
-    # for the same recursive call are different objects, while two traceback
-    # entries produced by a re-raise inside the same function (or at module
-    # level) point at the same frame object.
-    frame_groups: dict[int, list[tuple[int, int]]] = {}
-    for ei, exc in enumerate(chain):
-        for fi, frame in enumerate(exc["frames"]):
-            frame_groups.setdefault(frame["idframe"], []).append((ei, fi))
-
-    # Only the last occurrence of each frame object keeps its inspector.
-    for occurrences in frame_groups.values():
-        for ei, fi in occurrences[:-1]:
-            chain[ei]["frames"][fi]["variables"] = []
 
 
 def _create_summary(message):
@@ -248,7 +227,9 @@ def _set_relevances(frames: list, e: BaseException) -> None:
             break
 
 
-def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
+def extract_exception(
+    e, *, skip_outmost=0, skip_until=None, _seen_frame_ids=None
+) -> dict:
     raw_tb = e.__traceback__
     try:
         tb = inspect.getinnerframes(raw_tb)
@@ -292,7 +273,12 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     f = _chain_reason(e)
     try:
         frames = extract_frames(
-            tb, raw_tb, except_block=(f != "none"), exc=e, exc_message=message
+            tb,
+            raw_tb,
+            except_block=(f != "none"),
+            exc=e,
+            exc_message=message,
+            _seen_frame_ids=_seen_frame_ids,
         )
         # For SyntaxError, add the synthetic frame showing the problematic code
         if syntax_frame:
@@ -300,6 +286,8 @@ def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
             if frames and frames[-1]["relevance"] == "error":
                 frames[-1]["relevance"] = "call"
             frames.append(syntax_frame)
+        if frames is not None and _seen_frame_ids is not None:
+            _fill_variables(frames, message, _seen_frame_ids)
     except Exception:
         logger.exception("Error extracting traceback")
         frames = None
@@ -1311,7 +1299,13 @@ def _build_syntax_mark_ranges(
 
 
 def extract_frames(
-    tb, raw_tb=None, *, except_block=False, exc=None, exc_message=None
+    tb,
+    raw_tb=None,
+    *,
+    except_block=False,
+    exc=None,
+    exc_message=None,
+    _seen_frame_ids=None,
 ) -> list:
     if not tb:
         return []
@@ -1346,14 +1340,14 @@ def extract_frames(
             hidden,
             is_last_frame,
             except_block=except_block,
-            exc=exc,
-            exc_message=exc_message,
         )
         if frame_info is not None:
             frames.append(frame_info)
 
     if exc is not None:
         _set_relevances(frames, exc)
+    if _seen_frame_ids is None:
+        _fill_variables(frames, exc_message)
     return frames
 
 
@@ -1368,8 +1362,6 @@ def _extract_single_frame(
     is_last_frame,
     *,
     except_block=False,
-    exc=None,
-    exc_message=None,
 ):
     """Extract a single frame's worth of traceback information."""
     pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
@@ -1393,6 +1385,7 @@ def _extract_single_frame(
                 "hidden": True,
                 "idframe": id(frame),
                 "lineno": lineno,
+                "variables": [],
                 "full_source": full_source,
                 "full_source_start": full_source_start,
             }
@@ -1445,7 +1438,7 @@ def _extract_single_frame(
         lines, lineno, start, mark_range
     )
 
-    return {
+    result = {
         "id": _make_trace_id(),
         "relevance": "call",
         "hidden": hidden,
@@ -1465,16 +1458,44 @@ def _extract_single_frame(
         "function": function,
         "function_suffix": "",
         "urls": urls,
-        "variables": extract_variables(
-            frame.f_locals,
-            variable_source,
-            exc_message=exc_message if is_last_frame else None,
-        )
-        if not hidden
-        else [],
         "full_source": full_source,
         "full_source_start": full_source_start,
     }
+
+    if hidden:
+        result["variables"] = []
+    else:
+        result["variables"] = []
+        result["_locals"] = dict(frame.f_locals)
+        result["_variable_source"] = variable_source
+        result["_is_last_frame"] = is_last_frame
+
+    return result
+
+
+def _fill_variables(frames, exc_message, seen_frame_ids=None):
+    """Populate the variables field for frames.
+
+    When ``seen_frame_ids`` is provided, variables are only extracted for the
+    last occurrence of each frame object (seen while walking frames backwards).
+    Private metadata keys are removed from every frame.
+    """
+    for frame in reversed(frames):
+        if "_variable_source" not in frame:
+            frame.setdefault("variables", [])
+        elif seen_frame_ids is not None and frame["idframe"] in seen_frame_ids:
+            frame["variables"] = []
+        else:
+            frame["variables"] = extract_variables(
+                frame["_locals"],
+                frame["_variable_source"],
+                exc_message=exc_message if frame.get("_is_last_frame") else None,
+            )
+            if seen_frame_ids is not None:
+                seen_frame_ids.add(frame["idframe"])
+        frame.pop("_locals", None)
+        frame.pop("_variable_source", None)
+        frame.pop("_is_last_frame", None)
 
 
 def _build_frame_ranges(

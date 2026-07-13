@@ -1166,7 +1166,7 @@ def func_with_blanks():
 
 def test_deduplicate_variables_with_comprehension():
     """Variable deduplication handles comprehension errors using real frames."""
-    # Use extract_chain (not extract_exception) to trigger _deduplicate_variables
+    # Use extract_chain (not extract_exception) so duplicate frame ids are skipped
     try:
         comprehension_error()
     except ZeroDivisionError as e:
