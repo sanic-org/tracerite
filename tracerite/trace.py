@@ -1256,6 +1256,7 @@ def _extract_syntax_error_frame(e):
     lines = None
     all_lines = None
     start = 1  # For SyntaxErrors, we want full source to show bracket matches etc.
+    source_from_text = False  # True if we fell back to e.text (no context available)
 
     # Try to get source from the file or notebook
     try:
@@ -1285,10 +1286,12 @@ def _extract_syntax_error_frame(e):
         if not lines and e.text:
             lines = e.text if e.text.endswith("\n") else e.text + "\n"
             start = lineno
+            source_from_text = True
     except Exception:
         if e.text:
             lines = e.text if e.text.endswith("\n") else e.text + "\n"
             start = lineno
+            source_from_text = True
 
     if not lines:
         return None
@@ -1299,7 +1302,15 @@ def _extract_syntax_error_frame(e):
 
     # Calculate common indentation
     lines_list = lines.splitlines(keepends=True)
-    common_indent = _calculate_common_indent(lines_list)
+    common_indent = ""
+
+    # Clamp columns reported past the end of the line so we still highlight
+    # something meaningful for errors like "expected ':'" or indentation errors.
+    if lines_list and 1 <= lineno <= len(lines_list):
+        max_col = len(lines_list[lineno - 1].rstrip("\n\r"))
+        start_col = min(start_col, max(0, max_col - 1))
+        end_col = max(min(end_col, max_col), start_col + 1)
+        end_col = min(end_col, max_col)
 
     # Try enhanced SyntaxError position extraction for better highlighting
     enhanced_mark, enhanced_em = extract_enhanced_positions(e, lines_list)
@@ -1308,22 +1319,45 @@ def _extract_syntax_error_frame(e):
         # Override lineno/end_lineno with the enhanced range (e.g., from opening bracket)
         lineno = enhanced_mark.lfirst
         end_lineno = enhanced_mark.lfinal
+        # Also use the enhanced columns so the frame's range matches the
+        # highlighted region rather than Python's original positions.
+        start_col = enhanced_mark.cbeg
+        end_col = enhanced_mark.cend
 
-        # Trim source to start from the mark's first line
-        lines_list = lines_list[lineno - 1 :]
+    # Show two lines of context around the error. e.text only contains the
+    # error line, so no slicing is possible there.
+    if not source_from_text:
+        display_first = min(lineno, len(lines_list))
+        display_last = min(end_lineno or lineno, len(lines_list))
+
+        slice_start = max(0, display_first - 3)
+        slice_end = min(len(lines_list), display_last + 2)
+
+        # Trim empty context lines, but never trim into the error region.
+        while slice_start < display_first - 1 and not lines_list[slice_start].strip():
+            slice_start += 1
+        while slice_end > display_last and not lines_list[slice_end - 1].strip():
+            slice_end -= 1
+
+        lines_list = lines_list[slice_start:slice_end]
         lines = "".join(lines_list)
-        start = lineno
-        common_indent = _calculate_common_indent(lines_list)
+        start = slice_start + 1
+        # The snippet is displayed with original indentation; keep common_indent
+        # empty because the highlight ranges stay in original column coordinates.
+        common_indent = ""
 
-        error_line_in_context = 1  # Now lineno is the first line
-        end_line = end_lineno - start + 1
+        error_line_in_context = lineno - start + 1
+        end_line = end_lineno - start + 1 if end_lineno else None
 
-        # Adjust enhanced ranges from absolute line numbers to context-relative
+    if enhanced_mark:
+        # Adjust enhanced ranges from absolute line numbers to context-relative.
+        # Columns are kept in original (pre-dedent) coordinates so they align
+        # with the absolute positions used by the fragment renderer.
         mark_range = Range(
-            1,
+            enhanced_mark.lfirst - start + 1,
             enhanced_mark.lfinal - start + 1,
-            max(0, enhanced_mark.cbeg - len(common_indent)),
-            max(0, enhanced_mark.cend - len(common_indent)),
+            enhanced_mark.cbeg,
+            enhanced_mark.cend,
         )
         # Convert list of em ranges to context-relative
         em_ranges = (
@@ -1331,8 +1365,8 @@ def _extract_syntax_error_frame(e):
                 Range(
                     em.lfirst - start + 1,
                     em.lfinal - start + 1,
-                    max(0, em.cbeg - len(common_indent)),
-                    max(0, em.cend - len(common_indent)),
+                    em.cbeg,
+                    em.cend,
                 )
                 for em in enhanced_em
             ]
@@ -1341,24 +1375,20 @@ def _extract_syntax_error_frame(e):
         )
     else:
         # Fallback to Python's positions
-        # Adjust columns for dedenting
-        adjusted_start_col = max(0, start_col - len(common_indent))
-        adjusted_end_col = max(0, end_col - len(common_indent))
-
-        # Create mark range
+        # Create mark range using original (pre-dedent) columns so it aligns
+        # with the absolute positions used by the fragment renderer.
         mark_range = None
         mark_lfinal = end_line or error_line_in_context
-        mark_range = Range(
-            error_line_in_context, mark_lfinal, adjusted_start_col, adjusted_end_col
-        )
+        mark_range = Range(error_line_in_context, mark_lfinal, start_col, end_col)
 
-        # Build emphasis range
+        # Build emphasis range using original columns; the segment is extracted
+        # from the original source text.
         em_ranges = _extract_emphasis_columns(
             lines,
             error_line_in_context,
             end_line,
-            adjusted_start_col,
-            adjusted_end_col,
+            start_col,
+            end_col,
             start,
         )
 

@@ -9,7 +9,6 @@ from tracerite.syntaxerror import (
     _handle_mismatch,
     _handle_unclosed,
     _handle_unterminated_string,
-    _handle_unterminated_triple_string,
     _iter_code_chars,
     clean_syntax_error_message,
     extract_enhanced_positions,
@@ -219,6 +218,27 @@ class TestExtractEnhancedPositions:
         assert mark_range is not None
         assert em_ranges is not None
 
+    def test_unterminated_triple_quoted_multiline(self):
+        """Test unterminated triple-quoted string spans detected-at line."""
+
+        class MockError:
+            def __init__(self):
+                self.lineno = 1
+                self.offset = 5
+
+            def __str__(self):
+                return "unterminated triple-quoted string literal (detected at line 2)"
+
+        e = MockError()
+        source_lines = ['x = """A multi-line\n', "string we forgot to close\n"]
+
+        mark_range, em_ranges = extract_enhanced_positions(e, source_lines)
+
+        assert mark_range is not None
+        assert mark_range.lfirst == 1
+        assert mark_range.lfinal == 2
+        assert em_ranges is not None
+
     def test_unterminated_triple_fstring_pattern(self):
         """Test unterminated triple-quoted f-string handling."""
 
@@ -356,42 +376,54 @@ class TestHandleUnclosed:
     """Test _handle_unclosed function."""
 
     def test_unclosed_parenthesis(self):
-        """Test unclosed parenthesis detection."""
+        """Test unclosed parenthesis detection spans the whole construct."""
 
         from tracerite.syntaxerror import UNCLOSED_PATTERN
 
+        message = "'(' was never closed"
+
         class MockError:
-            lineno = 2
-            offset = 1
+            lineno = 1
+            offset = 5
 
         e = MockError()
-        message = "'(' was never closed"
-        match = UNCLOSED_PATTERN.search(message)
-        source_lines = ["x = (\n", "  1\n"]
-
-        mark_range, em_ranges = _handle_unclosed(e, source_lines, match)
+        mark_range, em_ranges = _handle_unclosed(
+            e, ["x = (\n", "    1\n", "    + 2\n"], UNCLOSED_PATTERN.search(message)
+        )
 
         assert mark_range is not None
+        assert mark_range.lfirst == 1
+        assert mark_range.lfinal == 3
+        assert mark_range.cbeg == 4
         assert em_ranges is not None
 
-    def test_unclosed_not_found(self):
-        """Test when unclosed opener cannot be found."""
+    def test_unclosed_fallbacks(self):
+        """Test fallbacks when opener is missing or reported past source."""
 
         from tracerite.syntaxerror import UNCLOSED_PATTERN
 
+        message = "'(' was never closed"
+
+        # Opener not found in source: fall back to reported position.
         class MockError:
             lineno = 2
             offset = 1
 
         e = MockError()
-        message = "'(' was never closed"
-        match = UNCLOSED_PATTERN.search(message)
-        source_lines = ["no brackets\n", "here\n"]
+        mark_range, em_ranges = _handle_unclosed(
+            e, ["no brackets\n", "here\n"], UNCLOSED_PATTERN.search(message)
+        )
+        assert mark_range is not None
+        assert mark_range.lfirst == 2
+        assert mark_range.lfinal == 2
 
-        mark_range, em_ranges = _handle_unclosed(e, source_lines, match)
-
-        assert mark_range is None
-        assert em_ranges is None
+        # Reported position past source: cap to last source line.
+        e.lineno = 5
+        mark_range, em_ranges = _handle_unclosed(
+            e, ["# comment\n", "\n"], UNCLOSED_PATTERN.search(message)
+        )
+        assert mark_range is not None
+        assert mark_range.lfirst == len(["# comment\n", "\n"])
 
 
 class TestHandleIncomplete:
@@ -602,115 +634,98 @@ class TestHandleUnterminatedString:
     """Test _handle_unterminated_string function."""
 
     def test_basic_unterminated(self):
-        """Test basic unterminated string."""
+        """Test basic unterminated string handling and emphasis."""
 
         class MockError:
             lineno = 1
             offset = 5
 
         e = MockError()
-        source_lines = ['x = "unterminated\n']
 
-        mark_range, em_ranges = _handle_unterminated_string(e, source_lines)
-
+        # Single-quoted string
+        mark_range, em_ranges = _handle_unterminated_string(e, ['x = "unterminated\n'])
         assert mark_range is not None
         assert mark_range.lfirst == 1
         assert mark_range.cbeg == 4
         assert em_ranges is not None
 
-    def test_empty_source_lines(self):
-        """Test with empty source lines."""
-
-        class MockError:
-            lineno = 1
-            offset = 1
-
-        e = MockError()
-        source_lines = []
-
-        mark_range, em_ranges = _handle_unterminated_string(e, source_lines)
-
-        assert mark_range is None
-        assert em_ranges is None
-
-    def test_invalid_line_number(self):
-        """Test with invalid line number."""
-
-        class MockError:
-            lineno = 10
-            offset = 1
-
-        e = MockError()
-        source_lines = ["one line\n"]
-
-        mark_range, em_ranges = _handle_unterminated_string(e, source_lines)
-
-        assert mark_range is None
-
-    def test_zero_offset(self):
-        """Test with zero/None offset."""
-
-        class MockError:
-            lineno = 1
-            offset = 0
-
-        e = MockError()
-        source_lines = ['"unterminated\n']
-
-        mark_range, em_ranges = _handle_unterminated_string(e, source_lines)
-
-        # Should handle offset=0 gracefully
-
-
-class TestHandleUnterminatedTripleString:
-    """Test _handle_unterminated_triple_string function."""
-
-    def test_basic_unterminated_triple(self):
-        """Test basic unterminated triple-quoted string."""
-
-        class MockError:
-            lineno = 1
-            offset = 5
-
-        e = MockError()
-        source_lines = ['x = """unterminated\n']
-
-        mark_range, em_ranges = _handle_unterminated_triple_string(e, source_lines)
-
+        # Triple-quoted string
+        mark_range, em_ranges = _handle_unterminated_string(
+            e, ['x = """unterminated\n']
+        )
         assert mark_range is not None
-        assert em_ranges is not None
-        # Should emphasize the triple quotes
         assert em_ranges[0].cend - em_ranges[0].cbeg >= 3
 
-    def test_empty_source_lines(self):
-        """Test with empty source lines."""
+        # f-string prefix
+        mark_range, em_ranges = _handle_unterminated_string(
+            e, ['x = f"""unterminated\n']
+        )
+        assert mark_range is not None
+        assert em_ranges[0].cend - em_ranges[0].cbeg >= 4
+
+    def test_detected_at_line_extends_range(self):
+        """Test 'detected at line' extends the mark to the detected line."""
+
+        class MockError:
+            lineno = 1
+            offset = 5
+
+            def __str__(self):
+                return "unterminated triple-quoted string literal (detected at line 2)"
+
+        e = MockError()
+        source_lines = ['x = """A multi-line\n', "string we forgot to close\n"]
+
+        mark_range, em_ranges = _handle_unterminated_string(e, source_lines)
+
+        assert mark_range is not None
+        assert mark_range.lfirst == 1
+        assert mark_range.lfinal == 2
+        assert mark_range.cbeg == 4
+        assert mark_range.cend == len("string we forgot to close")
+        assert em_ranges[0].cbeg == 4
+        assert em_ranges[0].cend == 7  # """
+
+    def test_detected_line_beyond_source(self):
+        """Test detected-at line beyond source is capped to last source line."""
+
+        class MockError:
+            lineno = 1
+            offset = 5
+
+            def __str__(self):
+                return "unterminated triple-quoted string literal (detected at line 99)"
+
+        e = MockError()
+        source_lines = ['x = """A multi-line\n', "string we forgot to close\n"]
+
+        mark_range, em_ranges = _handle_unterminated_string(e, source_lines)
+
+        assert mark_range is not None
+        assert mark_range.lfinal == len(source_lines)
+
+    def test_edge_cases(self):
+        """Test empty source, invalid line number, and zero offset."""
 
         class MockError:
             lineno = 1
             offset = 1
 
         e = MockError()
-        source_lines = []
 
-        mark_range, em_ranges = _handle_unterminated_triple_string(e, source_lines)
+        # Empty source
+        assert _handle_unterminated_string(e, []) == (None, None)
 
-        assert mark_range is None
+        # Invalid line number
+        e.lineno = 10
+        assert _handle_unterminated_string(e, ["one line\n"]) == (None, None)
 
-    def test_f_triple_string(self):
-        """Test unterminated f-triple-quoted string."""
-
-        class MockError:
-            lineno = 1
-            offset = 5
-
-        e = MockError()
-        source_lines = ['x = f"""unterminated\n']
-
-        mark_range, em_ranges = _handle_unterminated_triple_string(e, source_lines)
-
+        # Zero offset
+        e.lineno = 1
+        e.offset = 0
+        mark_range, em_ranges = _handle_unterminated_string(e, ['"x\n'])
         assert mark_range is not None
-        # Emphasis should include the f prefix and triple quotes
-        assert em_ranges[0].cend - em_ranges[0].cbeg >= 4
+        assert em_ranges is not None
 
 
 class TestHandleMismatchBranches:
