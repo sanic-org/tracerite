@@ -107,11 +107,7 @@ def html_page(
 def _collapse_call_runs(
     frames: list[dict[str, Any]], min_run_length: int = 10
 ) -> list[Any]:
-    """Collapse consecutive runs of 'call' frames, keeping first and last of each run.
-
-    Only collapses runs of frames with relevance='call'. Non-call frames
-    (error, warning, stop) are never collapsed.
-    """
+    """Collapse consecutive runs of 'call' frames, keeping first and last of each run."""
     if not frames:
         return frames
 
@@ -254,10 +250,7 @@ def _render_parallel_branches(
     *,
     local_urls: bool = False,
 ) -> None:
-    """Render parallel exception branches from an ExceptionGroup.
-
-    Each branch is rendered side by side.
-    """
+    """Render parallel exception branches from an ExceptionGroup."""
     with doc.div(class_="parallel-branches"):
         for branch in branches:
             with doc.div(class_="parallel-branch"):
@@ -303,11 +296,7 @@ def _exception_banner(doc: Any, exc_info: dict[str, Any]) -> None:
 
 
 def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
-    """Render compact one-liner showing all marked code regions.
-
-    Em parts (typically function arguments) longer than 20 chars are
-    collapsed to show only first and last char with ellipsis.
-    """
+    """Render compact one-liner showing all marked code regions."""
     fragments = frinfo["fragments"]
     relevance = frinfo["relevance"]
     symbol = symbols.get(relevance, symbols["call"])

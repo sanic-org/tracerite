@@ -28,22 +28,7 @@ def compute_cursor_position(
     linenostart: int,
     common_indent: str = "",
 ) -> tuple[int, int]:
-    """Compute the preferred cursor position from mark and emphasis ranges.
-
-    Prefers the end of emphasis (em) ranges if available, as these mark the
-    error position more precisely. Falls back to end of mark range, then
-    to line 1, column 0.
-
-    Args:
-        mark_range: The marked region Range, or None
-        em_ranges: The emphasis Range, list of Ranges, or None
-        linenostart: The starting line number of the displayed code (for conversion)
-        common_indent: The common indent string that was stripped (to restore original columns)
-
-    Returns:
-        Tuple of (line, column) where line is 1-based absolute line number
-        and column is 0-based.
-    """
+    """Return the preferred cursor (line, column) for highlighting."""
     target = None
     if em_ranges:
         if isinstance(em_ranges, list) and em_ranges:
@@ -211,13 +196,7 @@ def build_chain_header(frames: list[dict]) -> str:
 
 
 def extract_chain(exc=None, **kwargs) -> list:
-    """Extract a chronological list of traceback frames for the current exception.
-
-    Returns frames in the order they actually executed (oldest call first,
-    final error last).  Each frame is a JSON-compatible dict containing source
-    fragments, location, relevance, and (on the chronologically final
-    occurrence of each frame object) local variables for the inspector.
-    """
+    """Extract chronological traceback frames for the current exception."""
     exc_chain = extract_chain_exceptions(exc, **kwargs)
     chrono = build_chronological_frames(exc_chain)
     _fill_chronological_variables(chrono)
@@ -226,12 +205,7 @@ def extract_chain(exc=None, **kwargs) -> list:
 
 
 def extract_chain_exceptions(exc=None, **kwargs) -> list:
-    """Extract exception info dicts in built-in (oldest-first) order.
-
-    This is an internal helper.  The returned dicts contain the raw
-    exception chain with private frame metadata needed for chronological
-    variable extraction; variables are not populated yet.
-    """
+    """Extract raw exception info dicts, oldest first (internal)."""
     chain = []
     exc = exc or sys.exc_info()[1]
     while exc:
@@ -266,13 +240,7 @@ def _chain_reason(e: BaseException) -> str:
 
 
 def _set_relevances(frames: list, e: BaseException) -> None:
-    """Set relevance for frames after extraction.
-
-    - The last frame gets "error" (regular Exception) or "stop" (BaseException like KeyboardInterrupt)
-    - ExceptionGroups also get "stop" since the interesting parts are in subexceptions
-    - If the last frame is in library code, the last user code frame gets "warning"
-    - All other frames remain "call"
-    """
+    """Mark the error, stop, warning, and call frames."""
     if not frames:
         return
 
@@ -391,22 +359,7 @@ def extract_exception(
 def _extract_subexceptions(
     e, *, skip_outmost=0, skip_until=None, _defer_variables=False
 ) -> list[list[dict]] | None:
-    """Extract subexceptions from an ExceptionGroup.
-
-    ExceptionGroups (Python 3.11+) contain multiple exceptions that occurred
-    in parallel (e.g., in concurrent tasks). Each subexception forms its own
-    traceback chain that ran in parallel with others.
-
-    Args:
-        e: The exception to check for subexceptions
-        skip_outmost: Number of outermost frames to skip
-        skip_until: Skip frames until this string is found in filename
-
-    Returns:
-        List of exception chains (each chain is a list of exception info dicts),
-        or None if not an ExceptionGroup or has no subexceptions.
-        Each chain represents a parallel timeline of exceptions.
-    """
+    """Return parallel exception chains for an ExceptionGroup, or None."""
     # Check if this is an ExceptionGroup (Python 3.11+)
     # BaseExceptionGroup is the base class for both ExceptionGroup and BaseExceptionGroup
     if not hasattr(e, "exceptions") or not isinstance(
@@ -439,19 +392,7 @@ def _extract_subexceptions(
 def _extract_subexception_chain(
     exc, *, skip_outmost=0, skip_until=None, _defer_variables=False
 ) -> list[dict]:
-    """Extract the full exception chain for a single subexception.
-
-    Similar to extract_chain but for a subexception that may have its own
-    __cause__ or __context__ chain.
-
-    Args:
-        exc: The subexception to extract
-        skip_outmost: Number of outermost frames to skip
-        skip_until: Skip frames until this string is found in filename
-
-    Returns:
-        List of exception info dicts, ordered from oldest to newest
-    """
+    """Extract the exception chain for one ExceptionGroup subexception."""
     chain = []
     current = exc
     while current:
@@ -494,12 +435,7 @@ def _is_exception_group(e: BaseException) -> bool:
 
 
 def _find_except_start_for_line(frame, lineno: int) -> int | None:
-    """If lineno is inside an except handler, return the except line number.
-
-    Uses AST analysis to find if the given line is within an except block.
-    Returns the line number of the 'except' keyword for the innermost matching
-    except handler, or None if not in an except block.
-    """
+    """Return the 'except' line number if lineno is inside a handler."""
     from .chain_analysis import (
         find_try_block_for_except_line,
         parse_source_for_try_except,
@@ -518,20 +454,7 @@ def _find_except_start_for_line(frame, lineno: int) -> int | None:
 
 
 def _get_source_lines_from_code(code, lineno: int, end_lineno: int | None = None):
-    """Get source lines from a code object using Python 3.11+ linecache API.
-
-    This provides a fallback for getting source code for interactive code
-    (REPL, -c command, exec'd strings) where inspect.getsourcelines() fails.
-
-    Args:
-        code: The code object from a frame (frame.f_code)
-        lineno: The line number where the error occurred (1-based)
-        end_lineno: Optional end line number for multi-line errors
-
-    Returns:
-        (lines, start) tuple where lines is a list of source lines with
-        newlines, or (None, None) if source cannot be retrieved.
-    """
+    """Fallback source-line retrieval for code objects (e.g. REPL, exec)."""
     # Python 3.13+ has linecache._getline_from_code for interactive code
     if not hasattr(linecache, "_getline_from_code"):
         return None, None  # pragma: no cover
@@ -793,15 +716,7 @@ def _count_bracket_depth(text: str) -> int:
 
 
 def _find_clean_start_line(lines: list[str], target_idx: int) -> int:
-    """Find the first line at or after target_idx that isn't inside an unclosed context.
-
-    Analyzes lines[0:target_idx] to determine if target_idx would start inside:
-    - A multi-line string (triple-quoted docstring, etc.)
-    - An unclosed parenthesis/bracket/brace expression
-
-    If so, scans forward from target_idx to find where that context closes,
-    returning the index of the first "clean" line.
-    """
+    """Return the first line at/after target_idx outside an unclosed string/bracket."""
     if target_idx <= 0 or target_idx >= len(lines):
         return target_idx
 
@@ -822,15 +737,7 @@ def _find_clean_start_line(lines: list[str], target_idx: int) -> int:
 
 
 def _get_full_source(frame, lineno=None):
-    """Get the full source code for a frame using inspect.
-
-    Returns (source, start_line) tuple. This works with any source Python
-    knows about, including notebook cells and exec'd strings.
-
-    Args:
-        frame: The frame object or code object
-        lineno: Optional line number hint for fallback source retrieval
-    """
+    """Return (source, start_line) for a frame, using inspect and fallbacks."""
     try:
         lines, start = inspect.getsourcelines(frame)
         if start == 0:
@@ -859,19 +766,7 @@ def _libdir_match(path):
 
 
 def format_location(filename, lineno, col=1):
-    """Format location information for a frame.
-
-    Args:
-        filename: The source file path
-        lineno: Line number (1-based)
-        col: Column number (1-based, default 1)
-
-    Returns:
-        Tuple of (filename, location, urls) where:
-        - filename: Possibly shortened file path
-        - location: Display string for the location
-        - urls: Dict of URL schemes to URLs (e.g., VS Code, Jupyter)
-    """
+    """Return (filename, location_string, urls) for a frame."""
     urls = {}
     location = None
     try:
@@ -923,16 +818,7 @@ def _get_qualified_function_name(frame, function):
 
 
 def _extract_text_from_range(lines: str, mark_range) -> str | None:
-    """Extract the text covered by a Range from source lines.
-
-    Args:
-        lines: The source code (may contain multiple lines)
-        mark_range: Range object with lfirst, lfinal (1-based inclusive lines),
-                   cbeg, cend (0-based exclusive columns), or None
-
-    Returns:
-        The extracted text, or None if mark_range is None.
-    """
+    """Return the source text covered by a Range."""
     if mark_range is None:
         return None
 
@@ -967,17 +853,7 @@ def _extract_text_from_range(lines: str, mark_range) -> str | None:
 
 
 def _find_comprehension_range(lines: str, lineno: int, start: int):
-    """Find the line range of a comprehension containing the error line.
-
-    Args:
-        lines: The source code snippet
-        lineno: The 1-based line number where the error occurred
-        start: The 1-based starting line number of the snippet
-
-    Returns:
-        Tuple of (start_idx, end_idx) as 0-based indices into lines_list,
-        or None if error is not inside a comprehension.
-    """
+    """Return the (start, end) line indices of a comprehension, or None."""
     import ast
 
     # Try to parse the source and find comprehensions containing the error line
@@ -1002,17 +878,7 @@ def _find_comprehension_range(lines: str, lineno: int, start: int):
 
 
 def _trim_source_to_comprehension(lines: str, lineno: int, start: int):
-    """Trim source context to just the comprehension if error is inside one.
-
-    Args:
-        lines: The source code snippet
-        lineno: The 1-based line number where the error occurred
-        start: The 1-based starting line number of the snippet
-
-    Returns:
-        Tuple of (trimmed_lines, new_start) where new_start is adjusted line number,
-        or (lines, start) if not inside a comprehension.
-    """
+    """Trim source context to the enclosing comprehension if any."""
     result = _find_comprehension_range(lines, lineno, start)
     if result:
         lines_list = lines.splitlines(keepends=True)
@@ -1026,25 +892,7 @@ def _trim_source_to_comprehension(lines: str, lineno: int, start: int):
 def _get_variable_source_for_comprehension(
     lines: str, lineno: int, start: int, mark_range
 ) -> str:
-    """Get the source code to use for variable extraction, handling comprehensions.
-
-    For comprehensions, includes the entire comprehension plus the marked region.
-    This ensures external variables used anywhere in the comprehension are visible,
-    even when the error occurs in a specific part (e.g., the filter clause).
-
-    Comprehension loop variables (like 'x' in 'for x in data') won't be accessible
-    in frame.f_locals anyway, so including them doesn't hurt - they'll just be
-    filtered out during variable extraction.
-
-    Args:
-        lines: The source code snippet
-        lineno: The 1-based line number where the error occurred
-        start: The 1-based starting line number of the snippet
-        mark_range: Range object with the marked region, or None
-
-    Returns:
-        Source code string for variable extraction.
-    """
+    """Return source code for variable extraction, expanding comprehensions."""
     # Check if we're inside a comprehension
     comp_range = _find_comprehension_range(lines, lineno, start)
 
@@ -1060,12 +908,7 @@ def _get_variable_source_for_comprehension(
 
 
 def _fallback_mark_range_for_line(lines, error_line_in_context):
-    """Build a single-line mark Range when caret columns are unavailable.
-
-    Trims leading/trailing whitespace and (when present) end-of-line comments so that
-    the meaningful portion of the line is highlighted. For comment-only lines, a
-    minimal one-character mark is returned; for whitespace-only lines, returns None.
-    """
+    """Build a single-line mark Range when caret columns are missing."""
     lines_list = lines.splitlines(keepends=True)
     if not (1 <= error_line_in_context <= len(lines_list)):
         return None
@@ -1091,11 +934,7 @@ def _fallback_mark_range_for_line(lines, error_line_in_context):
 def _extract_emphasis_columns(
     lines, error_line_in_context, end_line, start_col, end_col, start
 ):
-    """Extract emphasis columns using caret anchors from the code segment.
-
-    Returns Range with 1-based inclusive line numbers and 0-based exclusive columns,
-    or None if no anchors found.
-    """
+    """Return the emphasis Range from caret anchors, or None."""
     if not (end_line and start_col is not None and end_col is not None):
         return None
 
@@ -1145,12 +984,7 @@ def _extract_emphasis_columns(
 
 
 def _build_position_map(raw_tb):
-    """Build mapping from frame objects to position tuples.
-
-    A single frame object can appear more than once in a traceback (e.g. a
-    re-raise inside the same function), so we store a list of positions per
-    frame and consume them in order during frame extraction.
-    """
+    """Map each frame object to its list of code positions."""
     position_map = {}
     if not raw_tb:
         return position_map
@@ -1575,14 +1409,7 @@ def _fill_variables(frames, exc_message):
 
 
 def _fill_chronological_variables(chrono_frames: list[dict]) -> None:
-    """Populate variables on the chronologically final occurrence of each frame.
-
-    Walks the chronological frame list backwards, extracting variables only for
-    the first (chronologically final) occurrence of every ``idframe``.  All
-    other occurrences receive an empty ``variables`` list.  Parallel
-    ExceptionGroup branches are processed recursively.  Private metadata keys
-    are stripped before returning.
-    """
+    """Fill variables on the final occurrence of each frame in chrono order."""
     seen: set[int] = set()
 
     def _process_branch(branch: list[dict]) -> None:
@@ -1651,11 +1478,7 @@ def _make_trace_id() -> str:
 
 
 def _dedent_lines(lines: list[str]) -> tuple[list[str], str]:
-    """Remove common leading indentation from lines.
-
-    Returns:
-        Tuple of (dedented lines, common_indent string).
-    """
+    """Return (dedented_lines, common_indent)."""
     common_indent = _calculate_common_indent(lines)
     return [ln.removeprefix(common_indent) for ln in lines], common_indent
 
@@ -1824,17 +1647,7 @@ def _create_highlighted_fragments_unified(
 
 
 def _parse_lines_to_fragments(lines_text, mark_range=None, em_ranges=None):
-    """
-    Parse lines of code into fragments with mark/em highlighting information.
-
-    Args:
-        lines_text: The multi-line string containing code
-        mark_range: Range object for mark highlighting (or None)
-        em_ranges: Range object or list of Range objects for em highlighting (or None)
-
-    Returns:
-        List of line dictionaries with fragment information
-    """
+    """Split code lines into highlighted fragments."""
     lines = lines_text.splitlines(keepends=True)
     if not lines:
         return []

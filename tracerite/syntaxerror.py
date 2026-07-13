@@ -33,11 +33,7 @@ ALL_OPENERS = "([{"
 
 
 def _iter_code_chars(source_lines, end_line=None, end_col=None):
-    """Iterate over characters in source code, skipping strings and comments.
-
-    Yields (line_idx_1based, col, char) for each character that is actual code
-    (not inside a string literal or comment).
-    """
+    """Iterate over characters in source code, skipping strings and comments."""
     if end_line is None:
         end_line = len(source_lines)
 
@@ -190,10 +186,7 @@ def _handle_mismatch(e, source_lines, match):
 
 
 def _last_meaningful_line(source_lines):
-    """Return the 1-based line number and column of the last meaningful line.
-
-    A line is meaningful if it has non-comment, non-whitespace content.
-    """
+    """Return the 1-based line number and column of the last meaningful line."""
     end_line = len(source_lines)
     end_col = 0
     for i in range(len(source_lines) - 1, -1, -1):
@@ -207,11 +200,7 @@ def _last_meaningful_line(source_lines):
 
 
 def _handle_unclosed(e, source_lines, match):
-    """Handle unclosed bracket errors.
-
-    The bracket is never closed, so the problematic construct runs to the end
-    of the source. Mark from the opener to the last meaningful line.
-    """
+    """Handle unclosed bracket errors."""
     opening_char = match.group(1)
     error_line = e.lineno
     error_col = (e.offset - 1) if e.offset else 0
@@ -239,12 +228,7 @@ def _handle_unclosed(e, source_lines, match):
 
 
 def _handle_incomplete(e, source_lines):
-    """Handle incomplete input errors (e.g., _IncompleteInputError).
-
-    These occur when code is syntactically valid but incomplete (unclosed bracket,
-    unterminated string, etc.). Python only gives us the final line number.
-    We need to find the unclosed construct and mark from there to the end.
-    """
+    """Handle incomplete input errors (e.g., _IncompleteInputError)."""
     # Find the last non-empty line (trimmed, ignoring comments)
     end_line, end_col = _last_meaningful_line(source_lines)
 
@@ -297,12 +281,7 @@ def _find_any_unclosed_opener(source_lines, end_line):
 def _find_unmatched_opener(
     source_lines, opener_line, opener_char, closer_line, closer_col
 ):
-    """Find the column of the unmatched opening bracket.
-
-    Scans from the indicated opener_line to find which opening bracket
-    is actually unmatched with the closer at closer_line:closer_col.
-    Uses proper tokenization to skip brackets inside strings and comments.
-    """
+    """Find the column of the unmatched opening bracket."""
     closer_char = BRACKET_PAIRS_REV.get(opener_char, ")")
 
     # Track bracket depth as we scan
@@ -325,10 +304,7 @@ def _find_unmatched_opener(
 
 
 def _find_unclosed_opener(source_lines, error_line, opener_char):
-    """Find an unclosed opening bracket by scanning the source.
-
-    Uses proper tokenization to skip brackets inside strings and comments.
-    """
+    """Find an unclosed opening bracket by scanning the source."""
     closer_char = BRACKET_PAIRS_REV.get(opener_char, ")")
 
     # Scan through code tracking bracket balance
@@ -347,16 +323,7 @@ def _find_unclosed_opener(source_lines, error_line, opener_char):
 
 
 def _get_string_opener_length(line, col):
-    """Get the length of a string opener (prefix + quotes) starting at col.
-
-    Returns the length of the full opener, e.g.:
-    - ' or " -> 1
-    - ''' or \"\"\" -> 3
-    - f' or f" -> 2
-    - f''' or f\"\"\" -> 4
-    - rf' or fr" -> 3
-    - rf''' or rf\"\"\" -> 5
-    """
+    """Get the length of a string opener (prefix + quotes) starting at col."""
     rest = line[col:]
 
     # Check for string prefix (case insensitive: f, r, b, u, fr, rf, br, rb)
@@ -379,11 +346,7 @@ def _get_string_opener_length(line, col):
 
 
 def _handle_unterminated_string(e, source_lines):
-    """Handle unterminated string literal errors.
-
-    Mark from the opening quote to the end of the line where Python detected
-    the problem, and emphasize the full opener (prefix + quote).
-    """
+    """Handle unterminated string literal errors."""
     error_line = e.lineno
     error_col = (e.offset - 1) if e.offset else 0
 

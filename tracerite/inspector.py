@@ -64,14 +64,7 @@ def _get_flat(arr: Any) -> Any:
 
 
 def _array_formatter(arr: Any) -> tuple[Callable[[Any], str], str]:
-    """
-    Create an optimal formatter for displaying array values consistently.
-
-    For integers: display as integers without decimals.
-    For floats: determine scale from max(abs(values)), apply SI-style
-    scaling (×10⁶, ×10⁻³, etc.), and display with consistent fixed precision.
-    Returns (formatter_func, scale_suffix) where scale_suffix may be empty.
-    """
+    """Create an optimal formatter for displaying array values consistently."""
     try:
         dtype_str = str(arr.dtype)
     except AttributeError:
@@ -149,12 +142,7 @@ class _IdentifierVisitor(ast.NodeVisitor):
 
 
 def _extract_identifiers_ast(sourcecode: str) -> set[str] | None:
-    """
-    Extract variable identifiers from source code using AST.
-
-    Returns a set of variable names (including attribute access like "obj.attr"),
-    or None if AST parsing fails.
-    """
+    """Extract variable identifiers from source code using AST."""
     tree: ast.AST | None = None
     for wrapper in ("({})", "{}"):
         with contextlib.suppress(SyntaxError):
@@ -172,12 +160,7 @@ def _extract_identifiers_ast(sourcecode: str) -> set[str] | None:
 
 
 def _extract_identifiers_regex(sourcecode: str) -> set[str]:
-    """
-    Extract variable identifiers from source code using regex (fallback).
-
-    This is less accurate than AST as it can match names in strings/comments,
-    but works when AST parsing fails.
-    """
+    """Extract variable identifiers from source code using regex (fallback)."""
     return {
         m.group(0) for p in (r"\w+", r"\w+\.\w+") for m in re.finditer(p, sourcecode)
     }

@@ -226,10 +226,7 @@ def tty_traceback(
 def _find_all_inspector_frames(
     frame_info_list: list[dict[str, Any]],
 ) -> list[int]:
-    """Find all non-call frames that have variables to show.
-
-    Returns list of frame indices with variables.
-    """
+    """Find all non-call frames that have variables to show."""
     return [
         i
         for i, info in enumerate(frame_info_list)
@@ -240,11 +237,7 @@ def _find_all_inspector_frames(
 def _find_frame_line_range(
     output_lines: list[tuple[str, int, int, bool]], inspector_frame_idx: int
 ) -> tuple[int, int]:
-    """Find the line range for the inspector frame in output_lines.
-
-    Returns (frame_line_start, frame_line_end) - both are valid indices.
-    The caller guarantees inspector_frame_idx exists in output_lines.
-    """
+    """Find the line range for the inspector frame in output_lines."""
     indices = [
         li
         for li, (_, _, fidx, _) in enumerate(output_lines)
@@ -260,10 +253,7 @@ def _find_last_marked_line(
     frame_line_start: int,
     frame_line_end: int,
 ) -> int:
-    """Find the last marked line within the frame range.
-
-    Returns the line index of the last marked line, or frame_line_end if none are marked.
-    """
+    """Find the last marked line within the frame range."""
     return max(
         (
             li
@@ -277,11 +267,7 @@ def _find_last_marked_line(
 def _find_collapsible_call_runs(
     frame_info_list: list[dict[str, Any]], min_run_length: int = 10
 ) -> list[tuple[int, int]]:
-    """Find consecutive runs of 'call' frames that should be collapsed.
-
-    Returns list of (start_idx, end_idx) tuples for runs of consecutive
-    call frames with length >= min_run_length. end_idx is inclusive.
-    """
+    """Find consecutive runs of 'call' frames that should be collapsed."""
     runs = call_run_ranges(frame_info_list, min_run_length)
     # Chronological frames always end with a non-call (error) frame, so any
     # call run should have been closed above.
@@ -576,11 +562,7 @@ def _build_subexception_summaries(
 
 
 def _get_branch_summary(branch: list[dict[str, Any]], max_width: int) -> str:
-    """Get a one-line summary for a subexception branch.
-
-    Returns something like "file.py:10 func: ValueError: message"
-    Truncates at the end if needed to fit max_width.
-    """
+    """Get a one-line summary for a subexception branch."""
     if not branch:
         return f"{EXC}(empty){RESET}"
 
@@ -865,10 +847,7 @@ def _find_call_line_ranges(
     output_lines: list[tuple[str, int, int, bool]],
     frame_info_list: list[dict[str, Any]],
 ) -> list[tuple[int, int]]:
-    """Find line ranges for call frames that can be used for inspector expansion.
-
-    Returns list of (start_line, end_line) tuples for call frames.
-    """
+    """Find line ranges for call frames that can be used for inspector expansion."""
     call_ranges = []
     current_start = None
 
@@ -894,15 +873,7 @@ def _compute_inspector_positions(
     inspector_data: list[tuple[InspectorLines, int]],  # [(lines, error_line), ...]
     frame_info_list: list[dict[str, Any]],
 ) -> tuple[list[int], int]:
-    """Compute vertical positions for all inspectors, avoiding overlap.
-
-    Positioning rules:
-    1. Ideally stay within own frame
-    2. If needed, expand to surrounding call lines
-    3. If still not enough, add empty lines after the frame
-
-    Returns (list of inspector_start positions, total_extra_lines needed).
-    """
+    """Compute vertical positions for all inspectors, avoiding overlap."""
     if not inspector_frames:  # pragma: no cover
         return [], 0
 
@@ -999,20 +970,7 @@ def _compute_inspector_positions(
 def _truncate_inspector_line(
     insp_line: str, insp_width: int, value_start: int, available_for_content: int
 ) -> str:
-    """Truncate an inspector line to fit the space available at render time.
-
-    The prefix (variable name/type/alignment) is preserved with its existing
-    colouring; only the value portion is shortened, and a plain ellipsis is
-    appended when truncation occurs.  All width calculations are done in
-    terminal display columns, so wide characters are accounted for.
-
-    Values produced by ``prettyvalue`` for long inline strings already contain
-    a middle ellipsis (`` … ``).  When such a value must be shortened further,
-    characters are removed from the right-hand side of that marker first so the
-    end of the string is preserved.  If the right side is completely removed
-    and the result still does not fit, characters are stripped from the left
-    side as well, keeping the ellipsis at the end.
-    """
+    """Truncate an inspector line to fit the space available at render time."""
     if available_for_content <= 0:
         return "…"
     if insp_width <= available_for_content:
@@ -1096,18 +1054,7 @@ def _merge_chrono_output(
     exception_banners: list[tuple[int, str]],
     frame_info_list: list[dict[str, Any]],
 ) -> tuple[str, int | None]:
-    """Merge chronological output with multiple inspectors and exception banners.
-
-    Args:
-        output_lines: List of (line, plain_len, frame_idx, is_marked) tuples
-        all_inspector_lines: List of inspector line lists, one per inspector frame
-            Each line is (colored_line, plain_width, value_start_col)
-        all_inspector_min_widths: Minimum required widths for each inspector
-        term_width: Terminal width
-        inspector_frame_indices: List of frame indices that have inspectors
-        exception_banners: List of (insert_pos, banner) tuples
-        frame_info_list: Frame info for all frames
-    """
+    """Merge chronological output with multiple inspectors and exception banners."""
     if not inspector_frame_indices:  # pragma: no cover
         # No inspectors, just output lines and banners
         output = ""
@@ -1367,17 +1314,7 @@ def _format_fragment_call(fragment: dict[str, Any]) -> str:
 def _build_variable_inspector(
     variables: list[Any], term_width: int
 ) -> tuple[InspectorLines, int]:
-    """Build variable inspector lines.
-
-    Returns:
-        tuple: (list of (colored_line, plain_width, value_start_col), min_required_width)
-            - list of lines for the inspector with metadata for smart truncation
-            - minimum width needed to display "name: type = " + some value chars
-
-    Uses simple left-side vertical bar only, no top/bottom borders.
-    Multi-line string values are rendered with continuation lines properly indented.
-    Variable names are right-aligned so that = signs line up.
-    """
+    """Build variable inspector lines."""
     if not variables:
         return [], 0
 
