@@ -3,6 +3,7 @@
 import sys
 
 import pytest
+from bs4 import BeautifulSoup
 
 from tracerite.html import html_traceback, javascript, style
 from tracerite.trace import extract_chain, extract_exception, symbols
@@ -105,7 +106,10 @@ class TestHtmlCornercases:
             html_str = str(html)
 
             # Should contain skipped call count when frames are limited
-            assert "more calls" in html_str
+            soup = BeautifulSoup(html_str, "html.parser")
+            ellipsis = soup.find("p", class_="traceback-ellipsis")
+            assert ellipsis is not None, "Expected ellipsis paragraph in HTML output"
+            assert "more calls" in ellipsis.get_text()
 
     def test_exception_with_no_frames(self):
         """Test HTML rendering when exception has no frames."""

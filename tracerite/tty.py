@@ -277,9 +277,14 @@ def _find_collapsible_call_runs(
             # End of a call run
             if run_start is not None:
                 run_length = i - run_start
-                if run_length >= min_run_length:
+                # Only collapse when there is at least one frame to skip.
+                if run_length >= min_run_length and run_length > 2:
                     runs.append((run_start, i - 1))
                 run_start = None
+
+    # Chronological frames always end with a non-call (error) frame, so any
+    # call run should have been closed above.
+    assert run_start is None
 
     return runs
 

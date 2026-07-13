@@ -418,6 +418,44 @@ def test_collapse_call_runs_final_run_not_collapsed():
     assert result == expected
 
 
+def test_collapse_call_runs_small_min_run_length():
+    """Short runs must not be collapsed even when min_run_length is very small."""
+    from tracerite.html import _collapse_call_runs
+
+    frames = [
+        {"relevance": "error", "id": 1},
+        {"relevance": "call", "id": 2},
+        {"relevance": "call", "id": 3},
+    ]
+
+    # A run of two call frames has nothing to skip, so it should not be
+    # collapsed even when min_run_length is 2 or less.
+    result = _collapse_call_runs(frames, min_run_length=1)
+    expected = [
+        {"relevance": "error", "id": 1},
+        {"relevance": "call", "id": 2},
+        {"relevance": "call", "id": 3},
+    ]
+    assert result == expected
+
+
+def test_collapse_call_runs_single_call_not_collapsed():
+    """A single call frame must not be collapsed."""
+    from tracerite.html import _collapse_call_runs
+
+    frames = [
+        {"relevance": "error", "id": 1},
+        {"relevance": "call", "id": 2},
+    ]
+
+    result = _collapse_call_runs(frames, min_run_length=1)
+    expected = [
+        {"relevance": "error", "id": 1},
+        {"relevance": "call", "id": 2},
+    ]
+    assert result == expected
+
+
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="ExceptionGroups require Python 3.11+"
 )
