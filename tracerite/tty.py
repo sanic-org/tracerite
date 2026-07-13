@@ -514,15 +514,19 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
     cont_width = max(1, term_width - _LINE_PREFIX_WIDTH - _display_width("▐ "))
 
     summary_lines: list[str] = []
-    title_width = type_prefix_width + _display_width(summary)
-
-    if title_width <= first_line_width:
-        summary_lines.append(f"{type_prefix_colored}{BOLD}{summary}{RESET}")
+    if summary:
+        # Keep the type prefix on the first line and wrap the summary after it;
+        # continuation lines are indented by the half-block marker.
+        first_summary_width = max(1, first_line_width - type_prefix_width)
+        wrapped_summary = _wrap_text(summary, first_summary_width)
+        summary_lines.append(f"{type_prefix_colored}{BOLD}{wrapped_summary[0]}{RESET}")
+        if len(wrapped_summary) > 1:
+            remaining = summary[len(wrapped_summary[0]) :]
+            summary_lines.extend(
+                f"{BOLD}{line}{RESET}" for line in _wrap_text(remaining, cont_width)
+            )
     else:
         summary_lines.append(type_prefix_colored)
-        summary_lines.extend(
-            f"{BOLD}{line}{RESET}" for line in _wrap_text(summary, cont_width)
-        )
 
     body_lines_raw: list[str] = []
     if summary != message:
