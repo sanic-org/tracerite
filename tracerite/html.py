@@ -22,6 +22,7 @@ body { font-family: var(--tracerite-ui-font); margin: 1em; }
 header { margin-bottom: 1em; }
 main { margin: 0; }
 h1 { margin: 0 0 0.25em 0; }
+p { margin: 0 0 0.5em 0; }
 """
 
 # fmt: off
