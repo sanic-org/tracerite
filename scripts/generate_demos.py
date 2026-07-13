@@ -269,7 +269,7 @@ def _normalize_traceback_ids(notebook: nbformat.NotebookNode) -> nbformat.Notebo
     every render and make notebook diffs noisy.  Map each original ID to a
     short sequential ID so the same traceback produces the same HTML anchors.
     """
-    id_pattern = re.compile(r"(toggle-)?(tb-[A-Za-z0-9_-]{12,})\b")
+    id_pattern = re.compile(r"(toggle-)?(tb-[A-Za-z0-9_-]{12,})(?=\")")
     id_map: dict[str, str] = {}
     counter = 0
 
