@@ -249,6 +249,18 @@ def _execute_notebook(notebook: nbformat.NotebookNode) -> nbformat.NotebookNode:
     return notebook
 
 
+def _strip_execution_metadata(notebook: nbformat.NotebookNode) -> nbformat.NotebookNode:
+    """Remove execution timestamps/runtime metadata from notebook cells.
+
+    nbclient stores iopub/shell timestamps in cell metadata; these change on
+    every re-run and produce noisy diffs.  Strip them while keeping outputs.
+    """
+    for cell in notebook.cells:
+        if cell.cell_type == "code":
+            cell.metadata.pop("execution", None)
+    return notebook
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate FastAPI/Sanic demo apps and a scenarios notebook."
@@ -283,6 +295,7 @@ def main() -> None:
     sanic_path.write_text(_sanic_app(items), encoding="utf-8")
     sanic_path.chmod(0o755)
     notebook = _execute_notebook(_build_notebook(items))
+    notebook = _strip_execution_metadata(notebook)
     notebook_path.write_text(nbformat.writes(notebook), encoding="utf-8")
 
     print(f"Wrote {fastapi_path}")
