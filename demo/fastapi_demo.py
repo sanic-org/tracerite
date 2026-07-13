@@ -10,15 +10,15 @@ import json
 import re
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse
 
 from demo.helpers import acme
 from demo.helpers.html import build_index_html
 from demo.helpers.types import Bar, Foo
-from tracerite.fastapi import patch_fastapi
+from tracerite import html_page
 
-patch_fastapi()
 
 @asynccontextmanager
 async def _lifespan(app):
@@ -26,6 +26,19 @@ async def _lifespan(app):
     yield
 
 app = FastAPI(title="TraceRiteDemo", debug=True, lifespan=_lifespan)
+
+
+@app.exception_handler(Exception)
+async def tracerite_exception_handler(request: Request, exc: Exception):
+    """Render TraceRite HTML page for any unhandled exception."""
+    accept = request.headers.get("accept", "")
+    if "text/html" not in accept:
+        return await http_exception_handler(request, exc)
+    status = getattr(exc, "status_code", 500)
+    return HTMLResponse(
+        html_page(exc, title="FastAPI TraceRite Demo"),
+        status_code=status,
+    )
 
 
 @app.get("/")
@@ -67,7 +80,7 @@ async def chainmsg():
     """Two chained exceptions, each with a multi-line message."""
     try:
         raise ValueError('Original problem\nwith extra detail')
-    except ValueError as e:
+    except ValueError:
         raise RuntimeError('While handling the original error\na second failure occurred.\nTerminating!')
 
 @app.get("/causechain")
@@ -96,7 +109,7 @@ async def comprehension():
 @app.get("/longmsg")
 async def longmsg():
     """Very long exception message mixing prose, code blocks, and many lines."""
-    msg = "Configuration validation failed for the requested pipeline.\n\nThe supplied manifest references several deprecated fields and contains a few sections that cannot be parsed automatically, so you will need to review them manually before the deployment can continue safely.\n\nOffending values:\n- `metadata.labels['app.kubernetes.io/very-long-component-name']` exceeds the maximum allowed length of 63 characters\n- `spec.template.spec.containers[0].resources.limits.cpu` is set to `1000000000000000000000000000000000000000000000000000000m` which is not a valid quantity\n- `spec.template.spec.containers[0].image` uses tag `latest`\n- `spec.replicas` is `0` which disables the service entirely\n\nSuggested fix:\n```python\nconfig = load_manifest('deployment.yaml')\nconfig['metadata']['labels']['app.kubernetes.io/component'] = 'api'\nconfig['spec']['replicas'] = max(1, config['spec']['replicas'])\nvalidate_and_apply(config)\n```\n\nFor additional context, the full set of validation errors encountered while scanning the manifest is listed below. Each error includes the field path, the offending value, and a short explanation of why the value was rejected by the schema validator.\n\n" + '\n'.join((f'[{i:03d}] validation error in field `spec.paths.{i}.method`: method name is too long and contains invalid characters' for i in range(80)))
+    msg = "Configuration validation failed for the requested pipeline.\n\nThe supplied manifest references several deprecated fields and contains a few sections that cannot be parsed automatically, so you will need to review them manually before the deployment can continue safely.\n\nOffending values:\n- `metadata.labels['app.kubernetes.io/very-long-component-name']` exceeds the maximum allowed length of 63 characters\n- `spec.template.spec.containers[0].resources.limits.cpu` is set to `1000000000000000000000000000000000000000000000000000000m` which is not a valid quantity\n- `spec.template.spec.containers[0].image` uses tag `latest`\n- `spec.replicas` is `0` which disables the service entirely\n\nSuggested fix:\n```python\nconfig = load_manifest('deployment.yaml')\nconfig['metadata']['labels']['app.kubernetes.io/component'] = 'api'\nconfig['spec']['replicas'] = max(1, config['spec']['replicas'])\nvalidate_and_apply(config)\n```\n\nFor additional context, the full set of validation errors encountered while scanning the manifest is listed below. Each error includes the field path, the offending value, and a short explanation of why the value was rejected by the schema validator.\n\n" + '\n'.join(f'[{i:03d}] validation error in field `spec.paths.{i}.method`: method name is too long and contains invalid characters' for i in range(80))
     raise ValueError(msg)
 
 @app.get("/concurrent")

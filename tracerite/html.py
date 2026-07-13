@@ -4,7 +4,7 @@ from importlib.resources import files
 from types import EllipsisType
 from typing import Any, cast
 
-from html5tagger import HTML, E
+from html5tagger import HTML, Document, E, Template
 
 from .chain_analysis import build_chronological_frames
 from .trace import build_chain_header, chainmsg, extract_chain, symbols, symdesc
@@ -15,6 +15,91 @@ javascript = (
 )
 
 detail_show = "{display: inherit}"
+
+PAGE_STYLE = """\
+:root { color-scheme: light dark; }
+body {
+  font-family: var(--tracerite-ui-font);
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 1em;
+}
+header { margin-bottom: 1em; }
+h1 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 0 0 0.25em 0;
+}
+main { margin: 1em 0; }
+footer {
+  margin-top: 1em;
+  font-size: 0.85em;
+  color: var(--tracerite-lineno);
+}
+"""
+
+DEFAULT_INGRESS = "An error occurred while processing your request."
+
+Header = Template(
+    E(
+        E.h1.Heading("TraceRite"),
+        E.p.Ingress(DEFAULT_INGRESS),
+    )
+)
+
+Page = Template(
+    Document(E.Title("TraceRite"), lang="en")
+    .style(style)
+    .style(PAGE_STYLE)
+    .script(javascript)
+    .header.Header(Header())
+    .main.Content("")
+    .footer.Footer("")
+)
+
+
+def html_page(
+    exc: BaseException | None = None,
+    *,
+    title: str | None = None,
+    heading: str | None = None,
+    ingress: str | None = None,
+    header: Any | None = None,
+    footer: Any | None = None,
+    msg: str | None | EllipsisType = ...,
+    chain: list[dict[str, Any]] | None = None,
+    autodark: bool = True,
+    local_urls: bool = False,
+    **extract_args: Any,
+) -> str:
+    """Render a full HTML5 page containing a TraceRite traceback.
+
+    The page uses html5tagger's Template feature. `Page` exposes the slots
+    Title, Header, Content and Footer. The default header is built from the
+    `Header` template, which has Heading and Ingress slots.
+    """
+    chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
+    page_title = title or (chain[-1]["type"] if chain else "TraceRite")
+    page_heading = heading or page_title
+    page_ingress = ingress if ingress is not None else DEFAULT_INGRESS
+    traceback_html = html_traceback(
+        exc=exc,
+        chain=chain,
+        msg=msg,
+        include_js_css=False,
+        autodark=autodark,
+        local_urls=local_urls,
+    )
+    if header is None:
+        header = Header(Heading=page_heading, Ingress=page_ingress)
+    return str(
+        Page(
+            Title=page_title,
+            Header=header,
+            Content=traceback_html,
+            Footer=footer or "",
+        )
+    )
 
 
 def _collapse_call_runs(
