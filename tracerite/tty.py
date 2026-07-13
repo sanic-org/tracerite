@@ -8,10 +8,10 @@ import warnings
 from pathlib import Path
 from typing import Any, TextIO
 
-from .chain_analysis import build_chronological_frames
 from .trace import (
     _call_run_ranges,
     _exception_info,
+    _extract_chain_exceptions,
     _function_display,
     _normalize_variable,
     build_chain_header,
@@ -130,7 +130,7 @@ def tty_traceback(
 
     Args:
         exc: The exception to format. If None, uses the current exception.
-        chain: Pre-extracted exception chain. If provided, exc is ignored.
+        chain: Pre-extracted chronological frame list. If provided, exc is ignored.
         file: Output file. Defaults to sys.stderr.
         msg: Header message. If None, builds from exception chain.
         tag: Optional tag to display after the message (e.g., "#TR1").
@@ -176,9 +176,16 @@ def tty_traceback(
         if term_width < 40:
             term_width = 80
 
-    chrono_output, last_banner_start = _print_chronological(
-        chain, term_width, no_inspector
-    )
+    if not chain and exc is not None:
+        # Exception with no frames: render banners directly
+        for exc_dict in _extract_chain_exceptions(exc):
+            last_banner_start = len(output)
+            output += _build_exception_banner(_exception_info(exc_dict), term_width)
+        chrono_output = ""
+    else:
+        chrono_output, last_banner_start = _print_chronological(
+            chain, term_width, no_inspector
+        )
     if last_banner_start is not None:
         last_banner_start += len(output)
     output += chrono_output
@@ -290,12 +297,8 @@ def _print_chronological(
     """Print frames in chronological order; returns ``(output, last_banner_start)``."""
     output = ""
     last_banner_start = None
-    chrono_frames = build_chronological_frames(chain)
+    chrono_frames = chain
     if not chrono_frames:
-        # No frames, but still show exception banners for any exceptions in chain
-        for exc in chain:
-            last_banner_start = len(output)
-            output += _build_exception_banner(_exception_info(exc), term_width)
         return output, last_banner_start
 
     # Build frame info list for all chronological frames

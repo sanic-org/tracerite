@@ -20,7 +20,7 @@ except Exception:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `exc` | `Exception` | `None` | Exception to render. If `None`, uses the current exception from `sys.exc_info()`. |
-| `chain` | `list` | `None` | Pre-extracted exception chain (from `extract_chain`). Overrides `exc`. |
+| `chain` | `list` | `None` | Pre-extracted chronological frame list (from `extract_chain`). Overrides `exc`. |
 | `include_js_css` | `bool` | `True` | Include `<style>` and `<script>` tags in output. Set to `False` if embedding in a page that already has TraceRite styles. |
 | `local_urls` | `bool` | `False` | Use `file://` URLs for source links (for local development). |
 | `skip_outmost` | `int` | `0` | Number of outermost frames to skip. |
@@ -65,7 +65,7 @@ except Exception as exc:
 | `header` | `Any` | `None` | Content injected before `<main>` (e.g. site navigation or extra `<style>` tags). Defaults to empty. |
 | `footer` | `Any` | `None` | Content injected after `<main>`. Defaults to empty. |
 | `msg` | `str` / `...` / `None` | `...` | Override the exception summary heading. `...` uses the default, `None` omits it. |
-| `chain` | `list` | `None` | Pre-extracted exception chain (from `extract_chain`). Overrides `exc`. |
+| `chain` | `list` | `None` | Pre-extracted chronological frame list (from `extract_chain`). Overrides `exc`. |
 | `autodark` | `bool` | `True` | Enable automatic dark-mode support. |
 | `local_urls` | `bool` | `False` | Use `file://` URLs for source links (for local development). |
 
@@ -99,7 +99,10 @@ It also installs TTY formatting for console output by default. Pass `patch_fasta
 
 ## `extract_chain`
 
-Extracts exception information without rendering. Useful for logging or custom formatting.
+Extracts traceback information without rendering. Returns a chronological list of
+frame dicts (oldest call first, final error last), each containing source
+fragments, location, relevance, and local variables for the inspector on the
+chronologically final occurrence of each frame.
 
 ```python
 from tracerite import extract_chain
@@ -108,8 +111,9 @@ try:
     risky_operation()
 except Exception:
     chain = extract_chain()
-    for exc_info in chain:
-        print(exc_info["type"], exc_info["message"])
+    for frame in chain:
+        if frame.get("exception"):
+            print(frame["exception"]["type"], frame["exception"]["message"])
 ```
 
 ## TTY / Terminal Output
@@ -162,7 +166,7 @@ except Exception:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `exc` | `Exception` | `None` | Exception to render. If `None`, uses the current exception from `sys.exc_info()`. |
-| `chain` | `list` | `None` | Pre-extracted exception chain (from `extract_chain`). Overrides `exc`. |
+| `chain` | `list` | `None` | Pre-extracted chronological frame list (from `extract_chain`). Overrides `exc`. |
 | `file` | file object | `sys.stderr` | Output destination. Must support `.write()` and `.fileno()`. |
 
 ## Variable Inspector

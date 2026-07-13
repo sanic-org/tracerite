@@ -9,6 +9,7 @@ import pytest
 
 from tracerite import extract_chain, hooks
 from tracerite.hooks import load, unload
+from tracerite.trace import _extract_chain_exceptions
 from tracerite.tty import (
     ANSI_ESCAPE_RE,
     ARROW_LEFT,
@@ -874,7 +875,7 @@ class TestFrameFormatting:
         try:
             raise ValueError("label test")
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
             frame = chain[0]["frames"][-1]
             location_part, function_part = _get_frame_label(frame)
             # Combine and strip colors to get plain text
@@ -2143,18 +2144,15 @@ class TestTtyTracebackEdgeCases:
 
     def test_chain_without_frames(self):
         """Test exception chain where exceptions have no frames."""
+
+        class TestError(Exception):
+            pass
+
         output = io.StringIO()
-        # Create a minimal chain with no frames
-        chain = [
-            {
-                "type": "TestError",
-                "message": "test message",
-                "summary": "test message",
-                "from": None,
-                "frames": [],
-            }
-        ]
-        tty_traceback(chain=chain, file=output)
+        try:
+            raise TestError("test message")
+        except TestError as e:
+            tty_traceback(chain=[], exc=e, file=output)
         result = output.getvalue()
         assert "TestError" in result
         assert "test message" in result
@@ -3365,15 +3363,8 @@ class TestTTYCoverage:
         """A banner right after the top corner has no preceding border."""
         output = io.StringIO()
         tty_traceback(
-            chain=[
-                {
-                    "type": "ValueError",
-                    "summary": "x",
-                    "message": "x",
-                    "from": "none",
-                    "frames": [],
-                }
-            ],
+            chain=[],
+            exc=ValueError("x"),
             file=output,
             msg="",
         )

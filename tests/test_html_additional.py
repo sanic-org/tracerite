@@ -2,9 +2,14 @@
 
 import pytest
 
+from tracerite.chain_analysis import build_chronological_frames
 from tracerite.html import html_traceback, javascript, style
 from tracerite.inspector import VarInfo
 from tracerite.trace import extract_chain, extract_exception
+
+
+def _chrono(exc_info):
+    return build_chronological_frames([exc_info])
 
 
 class TestHtmlAdditional:
@@ -21,7 +26,7 @@ class TestHtmlAdditional:
             if exc_info["frames"]:
                 exc_info["frames"][-1]["filename"] = None
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(exc=e, chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -37,7 +42,7 @@ class TestHtmlAdditional:
             if exc_info["frames"]:
                 exc_info["frames"][-1]["function"] = None
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -53,7 +58,7 @@ class TestHtmlAdditional:
             if exc_info["frames"]:
                 exc_info["frames"][-1]["range"] = None
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -72,7 +77,7 @@ class TestHtmlAdditional:
                     "Jupyter": "/edit/test.py",
                 }
 
-            html = html_traceback(chain=[exc_info], local_urls=True)
+            html = html_traceback(chain=_chrono(exc_info), local_urls=True)
             html_str = str(html)
 
             assert "vscode://" in html_str or "frame-link" in html_str
@@ -126,7 +131,7 @@ class TestHtmlAdditional:
                     ("x", "int", "42"),  # Old 3-tuple format
                 ]
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -144,7 +149,7 @@ class TestHtmlAdditional:
                     VarInfo("x", "", "42", "inline"),
                 ]
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -178,7 +183,7 @@ class TestHtmlAdditional:
                     VarInfo("x", "int", "42", "inline"),  # Second variable after array
                 ]
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -207,7 +212,7 @@ class TestHtmlAdditional:
                     ),
                 ]
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -264,7 +269,7 @@ class TestHtmlAdditional:
             if len(exc_info["frames"]) > 1:
                 exc_info["frames"][0]["relevance"] = "warning"
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -277,7 +282,7 @@ class TestHtmlAdditional:
             exc_info = extract_exception(e)
 
             # The frame should have stop relevance for non-Exception types
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "KeyboardInterrupt" in html_str
@@ -372,7 +377,7 @@ foo()
             exc_info = extract_exception(e)
             exc_info["frames"] = []
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -444,7 +449,7 @@ class TestHtmlScrollTo:
             if len(exc_info["frames"]) > 1:
                 exc_info["frames"][0]["relevance"] = "warning"
 
-            html = html_traceback(chain=[exc_info], include_js_css=True)
+            html = html_traceback(chain=_chrono(exc_info), include_js_css=True)
             html_str = str(html)
 
             assert "scrollto" in html_str

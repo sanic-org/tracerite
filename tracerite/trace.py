@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import trace_cpy
+from .chain_analysis import build_chronological_frames
 from .inspector import extract_variables
 from .logging import logger
 from .syntaxerror import clean_syntax_error_message, extract_enhanced_positions
@@ -146,38 +147,47 @@ def _call_run_ranges(
     return ranges
 
 
-def build_chain_header(chain: list[dict]) -> str:
-    """Build a header message describing the exception chain."""
-    if not chain:
+def _attach_leaf_types(exc_chain: list[dict], chrono_frames: list[dict]) -> None:
+    """Attach ExceptionGroup leaf types to the final exception banner in frames."""
+    if not exc_chain:
+        return
+    subexceptions = exc_chain[-1].get("subexceptions")
+    if not subexceptions:
+        return
+    leaf_types = _collect_leaf_exception_types(subexceptions)
+    if not leaf_types:
+        return
+    for frame in reversed(chrono_frames):
+        if frame.get("exception"):
+            frame["exception"]["leaf_types"] = leaf_types
+            break
+
+
+def build_chain_header(frames: list[dict]) -> str:
+    """Build a header message from a chronological frame list."""
+    if not frames:
         return ""
 
-    # Chain is oldest-first: chain[0] is first exception, chain[-1] is last (uncaught)
-    last_exc = chain[-1]
+    main_chain = [f["exception"] for f in frames if f.get("exception")]
+    if not main_chain:
+        return ""
 
-    # For ExceptionGroups, show the final exception types from subexceptions
-    subexceptions = last_exc.get("subexceptions")
-    if subexceptions:
-        leaf_types = _collect_leaf_exception_types(subexceptions)
-        if leaf_types:
-            exc_type = " | ".join(leaf_types)
-            # Don't say "Uncaught" for ExceptionGroups, just show the leaf types
-            if len(chain) == 1:
-                return f"⚠️  {exc_type}"
-        else:
-            exc_type = last_exc.get("type", "Exception")
+    last_exc = main_chain[-1]
+    leaf_types = last_exc.get("leaf_types", [])
+    if leaf_types:
+        exc_type = " | ".join(leaf_types)
+        if len(main_chain) == 1:
+            return f"⚠️  {exc_type}"
     else:
         exc_type = last_exc.get("type", "Exception")
 
-    if len(chain) == 1:
+    if len(main_chain) == 1:
         return f"⚠️  Uncaught {exc_type}"
 
-    # Build from last to first
     parts = [f"⚠️  {exc_type}"]
-
-    # Add each previous exception with appropriate joiner
-    for i in range(len(chain) - 2, -1, -1):
-        exc = chain[i]
-        next_exc = chain[i + 1]
+    for i in range(len(main_chain) - 2, -1, -1):
+        exc = main_chain[i]
+        next_exc = main_chain[i + 1]
         from_type = next_exc.get("from", "none")
         joiner = "from" if from_type == "cause" else "while handling"
         parts.append(f"{joiner} {exc.get('type', 'Exception')}")
@@ -209,11 +219,26 @@ def _collect_leaf_exception_types(subexceptions: list[list[dict]]) -> list[str]:
 
 
 def extract_chain(exc=None, **kwargs) -> list:
-    """Extract information on current exception.
+    """Extract a chronological list of traceback frames for the current exception.
 
-    Returns a list of exception info dicts, ordered from oldest to newest
-    (i.e., the original exception first, then any exceptions that occurred
-    while handling it or were raised from it).
+    Returns frames in the order they actually executed (oldest call first,
+    final error last).  Each frame is a JSON-compatible dict containing source
+    fragments, location, relevance, and (on the chronologically final
+    occurrence of each frame object) local variables for the inspector.
+    """
+    exc_chain = _extract_chain_exceptions(exc, **kwargs)
+    chrono = build_chronological_frames(exc_chain)
+    _fill_chronological_variables(chrono)
+    _attach_leaf_types(exc_chain, chrono)
+    return chrono
+
+
+def _extract_chain_exceptions(exc=None, **kwargs) -> list:
+    """Extract exception info dicts in built-in (oldest-first) order.
+
+    This is an internal helper.  The returned dicts contain the raw
+    exception chain with private frame metadata needed for chronological
+    variable extraction; variables are not populated yet.
     """
     chain = []
     exc = exc or sys.exc_info()[1]
@@ -222,11 +247,10 @@ def extract_chain(exc=None, **kwargs) -> list:
         exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
     # Reverse to get oldest first (chain is built newest-first)
     chain = list(reversed(chain))
-    seen_frame_ids = set()
     result = [
         extract_exception(
             e,
-            _seen_frame_ids=seen_frame_ids,
+            _defer_variables=True,
             **(kwargs if e is chain[-1] else {}),
         )
         for e in reversed(chain)
@@ -281,7 +305,7 @@ def _set_relevances(frames: list, e: BaseException) -> None:
 
 
 def extract_exception(
-    e, *, skip_outmost=0, skip_until=None, _seen_frame_ids=None
+    e, *, skip_outmost=0, skip_until=None, _defer_variables=False
 ) -> dict:
     raw_tb = e.__traceback__
     try:
@@ -331,7 +355,7 @@ def extract_exception(
             except_block=(f != "none"),
             exc=e,
             exc_message=message,
-            _seen_frame_ids=_seen_frame_ids,
+            _defer_variables=_defer_variables,
         )
         # For SyntaxError, add the synthetic frame showing the problematic code
         if syntax_frame:
@@ -339,8 +363,6 @@ def extract_exception(
             if frames and frames[-1]["relevance"] == "error":
                 frames[-1]["relevance"] = "call"
             frames.append(syntax_frame)
-        if frames is not None and _seen_frame_ids is not None:
-            _fill_variables(frames, message, _seen_frame_ids)
     except Exception:
         logger.exception("Error extracting traceback")
         frames = None
@@ -363,7 +385,10 @@ def extract_exception(
     # Extract subexceptions for ExceptionGroups (Python 3.11+)
     # These form parallel timelines within the group's traceback
     subexceptions = _extract_subexceptions(
-        e, skip_outmost=skip_outmost, skip_until=skip_until
+        e,
+        skip_outmost=skip_outmost,
+        skip_until=skip_until,
+        _defer_variables=_defer_variables,
     )
     if subexceptions:
         result["subexceptions"] = subexceptions
@@ -372,7 +397,7 @@ def extract_exception(
 
 
 def _extract_subexceptions(
-    e, *, skip_outmost=0, skip_until=None
+    e, *, skip_outmost=0, skip_until=None, _defer_variables=False
 ) -> list[list[dict]] | None:
     """Extract subexceptions from an ExceptionGroup.
 
@@ -408,7 +433,10 @@ def _extract_subexceptions(
         # Recursively extract the chain for this subexception
         # This handles nested ExceptionGroups and exception chaining within each sub
         sub_chain = _extract_subexception_chain(
-            sub_exc, skip_outmost=skip_outmost, skip_until=skip_until
+            sub_exc,
+            skip_outmost=skip_outmost,
+            skip_until=skip_until,
+            _defer_variables=_defer_variables,
         )
         if sub_chain:  # pragma: no cover
             parallel_chains.append(sub_chain)
@@ -416,7 +444,9 @@ def _extract_subexceptions(
     return parallel_chains if parallel_chains else None
 
 
-def _extract_subexception_chain(exc, *, skip_outmost=0, skip_until=None) -> list[dict]:
+def _extract_subexception_chain(
+    exc, *, skip_outmost=0, skip_until=None, _defer_variables=False
+) -> list[dict]:
     """Extract the full exception chain for a single subexception.
 
     Similar to extract_chain but for a subexception that may have its own
@@ -445,7 +475,12 @@ def _extract_subexception_chain(exc, *, skip_outmost=0, skip_until=None) -> list
     # Extract info for each exception in the chain
     # Pass skip args only to the last one (the actual subexception)
     kwargs = {"skip_outmost": skip_outmost, "skip_until": skip_until}
-    result = [extract_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
+    result = [
+        extract_exception(
+            e, _defer_variables=_defer_variables, **(kwargs if e is chain[-1] else {})
+        )
+        for e in chain
+    ]
     return result
 
 
@@ -1193,9 +1228,11 @@ def _extract_syntax_error_frame(e):
         "location": location,
         "notebook_cell": notebook_cell,
         "codeline": codeline,
-        "range": Range(lineno, end_lineno or lineno, start_col, end_col)
-        if start_col is not None
-        else None,
+        "range": (
+            Range(lineno, end_lineno or lineno, start_col, end_col)
+            if start_col is not None
+            else None
+        ),
         "cursor_line": cursor_line,
         "cursor_col": cursor_col,
         "linenostart": start,
@@ -1358,7 +1395,7 @@ def extract_frames(
     except_block=False,
     exc=None,
     exc_message=None,
-    _seen_frame_ids=None,
+    _defer_variables=False,
 ) -> list:
     if not tb:
         return []
@@ -1399,7 +1436,10 @@ def extract_frames(
 
     if exc is not None:
         _set_relevances(frames, exc)
-    if _seen_frame_ids is None:
+    if _defer_variables:
+        for frame in frames:
+            frame.setdefault("variables", [])
+    else:
         _fill_variables(frames, exc_message)
     return frames
 
@@ -1521,34 +1561,60 @@ def _extract_single_frame(
         result["variables"] = []
         result["_locals"] = dict(frame.f_locals)
         result["_variable_source"] = variable_source
-        result["_is_last_frame"] = is_last_frame
+        result["_is_error_frame"] = is_last_frame
 
     return result
 
 
-def _fill_variables(frames, exc_message, seen_frame_ids=None):
-    """Populate the variables field for frames.
-
-    When ``seen_frame_ids`` is provided, variables are only extracted for the
-    last occurrence of each frame object (seen while walking frames backwards).
-    Private metadata keys are removed from every frame.
-    """
+def _fill_variables(frames, exc_message):
+    """Populate the variables field for frames and remove private metadata."""
     for frame in reversed(frames):
         if "_variable_source" not in frame:
             frame.setdefault("variables", [])
-        elif seen_frame_ids is not None and frame["idframe"] in seen_frame_ids:
-            frame["variables"] = []
         else:
             frame["variables"] = extract_variables(
                 frame["_locals"],
                 frame["_variable_source"],
-                exc_message=exc_message if frame.get("_is_last_frame") else None,
+                exc_message=exc_message if frame.get("_is_error_frame") else None,
             )
-            if seen_frame_ids is not None:
-                seen_frame_ids.add(frame["idframe"])
         frame.pop("_locals", None)
         frame.pop("_variable_source", None)
-        frame.pop("_is_last_frame", None)
+        frame.pop("_is_error_frame", None)
+
+
+def _fill_chronological_variables(chrono_frames: list[dict]) -> None:
+    """Populate variables on the chronologically final occurrence of each frame.
+
+    Walks the chronological frame list backwards, extracting variables only for
+    the first (chronologically final) occurrence of every ``idframe``.  All
+    other occurrences receive an empty ``variables`` list.  Parallel
+    ExceptionGroup branches are processed recursively.  Private metadata keys
+    are stripped before returning.
+    """
+    seen: set[int] = set()
+
+    def _process_branch(branch: list[dict]) -> None:
+        for frame in reversed(branch):
+            idframe = frame.get("idframe")
+            if (
+                idframe is not None
+                and idframe not in seen
+                and "_variable_source" in frame
+            ):
+                exc_message = frame.get("exception", {}).get("message")
+                frame["variables"] = extract_variables(
+                    frame["_locals"], frame["_variable_source"], exc_message=exc_message
+                )
+                seen.add(idframe)
+            else:
+                frame.setdefault("variables", [])
+            frame.pop("_locals", None)
+            frame.pop("_variable_source", None)
+            frame.pop("_is_error_frame", None)
+            for sub_branch in frame.get("parallel", []):
+                _process_branch(sub_branch)
+
+    _process_branch(chrono_frames)
 
 
 def _build_frame_ranges(

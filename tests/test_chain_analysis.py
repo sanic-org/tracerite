@@ -16,7 +16,7 @@ from tracerite.chain_analysis import (
     parse_source_for_try_except,
     parse_source_string_for_try_except,
 )
-from tracerite.trace import Range, extract_chain
+from tracerite.trace import Range, _extract_chain_exceptions
 
 from .errorcases import (
     chained_from_and_without,
@@ -230,7 +230,7 @@ class TestAnalyzeExceptionChainLinks:
         try:
             raise ValueError("single")
         except ValueError as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         links = analyze_exception_chain_links(chain)
         assert len(links) == 1
@@ -241,7 +241,7 @@ class TestAnalyzeExceptionChainLinks:
         try:
             chained_from_and_without()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         # Should have 3 exceptions: NameError -> RuntimeError -> AttributeError
         assert len(chain) == 3
@@ -267,7 +267,7 @@ class TestAnalyzeExceptionChainLinks:
         try:
             reraise_context()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         assert len(chain) == 2
         assert chain[0]["type"] == "NameError"
@@ -284,7 +284,7 @@ class TestAnalyzeExceptionChainLinks:
         try:
             unrelated_error_in_except()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         # NameError -> ZeroDivisionError
         assert len(chain) == 2
@@ -301,7 +301,7 @@ class TestAnalyzeExceptionChainLinks:
             try:
                 raise RuntimeError("outer")
             except RuntimeError as e:
-                chain = extract_chain(e)
+                chain = _extract_chain_exceptions(e)
 
         # Modify inner frame to have no filename
         if len(chain) >= 2 and chain[0]["frames"]:
@@ -320,7 +320,7 @@ class TestAnalyzeExceptionChainLinks:
             try:
                 raise RuntimeError("outer")
             except RuntimeError as e:
-                chain = extract_chain(e)
+                chain = _extract_chain_exceptions(e)
 
         # Modify inner frame to have no lineno
         if len(chain) >= 2 and chain[0]["frames"]:
@@ -348,7 +348,7 @@ class TestAnalyzeExceptionChainLinks:
                 try:
                     raise RuntimeError("outer")
                 except RuntimeError as e:
-                    chain = extract_chain(e)
+                    chain = _extract_chain_exceptions(e)
 
             # Modify filename to point to our temp file
             if len(chain) >= 2 and chain[0]["frames"]:
@@ -377,13 +377,13 @@ class TestAnalyzeExceptionChainLinks:
         try:
             raise ValueError("test")
         except ValueError as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         # Add a second exception with a frame that has no lineno
         try:
             raise RuntimeError("second")
         except RuntimeError as e2:
-            chain2 = extract_chain(e2)
+            chain2 = _extract_chain_exceptions(e2)
             chain.extend(chain2)
 
         # Modify the second chain's frames to have no lineno
@@ -407,7 +407,7 @@ class TestEnrichChainWithLinks:
         try:
             chained_from_and_without()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         enriched = enrich_chain_with_links(chain)
 
@@ -419,7 +419,7 @@ class TestEnrichChainWithLinks:
         try:
             reraise_context()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         enriched = enrich_chain_with_links(chain)
 
@@ -444,7 +444,7 @@ class TestBuildChronologicalFrames:
         try:
             raise ValueError("single")
         except ValueError as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -458,7 +458,7 @@ class TestBuildChronologicalFrames:
         try:
             chained_from_and_without()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -476,7 +476,7 @@ class TestBuildChronologicalFrames:
         try:
             error_via_call_in_except()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -496,7 +496,7 @@ class TestBuildChronologicalFrames:
         try:
             unrelated_error_in_except()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -510,7 +510,7 @@ class TestBuildChronologicalFrames:
         try:
             error_via_call_in_except()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -525,7 +525,7 @@ class TestBuildChronologicalFrames:
         try:
             chained_from_and_without()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -547,7 +547,7 @@ class TestBuildChronologicalFrames:
         try:
             deeply_nested_chain_with_calls()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -706,7 +706,7 @@ class TestFindChainLinkFallbacks:
             try:
                 raise RuntimeError("outer")
             except RuntimeError as e:
-                chain = extract_chain(e)
+                chain = _extract_chain_exceptions(e)
 
         # Remove full_source from inner frame to trigger fallback
         if len(chain) >= 2 and chain[0]["frames"]:
@@ -725,7 +725,7 @@ class TestFindChainLinkFallbacks:
             try:
                 raise RuntimeError("outer")
             except RuntimeError as e:
-                chain = extract_chain(e)
+                chain = _extract_chain_exceptions(e)
 
         # Remove both full_source and filename
         if len(chain) >= 2 and chain[0]["frames"]:
@@ -745,7 +745,7 @@ class TestFindChainLinkFallbacks:
             try:
                 raise RuntimeError("outer")
             except RuntimeError as e:
-                chain = extract_chain(e)
+                chain = _extract_chain_exceptions(e)
 
         # Remove lineno from outer frames
         if len(chain) >= 2 and chain[1]["frames"]:

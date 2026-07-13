@@ -6,10 +6,10 @@ from typing import Any, cast
 
 from html5tagger import HTML, Document, E, Template
 
-from .chain_analysis import build_chronological_frames
 from .trace import (
     _call_run_ranges,
     _exception_info,
+    _extract_chain_exceptions,
     _function_display,
     _normalize_variable,
     build_chain_header,
@@ -75,9 +75,11 @@ def html_page(
     slots of `Page` are empty by default so callers can inject site-wide
     header/footer content.
     """
-    chain = extract_chain(exc=exc, **extract_args)[-3:] if chain is None else chain
+    chain = extract_chain(exc=exc, **extract_args) if chain is None else chain
     page_title = (
-        title if title is not None else (chain[-1]["type"] if chain else "TraceRite")
+        title
+        if title is not None
+        else (chain[-1].get("exception", {}).get("type") if chain else "TraceRite")
     )
     page_heading = heading if heading is not None else page_title
     page_ingress = (
@@ -146,8 +148,7 @@ def html_traceback(
     set ``include_js_css=False`` when embedding it in a page that already
     provides them.
     """
-    chain = chain or extract_chain(exc=exc, **extract_args)[-3:]
-    # Chain is oldest-first from extract_chain
+    chain = chain or extract_chain(exc=exc, **extract_args)
     classes = "tracerite autodark" if autodark else "tracerite"
     with E.div(
         class_=classes,
@@ -163,7 +164,11 @@ def html_traceback(
         if msg:
             doc.h2(msg)
 
-        _chronological_output(doc, chain, local_urls=local_urls)
+        if chain:
+            _chronological_output(doc, chain, local_urls=local_urls)
+        elif exc is not None:
+            for exc_dict in _extract_chain_exceptions(exc):
+                _exception_banner(doc, _exception_info(exc_dict))
 
         if include_js_css:
             doc._script(javascript)
@@ -177,14 +182,7 @@ def _chronological_output(
     local_urls: bool = False,
 ) -> None:
     """Output frames in chronological order with exception info after error frames."""
-    chrono_frames = build_chronological_frames(chain)
-    if not chrono_frames:
-        # No frames, but still show exception banners for any exceptions in chain
-        for exc in chain:
-            _exception_banner(doc, _exception_info(exc))
-        return
-
-    _render_frame_list(doc, chrono_frames, local_urls=local_urls)
+    _render_frame_list(doc, chain, local_urls=local_urls)
 
 
 def _render_frame_list(

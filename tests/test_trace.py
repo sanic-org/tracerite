@@ -9,7 +9,12 @@ import textwrap
 import pytest
 
 from tracerite import extract_chain
-from tracerite.trace import build_chain_header, extract_exception, extract_frames
+from tracerite.trace import (
+    _extract_chain_exceptions,
+    build_chain_header,
+    extract_exception,
+    extract_frames,
+)
 
 from .errorcases import (
     binomial_operator,
@@ -34,7 +39,7 @@ def test_em_columns_binary_operator():
     try:
         binomial_operator()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -71,7 +76,7 @@ def test_em_columns_multiline_operator():
     try:
         multiline_marking()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -105,7 +110,7 @@ def test_em_columns_function_call():
     try:
         max_type_error_case()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -141,7 +146,7 @@ def test_em_columns_not_empty():
     try:
         binomial_operator()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         frame = chain[0]["frames"][-1]
 
         # Check that we have position information in the Range format
@@ -167,7 +172,7 @@ def test_em_columns_structure():
     try:
         binomial_operator()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         frame = chain[0]["frames"][-1]
 
         for line_info in frame["fragments"]:
@@ -190,7 +195,7 @@ def test_em_columns_multiline_marking_comment():
     try:
         multiline_marking_comment()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -226,7 +231,7 @@ def test_em_columns_max_type_error():
     try:
         max_type_error_case()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -259,7 +264,7 @@ def test_em_columns_reraise_context():
     try:
         reraise_context()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -281,7 +286,7 @@ def test_em_columns_reraise_suppressed_context():
     try:
         reraise_suppressed_context()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -303,7 +308,7 @@ def test_em_columns_chained_exceptions():
     try:
         chained_from_and_without()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -328,7 +333,7 @@ def test_em_columns_unrelated_error_except():
     try:
         unrelated_error_in_except()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -365,7 +370,7 @@ def test_em_columns_unrelated_error_finally():
     try:
         unrelated_error_in_finally()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -410,7 +415,7 @@ def test_em_columns_comprehensive_structure():
         try:
             test_func()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = _extract_chain_exceptions(e)
             assert chain is not None, f"Chain is None for {test_func.__name__}"
             assert len(chain) > 0, f"Empty chain for {test_func.__name__}"
 
@@ -468,7 +473,7 @@ def test_em_columns_stdlib_mimetypes():
     try:
         error_in_stdlib_mimetypes()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -553,6 +558,9 @@ def test_em_columns_stdlib_mimetypes():
 class TestExtractChain:
     """Test extract_chain function for exception chaining."""
 
+    def _exception_types(self, chain):
+        return [f["exception"]["type"] for f in chain if f.get("exception")]
+
     def test_extract_single_exception(self):
         """Test extracting a single exception without chaining."""
         try:
@@ -560,9 +568,9 @@ class TestExtractChain:
         except ValueError as e:
             chain = extract_chain(exc=e)
 
-        assert len(chain) == 1
-        assert chain[0]["type"] == "ValueError"
-        assert "test error" in chain[0]["message"]
+        assert len(chain) >= 1
+        assert chain[-1]["exception"]["type"] == "ValueError"
+        assert "test error" in chain[-1]["exception"]["message"]
 
     def test_extract_chained_exceptions(self):
         """Test extracting chained exceptions with __cause__."""
@@ -574,11 +582,10 @@ class TestExtractChain:
         except TypeError as e:
             chain = extract_chain(exc=e)
 
-        # Chain is now oldest-first (original exception first)
-        assert len(chain) == 2
-        assert chain[0]["type"] == "ValueError"  # Original
-        assert chain[1]["type"] == "TypeError"  # Wrapped
-        assert "wrapped error" in chain[1]["message"]
+        # Frames are in chronological order (original exception first)
+        types = self._exception_types(chain)
+        assert types == ["ValueError", "TypeError"]
+        assert "wrapped error" in chain[-1]["exception"]["message"]
 
     def test_extract_context_exceptions(self):
         """Test extracting exceptions with implicit context (__context__)."""
@@ -590,10 +597,9 @@ class TestExtractChain:
         except TypeError as e:
             chain = extract_chain(exc=e)
 
-        # Chain is now oldest-first
-        assert len(chain) == 2
-        assert chain[0]["type"] == "ValueError"  # First/original
-        assert chain[1]["type"] == "TypeError"  # Second/newer
+        # Frames are in chronological order
+        types = self._exception_types(chain)
+        assert types == ["ValueError", "TypeError"]
 
     def test_suppress_context(self):
         """Test that __suppress_context__ stops chain extraction."""
@@ -608,8 +614,8 @@ class TestExtractChain:
             chain = extract_chain(exc=e)
 
         # Should only have the TypeError, not the ValueError
-        assert len(chain) == 1
-        assert chain[0]["type"] == "TypeError"
+        types = self._exception_types(chain)
+        assert types == ["TypeError"]
 
     def test_extract_from_sys_exc_info(self):
         """Test extracting current exception from sys.exc_info()."""
@@ -618,8 +624,8 @@ class TestExtractChain:
         except RuntimeError:
             chain = extract_chain()  # No exc argument
 
-        assert len(chain) == 1
-        assert chain[0]["type"] == "RuntimeError"
+        assert len(chain) >= 1
+        assert chain[-1]["exception"]["type"] == "RuntimeError"
 
 
 class TestExtractException:
@@ -1170,7 +1176,7 @@ def test_deduplicate_variables_with_comprehension():
     try:
         comprehension_error()
     except ZeroDivisionError as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
 
     # Verify the chain was processed
     assert chain
@@ -1296,7 +1302,7 @@ def test_re_raise_in_same_function_has_distinct_frames():
     try:
         _outer()
     except ValueError as e:
-        chain = extract_chain(e)
+        chain = _extract_chain_exceptions(e)
         frames = chain[0]["frames"]
         outer_frames = [fr for fr in frames if fr.get("function") == "_outer"]
         # One frame at the _inner() call and one at the explicit ``raise e``.
@@ -1321,7 +1327,7 @@ def test_exc_message_variable_suppressed_in_raising_frame():
         _raise_with_msg()
     except ValueError as e:
         chain = extract_chain(e)
-        frame = chain[0]["frames"][-1]
+        frame = chain[-1]
         var_names = {v.name for v in frame["variables"]}
         assert "msg" not in var_names
 
@@ -1347,11 +1353,7 @@ def test_exc_message_variable_suppressed_across_same_function_frames():
     except RuntimeError as e:
         chain = extract_chain(e)
         msg_names = {
-            v.name
-            for exc in chain
-            for frame in exc["frames"]
-            for v in frame["variables"]
-            if v.name == "msg"
+            v.name for frame in chain for v in frame["variables"] if v.name == "msg"
         }
         assert "msg" not in msg_names
 
@@ -1373,9 +1375,7 @@ def test_recursive_frames_keep_distinct_inspectors():
         recurse(3)
     except ValueError as e:
         chain = extract_chain(e)
-        recurse_frames = [
-            fr for fr in chain[0]["frames"] if fr["function"] == "recurse"
-        ]
+        recurse_frames = [fr for fr in chain if fr.get("function") == "recurse"]
         assert len(recurse_frames) == 4
         for fr in recurse_frames:
             names = {v.name for v in fr["variables"]}
@@ -1388,8 +1388,6 @@ def test_exc_message_suppressed_at_module_level():
     """Module-level re-raises share the module dict, so the message var is hidden."""
     code = textwrap.dedent(
         """
-        from tracerite import extract_chain
-
         msg = "unique long module error message"
         try:
             raise ValueError("inner")
@@ -1407,20 +1405,14 @@ def test_exc_message_suppressed_at_module_level():
             importlib.import_module(modname)
         except RuntimeError as e:
             chain = extract_chain(e)
-            module_frames = [
-                fr for exc in chain for fr in exc["frames"] if fr["function"] is None
-            ]
+            module_frames = [fr for fr in chain if fr.get("function") is None]
             assert len(module_frames) == 2
             # The stored value is the integer id of the frame object.
             assert all(isinstance(fr["idframe"], int) for fr in module_frames)
             # Both module frames point at the same frame object.
             assert module_frames[0]["idframe"] == module_frames[1]["idframe"]
             msg_names = {
-                v.name
-                for exc in chain
-                for fr in exc["frames"]
-                for v in fr["variables"]
-                if v.name == "msg"
+                v.name for fr in chain for v in fr["variables"] if v.name == "msg"
             }
             assert "msg" not in msg_names
         finally:

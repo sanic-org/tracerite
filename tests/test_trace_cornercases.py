@@ -1472,7 +1472,7 @@ class TestFallbackMarkRange:
     def test_extract_frames_fallback_mark_range(self, monkeypatch):
         """Test fallback mark range when position columns are unavailable (line 1539)."""
         from tracerite import trace_cpy
-        from tracerite.trace import extract_chain
+        from tracerite.trace import _extract_chain_exceptions
 
         monkeypatch.setattr(
             trace_cpy, "_get_code_position", lambda code, idx: (None, None, None, None)
@@ -1481,7 +1481,7 @@ class TestFallbackMarkRange:
         try:
             raise ValueError("fallback test")
         except ValueError as e:
-            chain = extract_chain(exc=e)
+            chain = _extract_chain_exceptions(exc=e)
             assert chain
             frames = chain[0]["frames"]
             assert frames
@@ -1492,7 +1492,7 @@ class TestFallbackMarkRange:
     def test_extract_frames_error_line_zero(self, monkeypatch):
         """Test branch when error_line_in_context is 0 (line 1539->1545)."""
         from tracerite import trace, trace_cpy
-        from tracerite.trace import extract_chain
+        from tracerite.trace import _extract_chain_exceptions
 
         def fake_extract_source_lines(
             filename,
@@ -1513,6 +1513,6 @@ class TestFallbackMarkRange:
         try:
             raise ValueError("error line zero")
         except ValueError as e:
-            chain = extract_chain(exc=e)
+            chain = _extract_chain_exceptions(exc=e)
             assert chain
             assert chain[0]["frames"]
