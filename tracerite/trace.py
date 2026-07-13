@@ -734,7 +734,7 @@ class _CodeScanner:
                 return i + 1
             if char in "([{":
                 self.bracket_depth += 1
-            elif char in ")]}:":
+            elif char in ")]}":
                 self.bracket_depth -= 1
             return i + 1
 
