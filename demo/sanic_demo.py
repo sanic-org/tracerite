@@ -55,16 +55,8 @@ async def recursion(request):
     """Deep recursion shortened."""
     acme.recurse(0)
 
-@app.get("/chainmsg")
-async def chainmsg(request):
-    """Two chained exceptions, each with a multi-line message."""
-    try:
-        raise ValueError('Original problem\nwith extra detail')
-    except ValueError as e:
-        raise RuntimeError('While handling the original error\na second failure occurred.\nTerminating!')
-
-@app.get("/causechain")
-async def causechain(request):
+@app.get("/chain")
+async def chain(request):
     """Chronological cause chain with three exceptions."""
     acme.outerstep()
 

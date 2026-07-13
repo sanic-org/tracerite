@@ -47,9 +47,8 @@ def _make_exc(func: Callable[[], object]) -> Callable[[], BaseException]:
 # stdlib callbacks, exception chains/groups, plus one large message.
 BENCHMARK_KEYS = {
     "longmsg",
-    "chainmsg",
     "inspector",
-    "causechain",
+    "chain",
     "syntax",
     "callfrom",
     "callback",

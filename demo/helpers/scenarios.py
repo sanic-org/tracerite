@@ -54,17 +54,7 @@ def recursion() -> None:
     acme.recurse(0)
 
 
-def chainmsg() -> None:
-    """Two chained exceptions, each with a multi-line message."""
-    try:
-        raise ValueError("Original problem\nwith extra detail")
-    except ValueError as e:
-        raise RuntimeError(
-            "While handling the original error\na second failure occurred.\nTerminating!"
-        )
-
-
-def causechain() -> None:
+def chain() -> None:
     """Chronological cause chain with three exceptions."""
     acme.outerstep()
 
