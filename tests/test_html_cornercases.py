@@ -104,8 +104,8 @@ class TestHtmlCornercases:
             html = html_traceback(exc=e)
             html_str = str(html)
 
-            # Should contain ellipsis when frames are limited
-            assert "..." in html_str
+            # Should contain skipped call count when frames are limited
+            assert "more calls" in html_str
 
     def test_exception_with_no_frames(self):
         """Test HTML rendering when exception has no frames."""

@@ -387,11 +387,11 @@ def test_collapse_call_runs_final_run_collapsed():
 
     result = _collapse_call_runs(frames)
 
-    # Should have: error frame, first call frame, ..., last call frame
+    # Should have: error frame, first call frame, ellipsis with count, last call frame
     expected = [
         {"relevance": "error", "id": 1},
         {"relevance": "call", "id": 2},  # First of the run
-        ...,  # Ellipsis
+        (..., 10),  # 10 calls skipped between first and last
         {"relevance": "call", "id": 13},  # Last of the run
     ]
     assert result == expected
