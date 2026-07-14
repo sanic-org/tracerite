@@ -7,7 +7,7 @@ from typing import Any
 from tracerite.logging import logger
 
 from .collect import collect_exception_chain, collect_exception_objects
-from .constants import libdir_match
+from .core import libdir_match
 from .digest import (
     digest_exception,
     digest_exception_chain,

@@ -18,6 +18,7 @@ from .trace import (
     symbols,
     symdesc,
 )
+from .trace.core import EMPHASIS_BEG, EMPHASIS_FIN, HIGHLIGHT_RELEVANCES
 
 style = files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
 javascript = (
@@ -301,7 +302,7 @@ def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
     relevance = frinfo["relevance"]
     symbol = symbols.get(relevance, symbols["call"])
     # Use highlight styling (yellow bg, red caret) for error/stop frames
-    use_highlight = relevance in ("error", "stop")
+    use_highlight = relevance in HIGHLIGHT_RELEVANCES
 
     if fragments:
         # First pass: collect text and track em ranges
@@ -491,18 +492,18 @@ def _render_fragment(doc: Any, fragment: dict[str, Any]) -> None:
     em = fragment.get("em")
 
     # Render opening tags for "mark" and "em" if applicable
-    if mark in ["solo", "beg"]:
+    if mark in EMPHASIS_BEG:
         doc(HTML("<mark>"))
-    if em in ["solo", "beg"]:
+    if em in EMPHASIS_BEG:
         doc(HTML("<em>"))
 
     # Render the code
     doc(code)
 
     # Render closing tags for "mark" and "em" if applicable
-    if em in ["fin", "solo"]:
+    if em in EMPHASIS_FIN:
         doc(HTML("</em>"))
-    if mark in ["fin", "solo"]:
+    if mark in EMPHASIS_FIN:
         doc(HTML("</mark>"))
 
 

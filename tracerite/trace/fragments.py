@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from secrets import token_urlsafe
 
-from .constants import Range
+from .core import QUOTES, TRIPLE_QUOTES, Range
 
 
 class CodeScanner:
@@ -36,10 +36,10 @@ class CodeScanner:
             return len(text)
 
         if self.in_string is None:
-            if char in ('"', "'") and text[i : i + 3] in ('"""', "'''"):
+            if char in QUOTES and text[i : i + 3] in TRIPLE_QUOTES:
                 self.in_string = text[i : i + 3]
                 return i + 3
-            if char in ('"', "'"):
+            if char in QUOTES:
                 self.in_string = char
                 return i + 1
             if char in "([{":
@@ -49,7 +49,7 @@ class CodeScanner:
             return i + 1
 
         # Inside a string literal
-        if self.in_string in ('"""', "'''") and text[i : i + 3] == self.in_string:
+        if self.in_string in TRIPLE_QUOTES and text[i : i + 3] == self.in_string:
             self.in_string = None
             return i + 3
         if len(self.in_string) == 1 and char == self.in_string:

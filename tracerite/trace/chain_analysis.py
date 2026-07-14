@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import ast
 import linecache
-from dataclasses import dataclass
 
 from tracerite.logging import logger
+
+from .core import ChainLink, TryExceptBlock
 
 __all__ = [
     "TryExceptBlock",
@@ -24,58 +25,6 @@ __all__ = [
     "enrich_chain_with_links",
     "build_chronological_frames",
 ]
-
-
-@dataclass
-class TryExceptBlock:
-    """Represents a try-except block with its line ranges."""
-
-    try_start: int  # First line of try keyword
-    try_end: int  # Last line of try body (before except/else/finally)
-    except_start: int | None  # First line of except handlers
-    except_end: int | None  # Last line of except handlers
-    finally_start: int | None = None
-    finally_end: int | None = None
-
-    def contains_in_try(self, lineno: int) -> bool:
-        """Check if a line number is within the try body."""
-        return self.try_start <= lineno <= self.try_end
-
-    def contains_in_except(self, lineno: int) -> bool:
-        """Check if a line number is within an except handler."""
-        if self.except_start is None or self.except_end is None:
-            return False
-        return self.except_start <= lineno <= self.except_end
-
-    def offset_by(self, offset: int) -> TryExceptBlock:
-        """Return a new block with all line numbers shifted by offset."""
-
-        def add(x: int | None) -> int | None:
-            return x + offset if x is not None else None
-
-        return TryExceptBlock(
-            try_start=self.try_start + offset,
-            try_end=self.try_end + offset,
-            except_start=add(self.except_start),
-            except_end=add(self.except_end),
-            finally_start=add(self.finally_start),
-            finally_end=add(self.finally_end),
-        )
-
-
-@dataclass
-class ChainLink:
-    """Represents a link between two exceptions in a chain.
-
-    Attributes:
-        outer_frame_idx: Index of the frame in the outer exception that's in the except block
-        try_block: The TryExceptBlock that links the inner and outer exceptions
-        matched: Whether we successfully matched the try-except relationship
-    """
-
-    outer_frame_idx: int
-    try_block: TryExceptBlock | None
-    matched: bool
 
 
 class TryExceptVisitor(ast.NodeVisitor):

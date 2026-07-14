@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from .chain_analysis import (
-    ChainLink,
-    TryExceptBlock,
     find_matching_try_for_inner_exception,
     parse_source_for_try_except,
     parse_source_string_for_try_except,
 )
+from .core import PROMOTABLE_RELEVANCES, ChainLink, TryExceptBlock
 
 
 def analyze_exception_chain_links(
@@ -423,7 +422,7 @@ def make_exception_banner(exc: dict, exc_idx: int) -> dict:
 
 def promote_to_except(frame: dict) -> None:
     """Promote a frame's relevance to indicate it represents an except handler."""
-    if frame.get("relevance") in ("call", "warning"):
+    if frame.get("relevance") in PROMOTABLE_RELEVANCES:
         frame["relevance"] = "except"
     frame["function_suffix"] = "⚡except"
 

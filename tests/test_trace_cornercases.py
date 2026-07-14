@@ -474,7 +474,7 @@ hidden_frame()
 
     def test_create_summary_long_message(self):
         """Test create_summary returns first line regardless of length."""
-        from tracerite.trace.constants import create_summary
+        from tracerite.trace.core import create_summary
 
         # Single-line message - summary is the whole message
         long_message = "A" * 1500

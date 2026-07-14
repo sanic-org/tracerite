@@ -6,10 +6,8 @@ patterns and source code to provide better highlighting ranges.
 """
 
 import re
-from collections import namedtuple
 
-# Position range: lines are 1-based inclusive, columns are 0-based exclusive
-Range = namedtuple("Range", ["lfirst", "lfinal", "cbeg", "cend"])
+from .core import STRING_PREFIX_PAIRS, STRING_PREFIXES, Range
 
 # Patterns for extracting information from SyntaxError messages
 MISMATCH_PATTERN = re.compile(
@@ -329,9 +327,9 @@ def _get_string_opener_length(line, col):
     # Check for string prefix (case insensitive: f, r, b, u, fr, rf, br, rb)
     prefix_len = 0
     prefix_rest = rest.lower()
-    if prefix_rest[:2] in ("fr", "rf", "br", "rb"):
+    if prefix_rest[:2] in STRING_PREFIX_PAIRS:
         prefix_len = 2
-    elif prefix_rest[:1] in ("f", "r", "b", "u"):
+    elif prefix_rest[:1] in STRING_PREFIXES:
         prefix_len = 1
 
     # Check for quotes after prefix

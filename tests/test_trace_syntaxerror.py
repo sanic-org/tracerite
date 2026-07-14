@@ -9,7 +9,7 @@ from tracerite.trace import (
     extract_exception,
     format_location,
 )
-from tracerite.trace.constants import create_summary
+from tracerite.trace.core import create_summary
 from tracerite.trace.digest import (
     extract_syntax_error_frame,
     is_notebook_cell,

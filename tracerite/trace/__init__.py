@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .constants import (
+from .core import (
     Range,
     chainmsg,
     compute_cursor_position,

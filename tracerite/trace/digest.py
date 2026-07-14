@@ -16,7 +16,8 @@ from .chain_analysis import (
     parse_source_for_try_except,
 )
 from .collect import collect_exception_objects
-from .constants import (
+from .core import (
+    COMP_CODE_NAMES,
     Range,
     chain_reason,
     compute_cursor_position,
@@ -230,13 +231,7 @@ def get_source_lines_from_code(code, lineno: int, end_lineno: int | None = None)
         return None, None
 
     first_lineno = code.co_firstlineno
-    is_module = code.co_name in (
-        "<module>",
-        "<listcomp>",
-        "<dictcomp>",
-        "<setcomp>",
-        "<genexpr>",
-    )
+    is_module = code.co_name in COMP_CODE_NAMES
 
     # For module level, just get context around the error line
     if is_module:

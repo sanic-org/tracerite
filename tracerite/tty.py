@@ -20,6 +20,7 @@ from .trace import (
     symbols,
     symdesc,
 )
+from .trace.core import EMPHASIS_BEG, EMPHASIS_FIN
 
 __all__ = ["load", "unload", "tty_traceback"]
 
@@ -739,11 +740,11 @@ def _build_chrono_frame_lines(
                         colored = _format_fragment_call(fragment)
                         plain = fragment["code"].rstrip("\n\r")
                         # Track em ranges
-                        if em in ("solo", "beg"):
+                        if em in EMPHASIS_BEG:
                             em_start = plain_len
                         code_parts.append(colored)
                         plain_len += len(plain)
-                        if em in ("solo", "fin") and em_start is not None:
+                        if em in EMPHASIS_FIN and em_start is not None:
                             em_ranges.append((em_start, plain_len))
                             em_start = None
                 # Add space between marked regions from different lines
@@ -1269,22 +1270,22 @@ def _format_fragment(fragment: dict[str, Any]) -> str:
     colored_parts = []
 
     # Open mark if starting
-    if mark in ("solo", "beg"):
+    if mark in EMPHASIS_BEG:
         colored_parts.append(MARK_BG + MARK_TEXT)
 
     # Open em if starting (red text within the mark)
-    if em in ("solo", "beg"):
+    if em in EMPHASIS_BEG:
         colored_parts.append(EM)
 
     # Add the code
     colored_parts.append(code)
 
     # Close em if ending
-    if em in ("fin", "solo") and mark not in ("fin", "solo"):
+    if em in EMPHASIS_FIN and mark not in EMPHASIS_FIN:
         colored_parts.append(MARK_TEXT)
 
     # Close mark if ending
-    if mark in ("fin", "solo"):
+    if mark in EMPHASIS_FIN:
         colored_parts.append(RESET)
 
     return "".join(colored_parts)
@@ -1298,14 +1299,14 @@ def _format_fragment_call(fragment: dict[str, Any]) -> str:
     colored_parts = []
 
     # Open em if starting (yellow text)
-    if em in ("solo", "beg"):
+    if em in EMPHASIS_BEG:
         colored_parts.append(EM_CALL)
 
     # Add the code
     colored_parts.append(code)
 
     # Close em if ending
-    if em in ("fin", "solo"):
+    if em in EMPHASIS_FIN:
         colored_parts.append(RESET)
 
     return "".join(colored_parts)
