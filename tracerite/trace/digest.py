@@ -8,13 +8,13 @@ from contextlib import suppress
 from pathlib import Path
 from urllib.parse import quote
 
-from .. import trace_cpy
-from ..chain_analysis import (
+from tracerite.logging import logger
+
+from . import trace_cpy
+from .chain_analysis import (
     find_try_block_for_except_line,
     parse_source_for_try_except,
 )
-from ..logging import logger
-from ..syntaxerror import clean_syntax_error_message, extract_enhanced_positions
 from .collect import collect_exception_objects
 from .constants import (
     Range,
@@ -31,6 +31,7 @@ from .fragments import (
     make_trace_id,
     parse_lines_to_fragments,
 )
+from .syntaxerror import clean_syntax_error_message, extract_enhanced_positions
 
 
 def digest_exception_chain(

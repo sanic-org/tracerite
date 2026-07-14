@@ -4,7 +4,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ..logging import logger
+from tracerite.logging import logger
+
 from .collect import collect_exception_chain, collect_exception_objects
 from .constants import libdir_match
 from .digest import (
@@ -252,7 +253,7 @@ def finalize_python_order_frames(
 
 def fill_frame_variables(frame: dict, exc_message: str | None = None) -> None:
     """Extract variables for a single frame and drop its live frame object."""
-    from ..inspector import extract_variables
+    from tracerite.inspector import extract_variables
 
     frame_obj = frame.pop("frame_obj", None)
     variable_source = frame.pop("variable_source", None)

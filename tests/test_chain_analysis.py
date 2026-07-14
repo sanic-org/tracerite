@@ -1,6 +1,7 @@
 """Tests for chain_analysis module - try-except block matching."""
 
-from tracerite.chain_analysis import (
+from tracerite.trace import Range, extract_chain_exceptions
+from tracerite.trace.chain_analysis import (
     TryExceptBlock,
     TryExceptVisitor,
     analyze_exception_chain_links,
@@ -16,7 +17,6 @@ from tracerite.chain_analysis import (
     parse_source_for_try_except,
     parse_source_string_for_try_except,
 )
-from tracerite.trace import Range, extract_chain_exceptions
 
 from .errorcases import (
     chained_from_and_without,

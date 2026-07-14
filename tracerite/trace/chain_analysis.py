@@ -11,7 +11,7 @@ import ast
 import linecache
 from dataclasses import dataclass
 
-from .logging import logger
+from tracerite.logging import logger
 
 __all__ = [
     "TryExceptBlock",
@@ -245,21 +245,21 @@ def find_matching_try_for_inner_exception(
 
 def analyze_exception_chain_links(chain: list[dict]) -> list:
     """Analyze an exception chain to find try-except relationships."""
-    from .trace.order import analyze_exception_chain_links
+    from .order import analyze_exception_chain_links
 
     return analyze_exception_chain_links(chain)
 
 
 def enrich_chain_with_links(chain: list[dict]) -> list[dict]:
     """Enrich exception chain with try-except link information."""
-    from .trace.order import enrich_chain_with_links
+    from .order import enrich_chain_with_links
 
     return enrich_chain_with_links(chain)
 
 
 def build_chronological_frames(chain: list[dict]) -> list[dict]:
     """Build a chronological list of frames showing the actual sequence of events."""
-    from .trace.order import build_chronological_frames
+    from .order import build_chronological_frames
 
     return build_chronological_frames(chain)
 
@@ -269,25 +269,25 @@ def build_chronological_frames(chain: list[dict]) -> list[dict]:
 
 
 def get_frame_lineno(frame: dict):
-    from .trace.order import get_frame_lineno
+    from .order import get_frame_lineno
 
     return get_frame_lineno(frame)
 
 
 def frame_in_except_handler(frame: dict) -> bool:
-    from .trace.order import frame_in_except_handler
+    from .order import frame_in_except_handler
 
     return frame_in_except_handler(frame)
 
 
 def find_chain_link(inner_exc: dict, outer_exc: dict):
-    from .trace.order import find_chain_link
+    from .order import find_chain_link
 
     return find_chain_link(inner_exc, outer_exc)
 
 
 def filter_hidden_frames(chronological: list[dict]) -> list[dict]:
-    from .trace.order import filter_hidden_frames
+    from .order import filter_hidden_frames
 
     return filter_hidden_frames(chronological)
 
@@ -295,6 +295,6 @@ def filter_hidden_frames(chronological: list[dict]) -> list[dict]:
 def apply_base_exception_suppression(
     chronological: list[dict], chain: list[dict]
 ) -> list[dict]:
-    from .trace.order import apply_base_exception_suppression
+    from .order import apply_base_exception_suppression
 
     return apply_base_exception_suppression(chronological, chain)

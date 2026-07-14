@@ -96,7 +96,7 @@ python_functions = ["test_*"]
 [tool.coverage.run]
 branch = true
 source = ["tracerite"]
-omit = ["tracerite/notebook.py", "tracerite/trace_cpy.py"]
+omit = ["tracerite/notebook.py", "tracerite/trace/trace_cpy.py"]
 
 [tool.coverage.report]
 exclude_lines = [

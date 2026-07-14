@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..chain_analysis import (
+from .chain_analysis import (
     ChainLink,
     TryExceptBlock,
     find_matching_try_for_inner_exception,

@@ -10,7 +10,7 @@ from collections import namedtuple
 from collections.abc import Callable
 from typing import Any
 
-from .logging import logger
+from tracerite.logging import logger
 
 # Minimum length for a string value to be considered a match against the
 # exception message.  Short strings are too likely to collide with unrelated

@@ -2,10 +2,10 @@
 
 import pytest
 
-from tracerite.chain_analysis import build_chronological_frames
 from tracerite.html import html_traceback, javascript, style
 from tracerite.inspector import VarInfo
 from tracerite.trace import extract_chain, extract_exception
+from tracerite.trace.chain_analysis import build_chronological_frames
 
 
 def _chrono(exc_info):

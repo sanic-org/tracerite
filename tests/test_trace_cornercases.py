@@ -587,7 +587,7 @@ hidden_frame()
 
         # Mock _extract_caret_anchors_from_line_segment to raise an exception
         with patch(
-            "tracerite.trace_cpy._extract_caret_anchors_from_line_segment",
+            "tracerite.trace.trace_cpy._extract_caret_anchors_from_line_segment",
             side_effect=RuntimeError("test error"),
         ):
             lines = "x = 1 + 2"
@@ -608,7 +608,7 @@ hidden_frame()
 
             # Mock _walk_tb_with_full_positions to raise exception
             with patch(
-                "tracerite.trace_cpy._walk_tb_with_full_positions",
+                "tracerite.trace.trace_cpy._walk_tb_with_full_positions",
                 side_effect=RuntimeError("test"),
             ):
                 position_map = build_position_map(raw_tb)
@@ -1056,7 +1056,7 @@ class TestMissingCoverageBranches:
         # Mock extract_enhanced_positions to return None (fallback path)
         with (
             patch(
-                "tracerite.syntaxerror.extract_enhanced_positions",
+                "tracerite.trace.syntaxerror.extract_enhanced_positions",
                 return_value=(None, None),
             ),
             patch("linecache.getlines", return_value=["some error\n"]),
@@ -1475,8 +1475,7 @@ class TestFallbackMarkRange:
 
     def test_extract_frames_fallback_mark_range(self, monkeypatch):
         """Test fallback mark range when position columns are unavailable (line 1539)."""
-        from tracerite import trace_cpy
-        from tracerite.trace import extract_chain_exceptions
+        from tracerite.trace import extract_chain_exceptions, trace_cpy
 
         monkeypatch.setattr(
             trace_cpy, "_get_code_position", lambda code, idx: (None, None, None, None)
@@ -1495,8 +1494,8 @@ class TestFallbackMarkRange:
 
     def test_extract_frames_error_line_zero(self, monkeypatch):
         """Test branch when error_line_in_context is 0 (line 1539->1545)."""
-        from tracerite import trace, trace_cpy
-        from tracerite.trace import extract_chain_exceptions
+        from tracerite import trace
+        from tracerite.trace import extract_chain_exceptions, trace_cpy
 
         def fake_extract_source_lines(
             filename,

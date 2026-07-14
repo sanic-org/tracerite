@@ -5,7 +5,6 @@ import sys
 
 import pytest
 
-from tracerite.chain_analysis import build_chronological_frames
 from tracerite.html import html_traceback
 from tracerite.trace import (
     build_chain_header,
@@ -13,6 +12,7 @@ from tracerite.trace import (
     extract_chain_exceptions,
     extract_exception,
 )
+from tracerite.trace.chain_analysis import build_chronological_frames
 from tracerite.trace.digest import extract_subexceptions, is_exception_group
 from tracerite.tty import tty_traceback
 
