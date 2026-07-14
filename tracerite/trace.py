@@ -1371,8 +1371,8 @@ def _extract_single_frame(
                 "relevance": "call",
                 "hidden": True,
                 "idframe": id(frame),
+                "frame_obj": frame,
                 "lineno": lineno,
-                "variables": [],
                 "full_source": full_source,
                 "full_source_start": full_source_start,
             }
