@@ -55,8 +55,8 @@
 :root .tracerite > h2,
 :root .tracerite > h3 { margin: 0; padding: 0; outline: none; box-sizing: border-box; line-height: 1.2; font: var(--tracerite-ui-font); font-weight: 700;}
 
-:root .tracerite > h2 { font-size: 1.1em; }
-:root .tracerite > h3 { font-size: 1em; }
+:root .tracerite > h2 { font-size: 1.4em; }
+:root .tracerite > h3 { font-size: 1.2em; }
 
 /* Code font declarations with high specificity - only for code tags */
 :root .tracerite pre,
@@ -76,9 +76,29 @@
   word-break: normal;
 }
 
-:root .tracerite strong,
-:root .tracerite > h3 { font-weight: bold; padding: 0.2em 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-:root .tracerite .excmessage { font-size: 0.8em; border-left: .2em solid var(--tracerite-exception); margin-left: 0.2em; padding-left: 0.5em; white-space: pre-wrap; overflow-wrap: break-word; overflow: hidden; }
+:root .tracerite strong { font-weight: bold; padding: 0.2em 0; }
+:root .tracerite > h3 {
+  font-weight: bold;
+  padding: 0.2rem 0.5rem 0.2rem 1rem;
+  white-space: normal;
+  overflow-wrap: break-word;
+  overflow: visible;
+  min-width: 0;
+  line-height: 1.2em;
+  margin-left: 0.2rem;
+  text-indent: -1rem;
+  position: relative;
+}
+:root .tracerite > h3::after {
+  content: "";
+  position: absolute;
+  left: 0.25rem;
+  top: calc(0.2rem + 1.4em);
+  bottom: 0;
+  width: 0.25rem;
+  background: var(--tracerite-exception);
+}
+:root .tracerite .excmessage { font-size: 0.8em; border-left: .25rem solid var(--tracerite-exception); margin-left: 0.45rem; padding-left: 0.5rem; white-space: pre-wrap; overflow-wrap: break-word; overflow: hidden; }
 :root .tracerite .excmessage-ellipsis { color: var(--tracerite-lineno); }
 :root .tracerite .exctype { color: var(--tracerite-exception); }
 
@@ -106,13 +126,16 @@
 /* Symbol element - display symbol emoji and description together */
 :root .tracerite .traceback-details .tracerite-symbol {
   display: inline-block;
-  margin: -0.15em 0 -0.15em 0.5ch;
-  padding: 0.1em;
+  margin: -0.05em 0 -0.05em 0.5ch;
+  text-indent: 0;
   font-size: 1.25em;
   font-weight: bold;
+  line-height: 1;
   vertical-align: middle;
   font-family: var(--tracerite-ui-font);
   white-space: nowrap;
+  position: relative;
+  top: -0.075em;
 }
 
 /* Call symbols get special color and shadow */
@@ -428,18 +451,23 @@
   grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5em;
-  align-items: flex-start;
-  border-left: .2em solid var(--tracerite-exception);
-  margin-left: 0.2em;
-  padding-left: 0.5em;
+  gap: 1em;
+  align-items: stretch;
+  border-left: .25rem solid var(--tracerite-exception);
+  margin-left: 0.45rem;
+  padding-left: 0.5rem;
+  font-size: 0.75em;
 }
 
 :root .tracerite .parallel-branch {
-  flex: 1 1 300px;
-  min-width: 250px;
+  flex: 1 1 40em;
+  min-width: 40em;
   max-width: 100%;
-  /* Same grid layout as .tracerite for consistent frame alignment */
+  display: flex;
+  flex-direction: column;
+}
+
+:root .tracerite .parallel-branch .traceback-details {
   display: grid;
   grid-template-columns: auto auto auto 1fr;
   align-items: baseline;
@@ -447,14 +475,13 @@
   justify-content: start;
 }
 
+:root .tracerite .parallel-branch > h3,
+:root .tracerite .parallel-branch > pre.excmessage {
+  margin-top: auto;
+}
+
 /* Exception headers and messages inside parallel branches span all columns */
 :root .tracerite .parallel-branch > h3,
 :root .tracerite .parallel-branch > pre.excmessage {
   grid-column: 1 / -1;
-}
-:root .tracerite .parallel-branch > h3 {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
 }
