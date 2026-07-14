@@ -6,14 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.hidden_module import internal_helper_function
-from tracerite.trace import (
-    Range,
-    _fallback_mark_range_for_line,
-    compute_cursor_position,
-    extract_exception,
-    extract_frames,
-    format_location,
-)
+from tracerite.trace.core import Range, compute_cursor_position
+from tracerite.trace.digest import format_location
+from tracerite.trace.fragments import fallback_mark_range_for_line
+
+from .helpers import extract_exception, extract_frames
 
 
 def _trigger_error_no_source():
@@ -215,11 +212,13 @@ class TestTraceCornercases:
             tb = inspect.getinnerframes(tb)
             # Mock extract_variables to raise exception
             with patch(
-                "tracerite.trace.extract_variables", side_effect=RuntimeError("test")
+                "tracerite.inspector.extract_variables",
+                side_effect=RuntimeError("test"),
             ):
-                # Should catch and log exception, return None for frames
+                # Should catch the per-frame variable error and continue
                 info = extract_exception(e)
-                assert info["frames"] == []
+                assert info["frames"]
+                assert info["frames"][-1]["variables"] == []
 
     def test_skip_until_not_found(self):
         """Test skip_until when pattern is not found in any frame."""
@@ -232,7 +231,7 @@ class TestTraceCornercases:
 
     def test_getsourcelines_oserror_call_frame(self):
         """Test OSError in getsourcelines causes call frames to be skipped (line 113)."""
-        from tracerite.trace import extract_frames
+        from .helpers import extract_frames
 
         def level_1():
             level_2()
@@ -267,7 +266,7 @@ class TestTraceCornercases:
 
     def test_tracebackhide_in_locals(self):
         """Test __tracebackhide__ in f_locals skips frame (line 87)."""
-        from tracerite.trace import extract_frames
+        from .helpers import extract_frames
 
         # Use exec to create a function with __tracebackhide__ that persists
         code = """
@@ -420,7 +419,8 @@ hidden_frame()
             return original_getsourcelines(frame)
 
         with patch(
-            "tracerite.trace.inspect.getsourcelines", side_effect=mock_getsourcelines
+            "tracerite.trace.digest.inspect.getsourcelines",
+            side_effect=mock_getsourcelines,
         ):
             try:
                 # Call the function directly so it's the innermost frame
@@ -455,8 +455,9 @@ hidden_frame()
                     # In the new API, we also have a range field
                     range_obj = error_frame.get("range")
 
-                    # The error is raised on line 21 in _trigger_error_no_source
-                    expected_lineno = 21
+                    # When source is unavailable, the fallback starts at the
+                    # line where the exception was raised.
+                    expected_lineno = error_frame["lineno"]
 
                     # Verify the range contains the correct line number
                     if range_obj:
@@ -466,32 +467,32 @@ hidden_frame()
 
                     # Verify start was properly initialized when OSError occurred
                     assert linenostart == expected_lineno, (
-                        f"linenostart should be {expected_lineno} (line where error was raised), "
+                        f"linenostart should be {expected_lineno} (function start), "
                         f"but got {linenostart}"
                     )
 
     def test_create_summary_long_message(self):
-        """Test _create_summary returns first line regardless of length."""
-        from tracerite.trace import _create_summary
+        """Test create_summary returns first line regardless of length."""
+        from tracerite.trace.core import create_summary
 
         # Single-line message - summary is the whole message
         long_message = "A" * 1500
-        summary = _create_summary(long_message)
+        summary = create_summary(long_message)
         assert summary == long_message
 
         # Single-line medium message
         medium_message = "B" * 200
-        summary = _create_summary(medium_message)
+        summary = create_summary(medium_message)
         assert summary == medium_message
 
         # Test with short message
         short_message = "Short"
-        summary = _create_summary(short_message)
+        summary = create_summary(short_message)
         assert summary == short_message
 
         # Multiline - only first line
         multiline = "First\nSecond\nThird"
-        summary = _create_summary(multiline)
+        summary = create_summary(multiline)
         assert summary == "First"
 
     def test_skip_until_found(self):
@@ -566,22 +567,22 @@ hidden_frame()
             assert isinstance(info["frames"], list)
 
     def test_extract_emphasis_columns_bounds_check(self):
-        """Test bounds check in _extract_emphasis_columns (line 176)."""
-        from tracerite.trace import _extract_emphasis_columns
+        """Test bounds check in extract_emphasis_columns (line 176)."""
+        from tracerite.trace.digest import extract_emphasis_columns
 
         # Test with invalid bounds
         lines = "line1\nline2\nline3"
         # segment_start out of bounds
-        result = _extract_emphasis_columns(lines, 10, 1, 1, 1, 1)
+        result = extract_emphasis_columns(lines, 10, 1, 1, 1, 1)
         assert result is None
 
         # segment_end out of bounds
-        result = _extract_emphasis_columns(lines, 1, 100, 1, 1, 1)
+        result = extract_emphasis_columns(lines, 1, 100, 1, 1, 1)
         assert result is None
 
     def test_extract_emphasis_columns_exception(self):
-        """Test exception handling in _extract_emphasis_columns (lines 211-214)."""
-        from tracerite.trace import _extract_emphasis_columns
+        """Test exception handling in extract_emphasis_columns (lines 211-214)."""
+        from tracerite.trace.digest import extract_emphasis_columns
 
         # Mock _extract_caret_anchors_from_line_segment to raise an exception
         with patch(
@@ -590,13 +591,13 @@ hidden_frame()
         ):
             lines = "x = 1 + 2"
             # This should trigger the exception handler on lines 211-214
-            result = _extract_emphasis_columns(lines, 1, 1, 0, 9, 1)
+            result = extract_emphasis_columns(lines, 1, 1, 0, 9, 1)
             # Should return None after logging the exception
             assert result is None
 
     def test_build_position_map_exception(self):
-        """Test exception handling in _build_position_map (lines 211-214)."""
-        from tracerite.trace import _build_position_map
+        """Test exception handling in build_position_map (lines 211-214)."""
+        from tracerite.trace.digest import build_position_map
 
         # Create a real traceback object
         try:
@@ -609,12 +610,12 @@ hidden_frame()
                 "tracerite.trace.trace_cpy._walk_tb_with_full_positions",
                 side_effect=RuntimeError("test"),
             ):
-                position_map = _build_position_map(raw_tb)
+                position_map = build_position_map(raw_tb)
                 # Should return empty dict on exception
                 assert position_map == {}
 
             # Also test with None raw_tb to cover line 220-221
-            position_map = _build_position_map(None)
+            position_map = build_position_map(None)
             assert position_map == {}
 
     def test_suppress_inner_break(self):
@@ -634,167 +635,168 @@ hidden_frame()
                 assert isinstance(frames, list)
 
     def test_calculate_common_indent_empty(self):
-        """Test _calculate_common_indent with all empty lines (line 338)."""
-        from tracerite.trace import _calculate_common_indent
+        """Test calculate_common_indent with all empty lines (line 338)."""
+        from tracerite.trace.fragments import calculate_common_indent
 
         # All empty lines
         lines = ["   \n", "\n", "  \n"]
-        indent = _calculate_common_indent(lines)
+        indent = calculate_common_indent(lines)
         assert indent == ""
 
         # No lines
         lines = []
-        indent = _calculate_common_indent(lines)
+        indent = calculate_common_indent(lines)
         assert indent == ""
 
     def test_parse_line_empty(self):
-        """Test _parse_line_to_fragments_unified with empty line (lines 408, 412)."""
-        from tracerite.trace import _parse_line_to_fragments_unified
+        """Test parse_line_to_fragments_unified with empty line (lines 408, 412)."""
+        from tracerite.trace.fragments import parse_line_to_fragments_unified
 
         # Empty line
-        result = _parse_line_to_fragments_unified("", "", set(), set(), 0)
+        result = parse_line_to_fragments_unified("", "", set(), set(), 0)
         assert result == []
 
         # Line with only ending
-        result = _parse_line_to_fragments_unified("\n", "", set(), set(), 0)
+        result = parse_line_to_fragments_unified("\n", "", set(), set(), 0)
         # Should handle line ending only
         assert isinstance(result, list)
 
     def test_parse_line_comment_branches(self):
-        """Test comment handling branches in _parse_line_to_fragments_unified."""
-        from tracerite.trace import _parse_line_to_fragments_unified
+        """Test comment handling branches in parse_line_to_fragments_unified."""
+        from tracerite.trace.fragments import parse_line_to_fragments_unified
 
         # Line with comment and trailing whitespace after comment (line 441->445)
         line = "code  # comment  \n"
-        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
+        result = parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert len(result) > 0
 
         # Line with only comment (no code part) (line 446->464)
         line = "# comment only\n"
-        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
+        result = parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert len(result) > 0
 
         # Line without comment but with trailing whitespace (line 461->464)
         line = "code  \n"
-        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
+        result = parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert len(result) > 0
 
     def test_parse_line_empty_comment_branches(self):
         """Test empty comment/trailing branches (lines 441->445, 446->464, 461->464)."""
-        from tracerite.trace import _parse_line_to_fragments_unified
+        from tracerite.trace.fragments import parse_line_to_fragments_unified
 
         # Line 441->445: Empty comment_with_leading_space (comment is only whitespace+#)
         # When code_whitespace + comment_trimmed is empty
         line = "code#\n"  # No space before/after #, comment_trimmed would be "#"
-        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
+        result = parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert isinstance(result, list)
 
         # Line 446->464: Empty trailing_content after comment
         # When comment_trailing + line_ending is empty (no \n, comment already trimmed)
         line = "code  # comment"  # No line ending
-        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
+        result = parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert isinstance(result, list)
 
         # Line 461->464: Empty trailing_content for line without comment
         # When trailing_whitespace + line_ending is empty
         line = "code"  # No trailing whitespace or line ending
-        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
+        result = parse_line_to_fragments_unified(line, "", set(), set(), 0)
         assert isinstance(result, list)
 
     def test_parse_line_only_line_ending(self):
-        """Test _parse_line_to_fragments_unified with only line ending (line 412)."""
-        from tracerite.trace import _parse_line_to_fragments_unified
+        """Test parse_line_to_fragments_unified with only line ending (line 412)."""
+        from tracerite.trace.fragments import parse_line_to_fragments_unified
 
         # Line with only line ending (no content)
         # This is when line_content is empty and line_ending exists
         line = "\n"
-        result = _parse_line_to_fragments_unified(line, "", set(), set(), 0)
+        result = parse_line_to_fragments_unified(line, "", set(), set(), 0)
         # Should return empty list or handle gracefully
         assert isinstance(result, list)
 
     def test_create_highlighted_fragments_empty(self):
-        """Test _create_highlighted_fragments_unified with empty text (line 472)."""
-        from tracerite.trace import _create_highlighted_fragments_unified
+        """Test create_highlighted_fragments_unified with empty text (line 472)."""
+        from tracerite.trace.fragments import create_highlighted_fragments_unified
 
-        result = _create_highlighted_fragments_unified("", 0, set(), set())
+        result = create_highlighted_fragments_unified("", 0, set(), set())
         assert result == []
 
     def test_convert_range_to_positions_empty(self):
-        """Test _convert_range_to_positions with empty lines (line 508)."""
-        from tracerite.trace import Range, _convert_range_to_positions
+        """Test convert_range_to_positions with empty lines (line 508)."""
+        from tracerite.trace.core import Range
+        from tracerite.trace.fragments import convert_range_to_positions
 
         # Empty lines - this should trigger line 508
-        result = _convert_range_to_positions(Range(1, 1, 0, 5), "")
+        result = convert_range_to_positions(Range(1, 1, 0, 5), "")
         assert result == set()
 
         # None range
-        result = _convert_range_to_positions(None, "some text")
+        result = convert_range_to_positions(None, "some text")
         assert result == set()
 
         # Test with lines that don't have enough content for the range
-        result = _convert_range_to_positions(Range(5, 5, 0, 10), "line1\nline2\n")
+        result = convert_range_to_positions(Range(5, 5, 0, 10), "line1\nline2\n")
         # Should handle gracefully when range is beyond available lines
         assert isinstance(result, set)
 
     def test_parse_lines_to_fragments_empty_after_splitlines(self):
-        """Test _parse_lines_to_fragments when splitlines returns empty (line 508)."""
-        from tracerite.trace import _parse_lines_to_fragments
+        """Test parse_lines_to_fragments when splitlines returns empty (line 508)."""
+        from tracerite.trace.fragments import parse_lines_to_fragments
 
         # This should trigger the check on line 508: if not lines: return []
         # An empty string after splitlines(keepends=True) gives []
-        result = _parse_lines_to_fragments("")
+        result = parse_lines_to_fragments("")
         assert result == []
 
         # Just whitespace might also give empty after splitlines
-        result = _parse_lines_to_fragments(" ")
+        result = parse_lines_to_fragments(" ")
         assert isinstance(result, list)
 
     def test_split_line_content_various_endings(self):
-        """Test _split_line_content with various line endings (lines 525, 528-531)."""
-        from tracerite.trace import _split_line_content
+        """Test split_line_content with various line endings (lines 525, 528-531)."""
+        from tracerite.trace.fragments import split_line_content
 
         # CRLF ending
-        content, ending = _split_line_content("text\r\n")
+        content, ending = split_line_content("text\r\n")
         assert content == "text"
         assert ending == "\r\n"
 
         # LF ending
-        content, ending = _split_line_content("text\n")
+        content, ending = split_line_content("text\n")
         assert content == "text"
         assert ending == "\n"
 
         # CR ending
-        content, ending = _split_line_content("text\r")
+        content, ending = split_line_content("text\r")
         assert content == "text"
         assert ending == "\r"
 
         # No ending
-        content, ending = _split_line_content("text")
+        content, ending = split_line_content("text")
         assert content == "text"
         assert ending == ""
 
     def test_process_indentation_dedent(self):
-        """Test _process_indentation with dedent (lines 541-543)."""
-        from tracerite.trace import _process_indentation
+        """Test process_indentation with dedent (lines 541-543)."""
+        from tracerite.trace.fragments import process_indentation
 
         # Test with common indent that needs to be removed
         line_content = "    indented code"
-        fragments, remaining, pos = _process_indentation(line_content, "    ")
+        fragments, remaining, pos = process_indentation(line_content, "    ")
         # Should have dedent fragment
         assert any(f.get("dedent") for f in fragments)
         assert pos == 4
 
         # Test with no common indent
-        fragments, remaining, pos = _process_indentation(line_content, "")
+        fragments, remaining, pos = process_indentation(line_content, "")
         assert pos >= 0
 
     def test_positions_to_consecutive_ranges_gaps(self):
-        """Test _positions_to_consecutive_ranges with gaps (lines 598-600)."""
-        from tracerite.trace import _positions_to_consecutive_ranges
+        """Test positions_to_consecutive_ranges with gaps (lines 598-600)."""
+        from tracerite.trace.fragments import positions_to_consecutive_ranges
 
         # Positions with gaps
         positions = {0, 1, 2, 5, 6, 7}
-        ranges = _positions_to_consecutive_ranges(positions)
+        ranges = positions_to_consecutive_ranges(positions)
         # Should have multiple ranges due to gap
         assert len(ranges) == 2
         assert (0, 3) in ranges
@@ -802,30 +804,30 @@ hidden_frame()
 
         # Single position
         positions = {5}
-        ranges = _positions_to_consecutive_ranges(positions)
+        ranges = positions_to_consecutive_ranges(positions)
         assert ranges == [(5, 6)]
 
     def test_create_fragments_with_highlighting_empty(self):
-        """Test _create_fragments_with_highlighting with empty text (line 627)."""
-        from tracerite.trace import _create_fragments_with_highlighting
+        """Test create_fragments_with_highlighting with empty text (line 627)."""
+        from tracerite.trace.fragments import create_fragments_with_highlighting
 
-        result = _create_fragments_with_highlighting("", set(), set())
+        result = create_fragments_with_highlighting("", set(), set())
         assert result == []
 
     def test_create_fragments_start_boundary_checks(self):
-        """Test boundary checks in _create_fragments_with_highlighting (lines 640, 644)."""
-        from tracerite.trace import _create_fragments_with_highlighting
+        """Test boundary checks in create_fragments_with_highlighting (lines 640, 644)."""
+        from tracerite.trace.fragments import create_fragments_with_highlighting
 
         # Test with mark positions
         text = "code"
         mark_positions = {0, 1, 2, 3}
-        result = _create_fragments_with_highlighting(text, mark_positions, set())
+        result = create_fragments_with_highlighting(text, mark_positions, set())
         assert len(result) > 0
 
         # Test with overlapping positions causing boundary >= len(text)
         text = "ab"
         mark_positions = {0, 1, 2, 3, 4}  # Positions beyond text length
-        result = _create_fragments_with_highlighting(text, mark_positions, set())
+        result = create_fragments_with_highlighting(text, mark_positions, set())
         # Should handle gracefully
         assert isinstance(result, list)
 
@@ -833,7 +835,7 @@ hidden_frame()
         text = "x"
         # Create boundaries that would result in start >= len(text)
         mark_positions = {0, 1, 2}  # Position 2 is beyond "x" (len=1)
-        result = _create_fragments_with_highlighting(text, mark_positions, set())
+        result = create_fragments_with_highlighting(text, mark_positions, set())
         assert isinstance(result, list)
 
         # Test case where fragment_text is empty (line 644)
@@ -841,7 +843,7 @@ hidden_frame()
         # Test with empty string between boundaries
         mark_positions = {0, 1}
         em_positions = {1, 2}  # Different positions to create multiple boundaries
-        result = _create_fragments_with_highlighting(text, mark_positions, em_positions)
+        result = create_fragments_with_highlighting(text, mark_positions, em_positions)
         assert isinstance(result, list)
 
 
@@ -850,18 +852,18 @@ class TestReraiseExistingException:
 
     When an existing exception is re-raised (e.g., `raise exc`), CPython's position
     info may have end_line < error_line_in_context, causing an empty slice in
-    _extract_emphasis_columns. This should be handled gracefully.
+    extract_emphasis_columns. This should be handled gracefully.
     """
 
     def test_reraise_existing_exception_no_crash(self):
         """Test that re-raising an existing exception doesn't crash.
 
-        This tests the guard in _extract_emphasis_columns that handles the case
+        This tests the guard in extract_emphasis_columns that handles the case
         where segment_start > segment_end due to CPython's position info.
         When you do `raise e` where e is a caught exception from a different line,
         CPython's position info can have end_line < error_line_in_context.
         """
-        from tracerite.trace import _extract_emphasis_columns
+        from tracerite.trace.digest import extract_emphasis_columns
 
         # Simulate the scenario that occurs with `raise e`:
         # The raise statement is on line 5, but the original error was on line 3
@@ -876,7 +878,7 @@ class TestReraiseExistingException:
         # These values match what CPython provides for `raise e`:
         # error_line_in_context=5 (the `raise e` line)
         # end_line=3 (the original error line)
-        result = _extract_emphasis_columns(
+        result = extract_emphasis_columns(
             lines=lines,
             error_line_in_context=5,  # raise e is on line 5
             end_line=3,  # but original error was line 3
@@ -915,14 +917,14 @@ class TestMissingCoverageBranches:
     def test_syntax_error_frame_returns_none_line_80(self):
         """Test line 80->88: syntax_frame is None (condition is False).
 
-        When _extract_syntax_error_frame returns None for a SyntaxError,
+        When extract_syntax_error_frame returns None for a SyntaxError,
         the code should skip the is_user_code check and continue.
         This happens when filename or lineno is None.
         """
-        from tracerite.trace import extract_exception
+        from .helpers import extract_exception
 
         e = SyntaxError("test error")
-        e.filename = None  # This will cause _extract_syntax_error_frame to return None
+        e.filename = None  # This will cause extract_syntax_error_frame to return None
         e.lineno = 1
         e.__traceback__ = None
 
@@ -932,18 +934,18 @@ class TestMissingCoverageBranches:
         # Should handle gracefully without crashing
 
     def test_extract_syntax_error_frame_non_syntaxerror_line_307(self):
-        """Test line 306->307: _extract_syntax_error_frame with non-SyntaxError.
+        """Test line 306->307: extract_syntax_error_frame with non-SyntaxError.
 
         Directly test the early return when passing a non-SyntaxError.
         """
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         # Pass a regular exception - should return None
-        result = _extract_syntax_error_frame(ValueError("not a syntax error"))
+        result = extract_syntax_error_frame(ValueError("not a syntax error"))
         assert result is None
 
         # Pass an object that's not an exception
-        result = _extract_syntax_error_frame("not even an exception")
+        result = extract_syntax_error_frame("not even an exception")
         assert result is None
 
     def test_notebook_cell_source_retrieval_lines_342_352(self):
@@ -955,7 +957,7 @@ class TestMissingCoverageBranches:
         from unittest.mock import MagicMock, patch
 
         from tracerite import trace
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         mock_ipython = MagicMock()
         mock_ipython.compile._filename_map = {"<ipython-input-1>": "cell_code"}
@@ -977,7 +979,7 @@ class TestMissingCoverageBranches:
                 # Empty lines for notebook path, then actual lines for fallback
                 mock_getlines.return_value = []
 
-                frame = _extract_syntax_error_frame(e)
+                frame = extract_syntax_error_frame(e)
 
                 # Should fall back to e.text
                 assert frame is not None
@@ -994,7 +996,7 @@ class TestMissingCoverageBranches:
         """
         from unittest.mock import patch
 
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         e = SyntaxError("test error")
         e.filename = "test.py"
@@ -1004,7 +1006,7 @@ class TestMissingCoverageBranches:
 
         # Make linecache.getlines raise an exception
         with patch("linecache.getlines", side_effect=RuntimeError("cache error")):
-            frame = _extract_syntax_error_frame(e)
+            frame = extract_syntax_error_frame(e)
 
             assert frame is not None
             # Should use e.text as fallback
@@ -1017,7 +1019,7 @@ class TestMissingCoverageBranches:
         """
         from unittest.mock import patch
 
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         e = SyntaxError("test error")
         e.filename = "nonexistent.py"
@@ -1026,7 +1028,7 @@ class TestMissingCoverageBranches:
         e.text = None  # No text fallback
 
         with patch("linecache.getlines", return_value=[]):
-            frame = _extract_syntax_error_frame(e)
+            frame = extract_syntax_error_frame(e)
 
             # Should return None when no source is available
             assert frame is None
@@ -1039,7 +1041,7 @@ class TestMissingCoverageBranches:
         """
         from unittest.mock import patch
 
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         e = SyntaxError("test error")
         e.filename = "test.py"
@@ -1053,11 +1055,12 @@ class TestMissingCoverageBranches:
         # Mock extract_enhanced_positions to return None (fallback path)
         with (
             patch(
-                "tracerite.trace.extract_enhanced_positions", return_value=(None, None)
+                "tracerite.trace.syntaxerror.extract_enhanced_positions",
+                return_value=(None, None),
             ),
             patch("linecache.getlines", return_value=["some error\n"]),
         ):
-            frame = _extract_syntax_error_frame(e)
+            frame = extract_syntax_error_frame(e)
 
             # Frame should be created but range might be None due to no column info
             # The test passes if no exception is raised
@@ -1069,7 +1072,7 @@ class TestMissingCoverageBranches:
         When a frame has __tracebackhide__ = "until", all previous frames
         should be cleared.
         """
-        from tracerite.trace import extract_frames
+        from .helpers import extract_frames
 
         def early_frame():
             middle_frame()
@@ -1111,7 +1114,7 @@ class TestMissingCoverageBranches:
         from unittest.mock import MagicMock, patch
 
         from tracerite import trace
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         mock_ipython = MagicMock()
         mock_ipython.compile._filename_map = {"<ipython-input-1>": "cell_source"}
@@ -1128,7 +1131,7 @@ class TestMissingCoverageBranches:
 
             # Make linecache return actual lines
             with patch("linecache.getlines", return_value=["notebook cell code\n"]):
-                frame = _extract_syntax_error_frame(e)
+                frame = extract_syntax_error_frame(e)
 
                 assert frame is not None
                 # Should use the linecache result, not e.text
@@ -1144,7 +1147,7 @@ class TestMissingCoverageBranches:
         """
         from unittest.mock import patch
 
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         e = SyntaxError("test")
         e.filename = "regular_file.py"
@@ -1154,7 +1157,7 @@ class TestMissingCoverageBranches:
 
         # Mock linecache to return actual lines
         with patch("linecache.getlines", return_value=["from linecache\n"]):
-            frame = _extract_syntax_error_frame(e)
+            frame = extract_syntax_error_frame(e)
 
             assert frame is not None
             # Should use linecache result
@@ -1165,7 +1168,7 @@ class TestMissingCoverageBranches:
         from unittest.mock import MagicMock, patch
 
         from tracerite import trace
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         mock_ipython = MagicMock()
         mock_ipython.compile._filename_map.get.side_effect = RuntimeError("error")
@@ -1181,10 +1184,10 @@ class TestMissingCoverageBranches:
             e.text = "fallback text\n"
 
             with (
-                patch("tracerite.trace._is_notebook_cell", return_value=True),
+                patch("tracerite.trace.digest.is_notebook_cell", return_value=True),
                 patch("linecache.getlines", return_value=[]),
             ):
-                frame = _extract_syntax_error_frame(e)
+                frame = extract_syntax_error_frame(e)
                 assert frame is not None
                 assert "fallback" in frame.get("lines", "")
         finally:
@@ -1195,7 +1198,7 @@ class TestMissingCoverageBranches:
         from unittest.mock import MagicMock, patch
 
         from tracerite import trace
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         mock_ipython = MagicMock()
         # Use a real dict that returns None for get()
@@ -1212,7 +1215,7 @@ class TestMissingCoverageBranches:
             e.text = "fallback text\n"
 
             with patch("linecache.getlines", return_value=[]):
-                frame = _extract_syntax_error_frame(e)
+                frame = extract_syntax_error_frame(e)
                 assert frame is not None
                 assert "fallback" in frame.get("lines", "")
         finally:
@@ -1223,7 +1226,7 @@ class TestMissingCoverageBranches:
         from unittest.mock import MagicMock, patch
 
         from tracerite import trace
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         mock_ipython = MagicMock()
         mock_ipython.compile._filename_map = {}
@@ -1239,7 +1242,7 @@ class TestMissingCoverageBranches:
             e.text = None
 
             with patch("linecache.getlines", side_effect=RuntimeError("boom")):
-                frame = _extract_syntax_error_frame(e)
+                frame = extract_syntax_error_frame(e)
                 assert frame is None
         finally:
             trace.ipython = original
@@ -1247,7 +1250,7 @@ class TestMissingCoverageBranches:
     def test_syntax_error_no_column_info_branch_428_435(self):
         """Test branch 428->435: adjusted_start_col or adjusted_end_col is None."""
 
-        from tracerite.trace import _extract_syntax_error_frame
+        from tracerite.trace.digest import extract_syntax_error_frame
 
         e = SyntaxError("test")
         e.filename = "<test>"
@@ -1256,7 +1259,7 @@ class TestMissingCoverageBranches:
         e.end_offset = None
         e.text = "x = 1\n"
 
-        frame = _extract_syntax_error_frame(e)
+        frame = extract_syntax_error_frame(e)
         assert frame is not None
 
 
@@ -1267,7 +1270,7 @@ class TestExtractSourceLinesEdgeCases:
         """Test extract_source_lines returns empty when error_idx < 0 (line 506)."""
         from unittest.mock import MagicMock, patch
 
-        from tracerite.trace import extract_source_lines
+        from tracerite.trace.digest import extract_source_lines
 
         # Create a mock frame
         frame = MagicMock()
@@ -1278,7 +1281,7 @@ class TestExtractSourceLinesEdgeCases:
             "inspect.getsourcelines", return_value=(["line1\n", "line2\n"], 100)
         ):
             # lineno 1 is before start (100), so error_idx will be negative
-            lines, start, marks = extract_source_lines(frame, lineno=1)
+            lines, start, marks, _ = extract_source_lines(frame, lineno=1)
             # Should return empty on invalid error_idx
             assert lines == ""
             assert marks == ""
@@ -1287,7 +1290,7 @@ class TestExtractSourceLinesEdgeCases:
         """Test extract_source_lines when lineno >= len(lines) (line 506)."""
         from unittest.mock import MagicMock, patch
 
-        from tracerite.trace import extract_source_lines
+        from tracerite.trace.digest import extract_source_lines
 
         frame = MagicMock()
         frame.f_code.co_filename = "test.py"
@@ -1295,7 +1298,7 @@ class TestExtractSourceLinesEdgeCases:
         # Patch getsourcelines to return small source with high start
         with patch("inspect.getsourcelines", return_value=(["line1\n"], 1)):
             # lineno 1000 is way beyond the source
-            lines, start, marks = extract_source_lines(frame, lineno=1000)
+            lines, start, marks, _ = extract_source_lines(frame, lineno=1000)
             # Should return empty for invalid error_idx
             assert lines == ""
             assert marks == ""
@@ -1308,7 +1311,7 @@ class TestHiddenFramesWithNoSource:
         """Test that hidden frames without source are still tracked (lines 1040-1041)."""
         from unittest.mock import patch
 
-        from tracerite.trace import extract_frames
+        from .helpers import extract_frames
 
         # This tests the case where a hidden frame (from tracebackhide)
         # has no source lines but is not the last frame
@@ -1436,43 +1439,43 @@ class TestFallbackMarkRange:
     def test_fallback_trims_whitespace_and_comment(self):
         """Whitespace and end-of-line comments are excluded from the mark."""
         lines = "    x = 1  # comment\n"
-        result = _fallback_mark_range_for_line(lines, error_line_in_context=1)
+        result = fallback_mark_range_for_line(lines, error_line_in_context=1)
         assert result == Range(1, 1, 4, 9)
 
     def test_fallback_no_comment(self):
         """Trailing whitespace is trimmed when there is no comment."""
         lines = "    y = 2   \n"
-        result = _fallback_mark_range_for_line(lines, error_line_in_context=1)
+        result = fallback_mark_range_for_line(lines, error_line_in_context=1)
         assert result == Range(1, 1, 4, 9)
 
     def test_fallback_comment_only_line(self):
         """A line that is only a comment gets a minimal one-character mark."""
         lines = "    # just a comment\n"
-        result = _fallback_mark_range_for_line(lines, error_line_in_context=1)
+        result = fallback_mark_range_for_line(lines, error_line_in_context=1)
         assert result == Range(1, 1, 4, 5)
 
     def test_fallback_whitespace_only_line(self):
         """A line with no code produces no fallback mark."""
         lines = "    \n"
-        result = _fallback_mark_range_for_line(lines, error_line_in_context=1)
+        result = fallback_mark_range_for_line(lines, error_line_in_context=1)
         assert result is None
 
     def test_fallback_ignores_comment_in_string(self):
         """A '#' inside a string does not end the marked region."""
         lines = '    x = "a # b"  # comment\n'
-        result = _fallback_mark_range_for_line(lines, error_line_in_context=1)
+        result = fallback_mark_range_for_line(lines, error_line_in_context=1)
         assert result == Range(1, 1, 4, 15)
 
     def test_fallback_out_of_range(self):
         """An invalid line number produces no fallback mark."""
         lines = "    x = 1\n"
-        assert _fallback_mark_range_for_line(lines, error_line_in_context=0) is None
-        assert _fallback_mark_range_for_line(lines, error_line_in_context=2) is None
+        assert fallback_mark_range_for_line(lines, error_line_in_context=0) is None
+        assert fallback_mark_range_for_line(lines, error_line_in_context=2) is None
 
     def test_extract_frames_fallback_mark_range(self, monkeypatch):
         """Test fallback mark range when position columns are unavailable (line 1539)."""
-        from tracerite import trace_cpy
-        from tracerite.trace import extract_chain
+        from tracerite.trace import trace_cpy
+        from tracerite.trace.finalize import extract_chain_exceptions
 
         monkeypatch.setattr(
             trace_cpy, "_get_code_position", lambda code, idx: (None, None, None, None)
@@ -1481,7 +1484,7 @@ class TestFallbackMarkRange:
         try:
             raise ValueError("fallback test")
         except ValueError as e:
-            chain = extract_chain(exc=e)
+            chain = extract_chain_exceptions(exc=e)
             assert chain
             frames = chain[0]["frames"]
             assert frames
@@ -1491,21 +1494,22 @@ class TestFallbackMarkRange:
 
     def test_extract_frames_error_line_zero(self, monkeypatch):
         """Test branch when error_line_in_context is 0 (line 1539->1545)."""
-        from tracerite import trace, trace_cpy
-        from tracerite.trace import extract_chain
+        from tracerite.trace import digest, trace_cpy
+        from tracerite.trace.finalize import extract_chain_exceptions
 
         def fake_extract_source_lines(
-            filename,
+            frame,
             lineno,
             end_lineno=None,
-            frame=None,
-            except_block=False,
+            *,
             notebook_cell=False,
+            except_block=False,
+            cache=None,
         ):
             # Start source after the error line so error_line_in_context becomes 0
-            return ("    pass\n", lineno + 1, "    ")
+            return ("    pass\n", lineno + 1, "    ", None)
 
-        monkeypatch.setattr(trace, "extract_source_lines", fake_extract_source_lines)
+        monkeypatch.setattr(digest, "extract_source_lines", fake_extract_source_lines)
         monkeypatch.setattr(
             trace_cpy, "_get_code_position", lambda code, idx: (None, None, None, None)
         )
@@ -1513,6 +1517,6 @@ class TestFallbackMarkRange:
         try:
             raise ValueError("error line zero")
         except ValueError as e:
-            chain = extract_chain(exc=e)
+            chain = extract_chain_exceptions(exc=e)
             assert chain
             assert chain[0]["frames"]

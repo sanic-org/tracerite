@@ -9,6 +9,7 @@ import pytest
 
 from tracerite import extract_chain, hooks
 from tracerite.hooks import load, unload
+from tracerite.trace.finalize import extract_chain_exceptions
 from tracerite.tty import (
     ANSI_ESCAPE_RE,
     ARROW_LEFT,
@@ -26,6 +27,8 @@ from tracerite.tty import (
     FUNC,
     INDENT,
     LINE_PREFIX,
+    LINE_PREFIX_BOT,
+    LINE_PREFIX_TOP,
     LOCFN,
     MARK_BG,
     MARK_TEXT,
@@ -76,6 +79,31 @@ class TestTtyTraceback:
         result = output.getvalue()
         assert "ValueError" in result
         assert "test error message" in result
+
+    def test_no_frames_exception_with_msg(self):
+        """A frameless exception with a log message gets a proper bottom border."""
+        output = io.StringIO()
+        exc = ValueError("frameless error")
+        tty_traceback(exc=exc, msg="log message", file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "frameless error" in result
+        # Non-TTY output has ANSI stripped; compare the plain glyphs.
+        assert ANSI_ESCAPE_RE.sub("", LINE_PREFIX_BOT) in result
+        # Banner continuation lines should not keep the vertical border.
+        assert f"\n{ANSI_ESCAPE_RE.sub('', LINE_PREFIX)}" not in result
+
+    def test_no_frames_exception_without_msg(self):
+        """A frameless exception with no log message renders without crashing."""
+        output = io.StringIO()
+        exc = ValueError("frameless error")
+        tty_traceback(exc=exc, file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "frameless error" in result
+        assert result.startswith(ANSI_ESCAPE_RE.sub("", LINE_PREFIX_TOP))
 
     def test_output_contains_frame_location(self):
         """Test that output includes file location and function name."""
@@ -874,7 +902,7 @@ class TestFrameFormatting:
         try:
             raise ValueError("label test")
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
             frame = chain[0]["frames"][-1]
             location_part, function_part = _get_frame_label(frame)
             # Combine and strip colors to get plain text
@@ -2143,18 +2171,15 @@ class TestTtyTracebackEdgeCases:
 
     def test_chain_without_frames(self):
         """Test exception chain where exceptions have no frames."""
+
+        class TestError(Exception):
+            pass
+
         output = io.StringIO()
-        # Create a minimal chain with no frames
-        chain = [
-            {
-                "type": "TestError",
-                "message": "test message",
-                "summary": "test message",
-                "from": None,
-                "frames": [],
-            }
-        ]
-        tty_traceback(chain=chain, file=output)
+        try:
+            raise TestError("test message")
+        except TestError as e:
+            tty_traceback(chain=[], exc=e, file=output)
         result = output.getvalue()
         assert "TestError" in result
         assert "test message" in result
@@ -3365,15 +3390,8 @@ class TestTTYCoverage:
         """A banner right after the top corner has no preceding border."""
         output = io.StringIO()
         tty_traceback(
-            chain=[
-                {
-                    "type": "ValueError",
-                    "summary": "x",
-                    "message": "x",
-                    "from": "none",
-                    "frames": [],
-                }
-            ],
+            chain=[],
+            exc=ValueError("x"),
             file=output,
             msg="",
         )

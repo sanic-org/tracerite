@@ -6,7 +6,15 @@ import pytest
 from bs4 import BeautifulSoup
 
 from tracerite.html import html_traceback, javascript, style
-from tracerite.trace import extract_chain, extract_exception, symbols
+from tracerite.trace import extract_chain
+from tracerite.trace.chain_analysis import build_chronological_frames
+from tracerite.trace.core import symbols
+
+from .helpers import extract_exception
+
+
+def _chrono(exc_info):
+    return build_chronological_frames([exc_info])
 
 
 class TestHtmlCornercases:
@@ -118,7 +126,7 @@ class TestHtmlCornercases:
         exc_info = extract_exception(exc)
         exc_info["frames"] = []  # Clear frames
 
-        html = html_traceback(chain=[exc_info])
+        html = html_traceback(exc=exc, chain=_chrono(exc_info))
         html_str = str(html)
 
         # Should handle exceptions with no frames
@@ -135,7 +143,7 @@ class TestHtmlCornercases:
         except ValueError as e:
             exc_info = extract_exception(e)
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should display the summary (first line)
@@ -155,7 +163,7 @@ class TestHtmlCornercases:
             for frame in exc_info["frames"]:
                 frame["fragments"] = []
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should show "(no source code)" with symbol
@@ -177,7 +185,7 @@ class TestHtmlCornercases:
             for frame in exc_info["frames"][:-1]:
                 frame["fragments"] = []
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # The call arrow must be wrapped so CSS colors it yellow
@@ -198,7 +206,7 @@ class TestHtmlCornercases:
             if exc_info["frames"]:
                 exc_info["frames"][-1]["fragments"] = []
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should show "(no source code)" with symbol
@@ -224,7 +232,7 @@ class TestHtmlCornercases:
                 # Remove required keys to trigger exception in format()
                 frame.pop("type", None)
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should still render without crashing
@@ -281,7 +289,7 @@ class TestHtmlCornercases:
                 ]
                 frame["variables"] = [("matrix", "list", matrix_with_skips)]
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should handle matrix with skips
@@ -315,7 +323,7 @@ class TestHtmlCornercases:
                 ]
                 frame["linenostart"] = 1
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should render with mark and em tags
@@ -351,7 +359,7 @@ class TestHtmlCornercases:
                 ]
                 frame["linenostart"] = 1
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should handle multi-line mark/em
@@ -378,7 +386,7 @@ class TestHtmlCornercases:
                 ]
                 frame["linenostart"] = 1
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should handle em beg/fin
@@ -405,7 +413,7 @@ class TestHtmlCornercases:
                 ]
                 frame["linenostart"] = 1
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should render trailing content
@@ -421,7 +429,7 @@ class TestHtmlCornercases:
             exc_info["summary"] = "prefix"
             exc_info["message"] = "prefix: additional details here"
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should strip the prefix and show only additional details
@@ -442,7 +450,7 @@ class TestHtmlCornercases:
                     "VS Code": "vscode://file/test.py:10",
                 }
 
-            html = html_traceback(chain=[exc_info], local_urls=True)
+            html = html_traceback(chain=_chrono(exc_info), local_urls=True)
             html_str = str(html)
 
             # Should include the VS Code URL as a link
@@ -488,7 +496,7 @@ class TestHtmlCornercases:
                 ]
                 frame["linenostart"] = 1
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -511,7 +519,7 @@ class TestHtmlCornercases:
             if len(exc_info["frames"]) > 1:
                 exc_info["frames"][0]["fragments"] = []
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should show "(no source code)" with symbol
@@ -532,7 +540,7 @@ class TestHtmlCornercases:
                 frame["location"] = None
                 frame["function"] = "native_func"
 
-            html = html_traceback(chain=[exc_info])
+            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             # Should show "Native function" text
@@ -569,7 +577,7 @@ class TestHtmlCornercases:
                 # This will cause a KeyError when trying to access symdesc[relevance]
                 frame["relevance"] = "nonexistent_relevance"
 
-                html = html_traceback(chain=[exc_info])
+                html = html_traceback(chain=_chrono(exc_info))
                 html_str = str(html)
 
                 # Should handle exception and use repr() fallback

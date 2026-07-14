@@ -4,14 +4,15 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from tracerite.trace import (
-    _create_summary,
-    _extract_syntax_error_frame,
-    _is_notebook_cell,
-    extract_chain,
-    extract_exception,
+from tracerite.trace import extract_chain
+from tracerite.trace.core import create_summary
+from tracerite.trace.digest import (
+    extract_syntax_error_frame,
     format_location,
+    is_notebook_cell,
 )
+
+from .helpers import extract_exception
 
 
 class TestSyntaxErrorFrameExtraction:
@@ -23,7 +24,7 @@ class TestSyntaxErrorFrameExtraction:
         try:
             compile(code, "<test>", "exec")
         except SyntaxError as e:
-            frame = _extract_syntax_error_frame(e)
+            frame = extract_syntax_error_frame(e)
 
             assert frame is not None
             assert frame["relevance"] == "error"
@@ -39,7 +40,7 @@ class TestSyntaxErrorFrameExtraction:
         e.filename = None
         e.lineno = 1
 
-        frame = _extract_syntax_error_frame(e)
+        frame = extract_syntax_error_frame(e)
         assert frame is None
 
     def test_syntax_error_frame_no_lineno(self):
@@ -52,7 +53,7 @@ class TestSyntaxErrorFrameExtraction:
         e.filename = "test.py"
         e.lineno = None
 
-        frame = _extract_syntax_error_frame(e)
+        frame = extract_syntax_error_frame(e)
         assert frame is None
 
     def test_syntax_error_frame_with_text_fallback(self):
@@ -69,7 +70,7 @@ class TestSyntaxErrorFrameExtraction:
         e.end_lineno = 1
         e.end_offset = 8
 
-        frame = _extract_syntax_error_frame(e)
+        frame = extract_syntax_error_frame(e)
 
         # Should use e.text as fallback
         assert frame is not None
@@ -89,7 +90,7 @@ class TestSyntaxErrorFrameExtraction:
         e.end_lineno = 1
         e.end_offset = 8
 
-        frame = _extract_syntax_error_frame(e)
+        frame = extract_syntax_error_frame(e)
 
         assert frame is not None
         # Text should have newline added
@@ -109,7 +110,7 @@ class TestSyntaxErrorFrameExtraction:
         e.end_lineno = 1
         e.end_offset = 5  # end_col = 4, same as start
 
-        frame = _extract_syntax_error_frame(e)
+        frame = extract_syntax_error_frame(e)
 
         # Should adjust end_col to be at least start_col + 1
         assert frame is not None
@@ -127,7 +128,7 @@ class TestSyntaxErrorFrameExtraction:
         e.text = "x = 1 +"
         # No end_lineno or end_offset
 
-        frame = _extract_syntax_error_frame(e)
+        frame = extract_syntax_error_frame(e)
 
         assert frame is not None
 
@@ -159,7 +160,7 @@ class TestSyntaxErrorFrameExtraction:
         try:
             compile(code, "<test>", "exec")
         except SyntaxError as e:
-            frame = _extract_syntax_error_frame(e)
+            frame = extract_syntax_error_frame(e)
 
             assert frame is not None
 
@@ -174,7 +175,7 @@ class TestSyntaxErrorFrameExtraction:
             try:
                 compile(code, path, "exec")
             except SyntaxError as e:
-                frame = _extract_syntax_error_frame(e)
+                frame = extract_syntax_error_frame(e)
 
                 assert frame is not None
                 assert frame["range"] is not None
@@ -207,7 +208,7 @@ class TestSyntaxErrorFrameExtraction:
             try:
                 compile(code, path, "exec")
             except SyntaxError as e:
-                frame = _extract_syntax_error_frame(e)
+                frame = extract_syntax_error_frame(e)
                 assert frame is not None
                 error_line_fragments = frame["fragments"][frame["range"].lfirst - 1][
                     "fragments"
@@ -224,14 +225,14 @@ class TestSyntaxErrorFrameExtraction:
         e.text = "x\n"
         e.end_lineno = 99
         e.end_offset = 6
-        assert _extract_syntax_error_frame(e) is not None
+        assert extract_syntax_error_frame(e) is not None
 
         # end_col collides with start_col after clamping.
         e.lineno = 1
         e.offset = 2
         e.end_lineno = 2
         e.end_offset = 1
-        assert _extract_syntax_error_frame(e) is not None
+        assert extract_syntax_error_frame(e) is not None
 
     def test_syntax_error_trims_empty_context(self):
         """Test empty context lines are trimmed from start/end of snippet."""
@@ -244,7 +245,7 @@ class TestSyntaxErrorFrameExtraction:
                 try:
                     compile(code, path, "exec")
                 except SyntaxError as e:
-                    frame = _extract_syntax_error_frame(e)
+                    frame = extract_syntax_error_frame(e)
                     assert frame is not None
                     assert frame["linenostart"] == expected_start
                     assert (
@@ -283,7 +284,7 @@ class TestSyntaxErrorFrameExtraction:
         try:
             compile(code, path, "exec")
         except SyntaxError as e:
-            frame = _extract_syntax_error_frame(e)
+            frame = extract_syntax_error_frame(e)
             assert frame is not None
             # With the bug, cursor_col was shifted right by the common indent
             # of the sliced snippet (4 spaces). It should stay at the original
@@ -297,19 +298,19 @@ class TestSyntaxErrorFrameExtraction:
             Path(path).unlink(missing_ok=True)
 
     def test_is_notebook_cell_no_ipython(self):
-        """Test _is_notebook_cell when ipython is None."""
+        """Test is_notebook_cell when ipython is None."""
         from tracerite import trace
 
         original = trace.ipython
         try:
             trace.ipython = None
-            result = _is_notebook_cell("test.py")
+            result = is_notebook_cell("test.py")
             assert result is False
         finally:
             trace.ipython = original
 
     def test_is_notebook_cell_with_ipython(self):
-        """Test _is_notebook_cell with mock ipython."""
+        """Test is_notebook_cell with mock ipython."""
         from tracerite import trace
 
         mock_ipython = MagicMock()
@@ -318,16 +319,16 @@ class TestSyntaxErrorFrameExtraction:
         original = trace.ipython
         try:
             trace.ipython = mock_ipython
-            result = _is_notebook_cell("<ipython-input-1>")
+            result = is_notebook_cell("<ipython-input-1>")
             assert result is True
 
-            result = _is_notebook_cell("regular.py")
+            result = is_notebook_cell("regular.py")
             assert result is False
         finally:
             trace.ipython = original
 
     def test_is_notebook_cell_key_error(self):
-        """Test _is_notebook_cell handles KeyError."""
+        """Test is_notebook_cell handles KeyError."""
         from tracerite import trace
 
         mock_ipython = MagicMock()
@@ -336,7 +337,7 @@ class TestSyntaxErrorFrameExtraction:
         original = trace.ipython
         try:
             trace.ipython = mock_ipython
-            result = _is_notebook_cell("nonexistent")
+            result = is_notebook_cell("nonexistent")
             assert result is False
         finally:
             trace.ipython = original
@@ -414,29 +415,29 @@ class TestFormatLocation:
 
 
 class TestCreateSummary:
-    """Test _create_summary function."""
+    """Test create_summary function."""
 
     def test_short_message(self):
         """Test summary of short message."""
-        result = _create_summary("Short error")
+        result = create_summary("Short error")
         assert result == "Short error"
 
     def test_message_exactly_100_chars(self):
         """Test message of exactly 100 characters."""
         msg = "x" * 100
-        result = _create_summary(msg)
+        result = create_summary(msg)
         assert result == msg
 
     def test_long_message_under_1000(self):
         """Test long single-line message returns full message."""
         msg = "x" * 500
-        result = _create_summary(msg)
+        result = create_summary(msg)
         assert result == msg
 
     def test_very_long_message_over_1000(self):
         """Test very long single-line message returns full message."""
         msg = "START" + "x" * 1500 + "END"
-        result = _create_summary(msg)
+        result = create_summary(msg)
         assert result == msg
         assert "START" in result
         assert "END" in result
@@ -444,7 +445,7 @@ class TestCreateSummary:
     def test_multiline_message(self):
         """Test multiline message uses first line."""
         msg = "First line\nSecond line\nThird line"
-        result = _create_summary(msg)
+        result = create_summary(msg)
         assert result == "First line"
 
 
@@ -460,7 +461,7 @@ class TestExtractChainSyntaxError:
             chain = extract_chain()
 
             assert len(chain) >= 1
-            assert chain[-1]["type"] == "SyntaxError"
+            assert chain[-1]["exception"]["type"] == "SyntaxError"
 
     def test_extract_chain_chained_with_syntax_error(self):
         """Test extract_chain with SyntaxError in chain."""
@@ -473,10 +474,8 @@ class TestExtractChainSyntaxError:
             chain = extract_chain()
 
             assert len(chain) >= 2
-            # First should be SyntaxError, second ValueError
-            types = [c["type"] for c in chain]
-            assert "SyntaxError" in types
-            assert "ValueError" in types
+            types = [f["exception"]["type"] for f in chain if f.get("exception")]
+            assert types == ["SyntaxError", "ValueError"]
 
 
 class TestNonExceptionSuppress:
@@ -561,7 +560,7 @@ class TestSyntaxErrorNotebookCell:
             try:
                 compile(code, "<ipython-input-5>", "exec")
             except SyntaxError as e:
-                frame = _extract_syntax_error_frame(e)
+                frame = extract_syntax_error_frame(e)
 
                 assert frame is not None
                 assert frame["notebook_cell"] is True

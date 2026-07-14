@@ -1,6 +1,6 @@
 """Tests for syntaxerror.py - Enhanced SyntaxError position extraction."""
 
-from tracerite.syntaxerror import (
+from tracerite.trace.syntaxerror import (
     _find_any_unclosed_opener,
     _find_unclosed_opener,
     _find_unmatched_opener,
@@ -303,7 +303,7 @@ class TestHandleMismatch:
     def test_basic_mismatch(self):
         """Test basic bracket mismatch."""
 
-        from tracerite.syntaxerror import MISMATCH_PATTERN
+        from tracerite.trace.syntaxerror import MISMATCH_PATTERN
 
         class MockError:
             lineno = 2
@@ -325,7 +325,7 @@ class TestHandleMismatch:
     def test_mismatch_fallback(self):
         """Test fallback when opening bracket not found."""
 
-        from tracerite.syntaxerror import MISMATCH_PATTERN
+        from tracerite.trace.syntaxerror import MISMATCH_PATTERN
 
         class MockError:
             lineno = 2
@@ -350,7 +350,7 @@ class TestHandleMismatch:
         the code falls back to opening_col = 0.
         """
 
-        from tracerite.syntaxerror import MISMATCH_PATTERN
+        from tracerite.trace.syntaxerror import MISMATCH_PATTERN
 
         class MockError:
             lineno = 1
@@ -378,7 +378,7 @@ class TestHandleUnclosed:
     def test_unclosed_parenthesis(self):
         """Test unclosed parenthesis detection spans the whole construct."""
 
-        from tracerite.syntaxerror import UNCLOSED_PATTERN
+        from tracerite.trace.syntaxerror import UNCLOSED_PATTERN
 
         message = "'(' was never closed"
 
@@ -400,7 +400,7 @@ class TestHandleUnclosed:
     def test_unclosed_fallbacks(self):
         """Test fallbacks when opener is missing or reported past source."""
 
-        from tracerite.syntaxerror import UNCLOSED_PATTERN
+        from tracerite.trace.syntaxerror import UNCLOSED_PATTERN
 
         message = "'(' was never closed"
 
@@ -738,7 +738,7 @@ class TestHandleMismatchBranches:
         bracket IS actually found on the line during the fallback search.
         We need a scenario where the smart search fails but the simple find succeeds.
         """
-        from tracerite.syntaxerror import MISMATCH_PATTERN
+        from tracerite.trace.syntaxerror import MISMATCH_PATTERN
 
         class MockError:
             lineno = 2

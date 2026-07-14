@@ -5,17 +5,17 @@ import sys
 
 import pytest
 
-from tracerite.chain_analysis import build_chronological_frames
 from tracerite.html import html_traceback
-from tracerite.trace import (
-    _collect_leaf_exception_types,
-    _extract_subexceptions,
-    _is_exception_group,
+from tracerite.trace.chain_analysis import build_chronological_frames
+from tracerite.trace.digest import extract_subexceptions, is_exception_group
+from tracerite.trace.finalize import (
     build_chain_header,
     extract_chain,
-    extract_exception,
+    extract_chain_exceptions,
 )
 from tracerite.tty import tty_traceback
+
+from .helpers import extract_exception
 
 
 @pytest.mark.skipif(
@@ -25,24 +25,24 @@ class TestExceptionGroupDetection:
     """Tests for detecting ExceptionGroups."""
 
     def test_is_exception_group_true(self):
-        """Test _is_exception_group returns True for ExceptionGroup."""
+        """Test is_exception_group returns True for ExceptionGroup."""
         eg = ExceptionGroup("test", [ValueError("a")])  # noqa: F821
-        assert _is_exception_group(eg)
+        assert is_exception_group(eg)
 
     def test_is_exception_group_base(self):
-        """Test _is_exception_group returns True for BaseExceptionGroup."""
+        """Test is_exception_group returns True for BaseExceptionGroup."""
         beg = BaseExceptionGroup("test", [KeyboardInterrupt()])  # noqa: F821
-        assert _is_exception_group(beg)
+        assert is_exception_group(beg)
 
     def test_is_exception_group_false_regular(self):
-        """Test _is_exception_group returns False for regular exceptions."""
-        assert not _is_exception_group(ValueError("test"))
-        assert not _is_exception_group(RuntimeError("test"))
+        """Test is_exception_group returns False for regular exceptions."""
+        assert not is_exception_group(ValueError("test"))
+        assert not is_exception_group(RuntimeError("test"))
 
     def test_is_exception_group_false_base(self):
-        """Test _is_exception_group returns False for BaseExceptions."""
-        assert not _is_exception_group(KeyboardInterrupt())
-        assert not _is_exception_group(SystemExit())
+        """Test is_exception_group returns False for BaseExceptions."""
+        assert not is_exception_group(KeyboardInterrupt())
+        assert not is_exception_group(SystemExit())
 
 
 @pytest.mark.skipif(
@@ -59,7 +59,7 @@ class TestSubexceptionExtraction:
                 [ValueError("error 1"), TypeError("error 2")],
             )
         except Exception as e:
-            result = _extract_subexceptions(e)
+            result = extract_subexceptions(e)
 
         assert result is not None
         assert len(result) == 2
@@ -78,7 +78,7 @@ class TestSubexceptionExtraction:
                 [ValueError("v"), inner_group],
             )
         except Exception as e:
-            result = _extract_subexceptions(e)
+            result = extract_subexceptions(e)
 
         assert result is not None
         assert len(result) == 2
@@ -104,7 +104,7 @@ class TestSubexceptionExtraction:
         try:
             raise ExceptionGroup("group", [chained_exc])  # noqa: F821
         except Exception as e:
-            result = _extract_subexceptions(e)
+            result = extract_subexceptions(e)
 
         assert result is not None
         assert len(result) == 1
@@ -115,8 +115,8 @@ class TestSubexceptionExtraction:
         assert chain[1]["type"] == "ValueError"
 
     def test_extract_subexceptions_returns_none_for_regular(self):
-        """Test that _extract_subexceptions returns None for regular exceptions."""
-        result = _extract_subexceptions(ValueError("test"))
+        """Test that extract_subexceptions returns None for regular exceptions."""
+        result = extract_subexceptions(ValueError("test"))
         assert result is None
 
 
@@ -185,30 +185,6 @@ class TestChainHeader:
         assert "ValueError" in header
         assert "KeyError" in header
 
-    def test_collect_leaf_exception_types(self):
-        """Test _collect_leaf_exception_types helper."""
-        # Simulate subexceptions structure
-        subexceptions = [
-            [{"type": "ValueError"}],
-            [{"type": "TypeError"}],
-        ]
-        result = _collect_leaf_exception_types(subexceptions)
-        assert result == ["ValueError", "TypeError"]
-
-    def test_collect_leaf_exception_types_nested(self):
-        """Test _collect_leaf_exception_types with nested groups."""
-        subexceptions = [
-            [{"type": "ValueError"}],
-            [
-                {
-                    "type": "ExceptionGroup",
-                    "subexceptions": [[{"type": "KeyError"}], [{"type": "IndexError"}]],
-                }
-            ],
-        ]
-        result = _collect_leaf_exception_types(subexceptions)
-        assert result == ["ValueError", "KeyError", "IndexError"]
-
 
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="Exception groups require Python 3.11+"
@@ -223,7 +199,7 @@ class TestChronologicalFrames:
                 "test", [ValueError("a"), TypeError("b")]
             )
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
             frames = build_chronological_frames(chain)
 
         # Find frame with parallel branches
@@ -252,7 +228,7 @@ class TestChronologicalFrames:
                 "test", [ValueError("a"), TypeError("b")]
             )
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
             frames = build_chronological_frames(chain)
 
         parallel_frame = next((f for f in frames if f.get("parallel")), None)
@@ -409,48 +385,35 @@ class TestAsyncTaskGroup:
 class TestCoverageEdgeCases:
     """Tests for edge cases to achieve 100% coverage in trace.py."""
 
-    def test_collect_leaf_types_empty_subchain(self):
-        """Test _collect_leaf_exception_types with empty sub_chain (line 100)."""
-        # Simulate subexceptions with an empty chain
-        subexceptions = [
-            [],  # Empty chain - should be skipped
-            [{"type": "ValueError"}],
-        ]
-        result = _collect_leaf_exception_types(subexceptions)
-        assert result == ["ValueError"]
-
     def test_chain_header_empty_leaf_types(self):
         """Test build_chain_header when leaf_types is empty (lines 67->74, 70).
 
         This happens when subexceptions exist but all sub_chains are empty.
         """
-        from tracerite.trace import build_chain_header
 
-        # Create a fake chain with subexceptions that yield no leaf types
-        chain = [
-            {
-                "type": "ExceptionGroup",
-                "subexceptions": [[], []],  # All empty chains
-            }
+        # Minimal chronological frame with an empty leaf_types list
+        frames = [
+            {"exception": {"type": "ExceptionGroup", "from": "none", "leaf_types": []}}
         ]
-        header = build_chain_header(chain)
+        header = build_chain_header(frames)
         # Should fall back to the exception type
         assert "ExceptionGroup" in header
 
     def test_chain_header_with_cause_and_empty_leafs(self):
         """Test build_chain_header with chained exception and empty leaf_types (line 70)."""
-        from tracerite.trace import build_chain_header
 
-        # Chain with cause, where last exception is ExceptionGroup with empty subexceptions
-        chain = [
-            {"type": "ValueError", "from": "none"},
+        # Two chronological frames: ValueError caused ExceptionGroup with empty leaf_types
+        frames = [
+            {"exception": {"type": "ValueError", "from": "none"}},
             {
-                "type": "ExceptionGroup",
-                "from": "cause",
-                "subexceptions": [[]],  # Empty chain
+                "exception": {
+                    "type": "ExceptionGroup",
+                    "from": "cause",
+                    "leaf_types": [],
+                }
             },
         ]
-        header = build_chain_header(chain)
+        header = build_chain_header(frames)
         # Should use "ExceptionGroup" as exc_type and show the chain
         assert "ExceptionGroup" in header
         assert "from" in header
@@ -462,65 +425,66 @@ class TestCoverageEdgeCases:
         When len(chain) > 1 and leaf_types is non-empty, we skip the return at line 68
         and fall through to line 74.
         """
-        from tracerite.trace import build_chain_header
 
-        # Chain with 2 exceptions: ValueError caused ExceptionGroup with real subexceptions
-        chain = [
-            {"type": "ValueError", "from": "none"},
+        # Two chronological frames: ValueError caused ExceptionGroup with leaf types
+        frames = [
+            {"exception": {"type": "ValueError", "from": "none"}},
             {
-                "type": "ExceptionGroup",
-                "from": "cause",
-                "subexceptions": [[{"type": "KeyError"}]],  # Non-empty leaf_types
+                "exception": {
+                    "type": "ExceptionGroup",
+                    "from": "cause",
+                    "leaf_types": ["KeyError"],
+                }
             },
         ]
-        header = build_chain_header(chain)
+        header = build_chain_header(frames)
         # Should show leaf type (KeyError) and chain
         assert "KeyError" in header
         assert "from" in header
         assert "ValueError" in header
 
     def test_extract_subexceptions_empty_tuple(self):
-        """Test _extract_subexceptions with empty exceptions tuple (line 366)."""
-        from tracerite.trace import _extract_subexceptions
+        """Test extract_subexceptions with empty exceptions tuple (line 366)."""
+        from tracerite.trace.digest import extract_subexceptions
 
         # Create a mock ExceptionGroup with empty exceptions
         class FakeExceptionGroup(Exception):
             def __init__(self):
                 self.exceptions = ()  # Empty tuple
 
-        result = _extract_subexceptions(FakeExceptionGroup())
+        result = extract_subexceptions(FakeExceptionGroup())
         assert result is None
 
     def test_set_relevances_empty_frames(self):
-        """Test _set_relevances with empty frames list (line 230)."""
-        from tracerite.trace import _set_relevances
+        """Test set_relevances with empty frames list (line 230)."""
+        from tracerite.trace.finalize import set_relevances
 
         # Should return early without error
         frames = []
-        _set_relevances(frames, ValueError("test"))
+        set_relevances(frames, ValueError("test"))
         assert frames == []
 
     def test_set_relevances_user_code_error(self):
-        """Test _set_relevances when error is in user code (line 244->exit).
+        """Test set_relevances when error is in user code (line 244->exit).
 
         When the error frame is in user code (not library), no warning frame is set.
         """
-        from tracerite.trace import _set_relevances
+        from tracerite.trace.finalize import set_relevances
 
         # Create frames where last frame is in user code
         frames = [
             {"filename": "/home/user/myproject/main.py", "relevance": "call"},
             {"filename": "/home/user/myproject/utils.py", "relevance": "call"},
         ]
-        _set_relevances(frames, ValueError("test"))
+        set_relevances(frames, ValueError("test"))
         # Last frame should be error
         assert frames[-1]["relevance"] == "error"
         # First frame should still be call (no warning added)
         assert frames[0]["relevance"] == "call"
 
     def test_subexception_chain_with_cause_traversal(self):
-        """Test _extract_subexception_chain traverses __cause__ chain (line 377->371)."""
-        from tracerite.trace import _extract_subexception_chain
+        """Test extract_subexception_chain traverses __cause__ chain (line 377->371)."""
+        from tracerite.trace.digest import extract_subexception_chain
 
         # Create exception with __cause__ chain
         inner = KeyError("inner")
@@ -528,15 +492,15 @@ class TestCoverageEdgeCases:
         outer.__cause__ = inner
         outer.__suppress_context__ = True
 
-        chain = _extract_subexception_chain(outer)
+        chain = extract_subexception_chain(outer)
         # Chain should have both exceptions
         assert len(chain) == 2
         assert chain[0]["type"] == "KeyError"
         assert chain[1]["type"] == "ValueError"
 
     def test_subexception_chain_with_context_traversal(self):
-        """Test _extract_subexception_chain traverses __context__ chain."""
-        from tracerite.trace import _extract_subexception_chain
+        """Test extract_subexception_chain traverses __context__ chain."""
+        from tracerite.trace.digest import extract_subexception_chain
 
         # Create exception with __context__ chain (not suppressed)
         inner = KeyError("inner")
@@ -544,15 +508,15 @@ class TestCoverageEdgeCases:
         outer.__context__ = inner
         outer.__suppress_context__ = False
 
-        chain = _extract_subexception_chain(outer)
+        chain = extract_subexception_chain(outer)
         # Chain should have both exceptions
         assert len(chain) == 2
         assert chain[0]["type"] == "KeyError"
         assert chain[1]["type"] == "ValueError"
 
     def test_subexception_chain_three_level_traversal(self):
-        """Test _extract_subexception_chain with 3-level chain (line 377->371 loop)."""
-        from tracerite.trace import _extract_subexception_chain
+        """Test extract_subexception_chain with 3-level chain (line 377->371 loop)."""
+        from tracerite.trace.digest import extract_subexception_chain
 
         # Create 3-level exception chain to ensure while loop iterates multiple times
         exc1 = KeyError("first")
@@ -563,7 +527,7 @@ class TestCoverageEdgeCases:
         exc3.__cause__ = exc2
         exc3.__suppress_context__ = True
 
-        chain = _extract_subexception_chain(exc3)
+        chain = extract_subexception_chain(exc3)
         # Chain should have all three exceptions
         assert len(chain) == 3
         assert chain[0]["type"] == "KeyError"
@@ -572,26 +536,43 @@ class TestCoverageEdgeCases:
 
     def test_chain_header_single_exception_group_empty_leafs(self):
         """Test build_chain_header with single ExceptionGroup and empty leaf_types (line 67->74)."""
-        from tracerite.trace import build_chain_header
 
-        # Single ExceptionGroup (len(chain)==1) with empty subexceptions
-        # This should hit line 70 (exc_type = ...) then line 74 (if len(chain) == 1)
-        chain = [
-            {
-                "type": "ExceptionGroup",
-                "subexceptions": [[]],  # All empty chains -> leaf_types is empty
-            }
+        # Single frame with empty leaf_types -> falls back to exception type
+        frames = [
+            {"exception": {"type": "ExceptionGroup", "from": "none", "leaf_types": []}}
         ]
-        header = build_chain_header(chain)
+        header = build_chain_header(frames)
         # Should return "Uncaught ExceptionGroup" since leaf_types is empty
         assert "Uncaught" in header
         assert "ExceptionGroup" in header
+
+    def test_build_chain_header_no_exceptions(self):
+        """Test build_chain_header with frames that have no exception banner."""
+        assert build_chain_header([{"idframe": 1}]) == ""
+
+    def test_attach_leaf_types_empty_leaf_types(self):
+        """Test attach_leaf_types returns early when leaf_types is empty."""
+        from tracerite.trace.finalize import attach_leaf_types
+
+        chain = [{"type": "ExceptionGroup", "subexceptions": [[], []]}]
+        attach_leaf_types(chain, [])
+        attach_leaf_types(chain, [{"idframe": 1}])
+
+    def test_attach_leaf_types_no_banner_frame(self):
+        """Test attach_leaf_types when no frame carries an exception banner."""
+        from tracerite.trace.finalize import attach_leaf_types
+
+        chain = [
+            {"type": "ExceptionGroup", "subexceptions": [[{"type": "ValueError"}]]}
+        ]
+        attach_leaf_types(chain, [])
+        attach_leaf_types(chain, [{"idframe": 1}])
 
     def test_extract_source_lines_notebook_no_except(self):
         """Test extract_source_lines for notebook cell without except block (line 478)."""
         from unittest.mock import patch
 
-        from tracerite.trace import extract_source_lines
+        from tracerite.trace.digest import extract_source_lines
 
         # Create a real frame by calling a function
         def dummy():
@@ -607,7 +588,7 @@ class TestCoverageEdgeCases:
             return_value=(["line1\n", "line2\n", "line3\n"], 1),
         ):
             # notebook_cell=True, no except_block -> should hit lines_before = 0
-            lines, start, marks = extract_source_lines(
+            lines, start, marks, _ = extract_source_lines(
                 frame, lineno=2, notebook_cell=True, except_block=False
             )
             # Should return something (the notebook cell path)

@@ -9,7 +9,10 @@ import textwrap
 import pytest
 
 from tracerite import extract_chain
-from tracerite.trace import build_chain_header, extract_exception, extract_frames
+from tracerite.trace.finalize import (
+    build_chain_header,
+    extract_chain_exceptions,
+)
 
 from .errorcases import (
     binomial_operator,
@@ -24,6 +27,7 @@ from .errorcases import (
     unrelated_error_in_except,
     unrelated_error_in_finally,
 )
+from .helpers import extract_exception, extract_frames
 
 
 @pytest.mark.skipif(
@@ -34,7 +38,7 @@ def test_em_columns_binary_operator():
     try:
         binomial_operator()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -71,7 +75,7 @@ def test_em_columns_multiline_operator():
     try:
         multiline_marking()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -105,7 +109,7 @@ def test_em_columns_function_call():
     try:
         max_type_error_case()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -141,7 +145,7 @@ def test_em_columns_not_empty():
     try:
         binomial_operator()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         frame = chain[0]["frames"][-1]
 
         # Check that we have position information in the Range format
@@ -167,7 +171,7 @@ def test_em_columns_structure():
     try:
         binomial_operator()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         frame = chain[0]["frames"][-1]
 
         for line_info in frame["fragments"]:
@@ -190,7 +194,7 @@ def test_em_columns_multiline_marking_comment():
     try:
         multiline_marking_comment()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -226,7 +230,7 @@ def test_em_columns_max_type_error():
     try:
         max_type_error_case()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -259,7 +263,7 @@ def test_em_columns_reraise_context():
     try:
         reraise_context()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -281,7 +285,7 @@ def test_em_columns_reraise_suppressed_context():
     try:
         reraise_suppressed_context()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -303,7 +307,7 @@ def test_em_columns_chained_exceptions():
     try:
         chained_from_and_without()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -328,7 +332,7 @@ def test_em_columns_unrelated_error_except():
     try:
         unrelated_error_in_except()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -365,7 +369,7 @@ def test_em_columns_unrelated_error_finally():
     try:
         unrelated_error_in_finally()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -410,7 +414,7 @@ def test_em_columns_comprehensive_structure():
         try:
             test_func()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
             assert chain is not None, f"Chain is None for {test_func.__name__}"
             assert len(chain) > 0, f"Empty chain for {test_func.__name__}"
 
@@ -468,7 +472,7 @@ def test_em_columns_stdlib_mimetypes():
     try:
         error_in_stdlib_mimetypes()
     except Exception as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         assert chain is not None
         assert len(chain) > 0
 
@@ -553,6 +557,9 @@ def test_em_columns_stdlib_mimetypes():
 class TestExtractChain:
     """Test extract_chain function for exception chaining."""
 
+    def _exception_types(self, chain):
+        return [f["exception"]["type"] for f in chain if f.get("exception")]
+
     def test_extract_single_exception(self):
         """Test extracting a single exception without chaining."""
         try:
@@ -560,9 +567,9 @@ class TestExtractChain:
         except ValueError as e:
             chain = extract_chain(exc=e)
 
-        assert len(chain) == 1
-        assert chain[0]["type"] == "ValueError"
-        assert "test error" in chain[0]["message"]
+        assert len(chain) >= 1
+        assert chain[-1]["exception"]["type"] == "ValueError"
+        assert "test error" in chain[-1]["exception"]["message"]
 
     def test_extract_chained_exceptions(self):
         """Test extracting chained exceptions with __cause__."""
@@ -574,11 +581,10 @@ class TestExtractChain:
         except TypeError as e:
             chain = extract_chain(exc=e)
 
-        # Chain is now oldest-first (original exception first)
-        assert len(chain) == 2
-        assert chain[0]["type"] == "ValueError"  # Original
-        assert chain[1]["type"] == "TypeError"  # Wrapped
-        assert "wrapped error" in chain[1]["message"]
+        # Frames are in chronological order (original exception first)
+        types = self._exception_types(chain)
+        assert types == ["ValueError", "TypeError"]
+        assert "wrapped error" in chain[-1]["exception"]["message"]
 
     def test_extract_context_exceptions(self):
         """Test extracting exceptions with implicit context (__context__)."""
@@ -590,10 +596,9 @@ class TestExtractChain:
         except TypeError as e:
             chain = extract_chain(exc=e)
 
-        # Chain is now oldest-first
-        assert len(chain) == 2
-        assert chain[0]["type"] == "ValueError"  # First/original
-        assert chain[1]["type"] == "TypeError"  # Second/newer
+        # Frames are in chronological order
+        types = self._exception_types(chain)
+        assert types == ["ValueError", "TypeError"]
 
     def test_suppress_context(self):
         """Test that __suppress_context__ stops chain extraction."""
@@ -608,8 +613,8 @@ class TestExtractChain:
             chain = extract_chain(exc=e)
 
         # Should only have the TypeError, not the ValueError
-        assert len(chain) == 1
-        assert chain[0]["type"] == "TypeError"
+        types = self._exception_types(chain)
+        assert types == ["TypeError"]
 
     def test_extract_from_sys_exc_info(self):
         """Test extracting current exception from sys.exc_info()."""
@@ -618,8 +623,8 @@ class TestExtractChain:
         except RuntimeError:
             chain = extract_chain()  # No exc argument
 
-        assert len(chain) == 1
-        assert chain[0]["type"] == "RuntimeError"
+        assert len(chain) >= 1
+        assert chain[-1]["exception"]["type"] == "RuntimeError"
 
 
 class TestExtractException:
@@ -991,7 +996,7 @@ class TestLibdirPattern:
 
     def test_libdir_pattern_matches_site_packages(self):
         """Test that libdir pattern matches site-packages paths."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         assert libdir.fullmatch("/usr/lib/python3.9/site-packages/module.py")
         assert libdir.fullmatch(
@@ -1000,20 +1005,20 @@ class TestLibdirPattern:
 
     def test_libdir_pattern_matches_dist_packages(self):
         """Test that libdir pattern matches dist-packages paths."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         assert libdir.fullmatch("/usr/lib/python3/dist-packages/module.py")
 
     def test_libdir_pattern_matches_usr_paths(self):
         """Test that libdir pattern matches library paths."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         assert libdir.fullmatch("/usr/lib/python3.9/site-packages/module.py")
         assert libdir.fullmatch("/usr/local/lib/python3.9/dist-packages/module.py")
 
     def test_libdir_pattern_does_not_match_user_code(self):
         """Test that libdir pattern doesn't match user code paths."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         assert not libdir.fullmatch("/home/user/project/module.py")
         assert not libdir.fullmatch("./mycode.py")
@@ -1021,7 +1026,7 @@ class TestLibdirPattern:
 
     def test_libdir_pattern_matches_cache_directories(self):
         """Test that libdir pattern matches .cache directory paths."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         assert libdir.fullmatch("/home/user/.cache/some_lib/module.py")
         assert libdir.fullmatch("/home/user/.cache/torch/model.py")
@@ -1031,7 +1036,7 @@ class TestLibdirPattern:
 
     def test_libdir_pattern_does_not_match_ipython_input(self):
         """Test that libdir pattern doesn't match IPython/Jupyter input cells."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         # IPython input cells should be treated as user code
         assert not libdir.fullmatch("<ipython-input-1>")
@@ -1089,22 +1094,22 @@ def test_extract_source_lines_invalid_range():
 
     # Modify the frame's code to have invalid lineno or something? Wait, hard.
     # Perhaps this test is not needed.
-    from tracerite.trace import extract_source_lines
+    from tracerite.trace.digest import extract_source_lines
 
-    lines, start, indent = extract_source_lines(frame, frame.f_lineno)
+    lines, start, indent, _ = extract_source_lines(frame, frame.f_lineno)
     assert lines  # Should return something
 
 
 def test_find_except_start_invalid_file():
-    """Test _find_except_start_for_line with invalid file triggers exception handling."""
-    from tracerite.trace import _find_except_start_for_line
+    """Test find_except_start_for_line with invalid file triggers exception handling."""
+    from tracerite.trace.digest import find_except_start_for_line
 
     # Create a mock frame with invalid filename
     class MockFrame:
         f_code = type("MockCode", (), {"co_filename": "/nonexistent/file.py"})()
 
     frame = MockFrame()
-    result = _find_except_start_for_line(frame, 10)
+    result = find_except_start_for_line(frame, 10)
     assert result is None  # Should return None on exception
 
 
@@ -1122,7 +1127,7 @@ def test_extract_source_lines_with_trailing_blank_lines():
     """
     import linecache
 
-    from tracerite.trace import extract_exception
+    from .helpers import extract_exception
 
     # Create an error case with blank lines after the error line
     # The error is early in the function so trailing lines are included
@@ -1170,7 +1175,7 @@ def test_deduplicate_variables_with_comprehension():
     try:
         comprehension_error()
     except ZeroDivisionError as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
 
     # Verify the chain was processed
     assert chain
@@ -1187,7 +1192,7 @@ requires_python_313 = pytest.mark.skipif(
 
 @requires_python_313
 class TestGetSourceLinesFromCode:
-    """Tests for _get_source_lines_from_code function.
+    """Tests for get_source_lines_from_code function.
 
     These tests verify source code retrieval from code objects for interactive
     code (REPL, -c commands) using Python 3.13+ linecache._getline_from_code.
@@ -1197,7 +1202,7 @@ class TestGetSourceLinesFromCode:
         """Test retrieving source for a function code object."""
         import linecache
 
-        from tracerite.trace import _get_source_lines_from_code
+        from tracerite.trace.digest import get_source_lines_from_code
 
         source = "def broken():\n    x = 1 / 0\n"
         code = compile(source, "<test>", "exec")
@@ -1213,7 +1218,7 @@ class TestGetSourceLinesFromCode:
 
         assert func_code is not None
 
-        lines, start = _get_source_lines_from_code(func_code, 2)
+        lines, start = get_source_lines_from_code(func_code, 2)
         assert lines is not None
         assert start == 1  # Function starts at line 1
         assert "def broken():" in "".join(lines)
@@ -1223,26 +1228,26 @@ class TestGetSourceLinesFromCode:
         """Test retrieving source for module-level code object."""
         import linecache
 
-        from tracerite.trace import _get_source_lines_from_code
+        from tracerite.trace.digest import get_source_lines_from_code
 
         source = "x = 10\ny = 0\nresult = x / y\n"
         code = compile(source, "<test-module>", "exec")
         linecache._register_code(code, source, "<test-module>")
 
-        lines, start = _get_source_lines_from_code(code, 3)
+        lines, start = get_source_lines_from_code(code, 3)
         assert lines is not None
         assert "result = x / y" in "".join(lines)
 
     def test_get_source_lines_from_code_no_source(self):
         """Test that function returns None when no source is available."""
-        from tracerite.trace import _get_source_lines_from_code
+        from tracerite.trace.digest import get_source_lines_from_code
 
         # Create code without registering source
         source = "x = 1\n"
         code = compile(source, "<unregistered>", "exec")
         # Don't register it
 
-        lines, start = _get_source_lines_from_code(code, 1)
+        lines, start = get_source_lines_from_code(code, 1)
         assert lines is None
         assert start is None
 
@@ -1250,7 +1255,7 @@ class TestGetSourceLinesFromCode:
         """Test that function boundaries are determined by inspect.getblock."""
         import linecache
 
-        from tracerite.trace import _get_source_lines_from_code
+        from tracerite.trace.digest import get_source_lines_from_code
 
         source = """def foo():
     x = 1
@@ -1271,7 +1276,7 @@ def bar():
 
         assert foo_code is not None
 
-        lines, start = _get_source_lines_from_code(foo_code, 2)
+        lines, start = get_source_lines_from_code(foo_code, 2)
         assert lines is not None
         joined = "".join(lines)
         # Should include foo but NOT bar
@@ -1296,7 +1301,7 @@ def test_re_raise_in_same_function_has_distinct_frames():
     try:
         _outer()
     except ValueError as e:
-        chain = extract_chain(e)
+        chain = extract_chain_exceptions(e)
         frames = chain[0]["frames"]
         outer_frames = [fr for fr in frames if fr.get("function") == "_outer"]
         # One frame at the _inner() call and one at the explicit ``raise e``.
@@ -1321,7 +1326,7 @@ def test_exc_message_variable_suppressed_in_raising_frame():
         _raise_with_msg()
     except ValueError as e:
         chain = extract_chain(e)
-        frame = chain[0]["frames"][-1]
+        frame = chain[-1]
         var_names = {v.name for v in frame["variables"]}
         assert "msg" not in var_names
 
@@ -1347,11 +1352,7 @@ def test_exc_message_variable_suppressed_across_same_function_frames():
     except RuntimeError as e:
         chain = extract_chain(e)
         msg_names = {
-            v.name
-            for exc in chain
-            for frame in exc["frames"]
-            for v in frame["variables"]
-            if v.name == "msg"
+            v.name for frame in chain for v in frame["variables"] if v.name == "msg"
         }
         assert "msg" not in msg_names
 
@@ -1373,9 +1374,7 @@ def test_recursive_frames_keep_distinct_inspectors():
         recurse(3)
     except ValueError as e:
         chain = extract_chain(e)
-        recurse_frames = [
-            fr for fr in chain[0]["frames"] if fr["function"] == "recurse"
-        ]
+        recurse_frames = [fr for fr in chain if fr.get("function") == "recurse"]
         assert len(recurse_frames) == 4
         for fr in recurse_frames:
             names = {v.name for v in fr["variables"]}
@@ -1388,8 +1387,6 @@ def test_exc_message_suppressed_at_module_level():
     """Module-level re-raises share the module dict, so the message var is hidden."""
     code = textwrap.dedent(
         """
-        from tracerite import extract_chain
-
         msg = "unique long module error message"
         try:
             raise ValueError("inner")
@@ -1407,20 +1404,14 @@ def test_exc_message_suppressed_at_module_level():
             importlib.import_module(modname)
         except RuntimeError as e:
             chain = extract_chain(e)
-            module_frames = [
-                fr for exc in chain for fr in exc["frames"] if fr["function"] is None
-            ]
+            module_frames = [fr for fr in chain if fr.get("function") is None]
             assert len(module_frames) == 2
             # The stored value is the integer id of the frame object.
             assert all(isinstance(fr["idframe"], int) for fr in module_frames)
             # Both module frames point at the same frame object.
             assert module_frames[0]["idframe"] == module_frames[1]["idframe"]
             msg_names = {
-                v.name
-                for exc in chain
-                for fr in exc["frames"]
-                for v in fr["variables"]
-                if v.name == "msg"
+                v.name for fr in chain for v in fr["variables"] if v.name == "msg"
             }
             assert "msg" not in msg_names
         finally:

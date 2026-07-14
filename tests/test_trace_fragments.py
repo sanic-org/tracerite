@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from tracerite import extract_chain
+from tracerite.trace.finalize import extract_chain_exceptions as extract_chain
 
 
 def test_fragments_basic_structure():
@@ -400,3 +400,35 @@ def test_fragments_multiline_error_marking():
         assert "1" in all_code, "Should contain the number 1"
         assert "+" in all_code, "Should contain the + operator"
         assert '"a"' in all_code, "Should contain the string 'a'"
+
+
+def test_build_frame_ranges_error_line_zero():
+    """Branch 135->145: when error_line_in_context is zero, return no ranges."""
+    from tracerite.trace.fragments import build_frame_ranges
+
+    assert build_frame_ranges(
+        lineno=1,
+        pos_end_lineno=1,
+        error_line_in_context=0,
+        end_line=None,
+        start_col=None,
+        end_col=None,
+        total_indent=0,
+        lines="x = 1\n",
+    ) == (None, None)
+
+
+def test_build_frame_ranges_fallback_none_for_whitespace_line():
+    """Fallback is None on a whitespace-only line, so return no ranges."""
+    from tracerite.trace.fragments import build_frame_ranges
+
+    assert build_frame_ranges(
+        lineno=1,
+        pos_end_lineno=1,
+        error_line_in_context=1,
+        end_line=None,
+        start_col=None,
+        end_col=None,
+        total_indent=0,
+        lines="    \n",
+    ) == (None, None)

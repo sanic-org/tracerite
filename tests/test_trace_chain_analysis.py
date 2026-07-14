@@ -1,22 +1,23 @@
 """Tests for chain_analysis module - try-except block matching."""
 
-from tracerite.chain_analysis import (
+from tracerite.trace.chain_analysis import (
     TryExceptBlock,
     TryExceptVisitor,
-    _apply_base_exception_suppression,
-    _filter_hidden_frames,
-    _find_chain_link,
-    _frame_in_except_handler,
-    _get_frame_lineno,
     analyze_exception_chain_links,
+    apply_base_exception_suppression,
     build_chronological_frames,
     enrich_chain_with_links,
+    filter_hidden_frames,
+    find_chain_link,
     find_matching_try_for_inner_exception,
     find_try_block_for_except_line,
+    frame_in_except_handler,
+    get_frame_lineno,
     parse_source_for_try_except,
     parse_source_string_for_try_except,
 )
-from tracerite.trace import Range, extract_chain
+from tracerite.trace.core import Range
+from tracerite.trace.finalize import extract_chain_exceptions
 
 from .errorcases import (
     chained_from_and_without,
@@ -230,7 +231,7 @@ class TestAnalyzeExceptionChainLinks:
         try:
             raise ValueError("single")
         except ValueError as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         links = analyze_exception_chain_links(chain)
         assert len(links) == 1
@@ -241,7 +242,7 @@ class TestAnalyzeExceptionChainLinks:
         try:
             chained_from_and_without()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         # Should have 3 exceptions: NameError -> RuntimeError -> AttributeError
         assert len(chain) == 3
@@ -267,7 +268,7 @@ class TestAnalyzeExceptionChainLinks:
         try:
             reraise_context()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         assert len(chain) == 2
         assert chain[0]["type"] == "NameError"
@@ -284,7 +285,7 @@ class TestAnalyzeExceptionChainLinks:
         try:
             unrelated_error_in_except()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         # NameError -> ZeroDivisionError
         assert len(chain) == 2
@@ -294,14 +295,14 @@ class TestAnalyzeExceptionChainLinks:
         # Should still find the link since both are in the same try-except
 
     def test_chain_link_with_missing_filename(self):
-        """Test _find_chain_link returns None when inner frame has no filename."""
+        """Test find_chain_link returns None when inner frame has no filename."""
         try:
             raise ValueError("inner")
         except ValueError:
             try:
                 raise RuntimeError("outer")
             except RuntimeError as e:
-                chain = extract_chain(e)
+                chain = extract_chain_exceptions(e)
 
         # Modify inner frame to have no filename
         if len(chain) >= 2 and chain[0]["frames"]:
@@ -313,14 +314,14 @@ class TestAnalyzeExceptionChainLinks:
         assert links[0] is None  # The link for the second exception
 
     def test_chain_link_with_missing_lineno(self):
-        """Test _find_chain_link returns None when inner frame has no lineno."""
+        """Test find_chain_link returns None when inner frame has no lineno."""
         try:
             raise ValueError("inner")
         except ValueError:
             try:
                 raise RuntimeError("outer")
             except RuntimeError as e:
-                chain = extract_chain(e)
+                chain = extract_chain_exceptions(e)
 
         # Modify inner frame to have no lineno
         if len(chain) >= 2 and chain[0]["frames"]:
@@ -332,7 +333,7 @@ class TestAnalyzeExceptionChainLinks:
         assert links[0] is None
 
     def test_chain_link_with_no_try_except_blocks(self):
-        """Test _find_chain_link returns None when no try-except blocks found."""
+        """Test find_chain_link returns None when no try-except blocks found."""
         import os
         import tempfile
 
@@ -348,7 +349,7 @@ class TestAnalyzeExceptionChainLinks:
                 try:
                     raise RuntimeError("outer")
                 except RuntimeError as e:
-                    chain = extract_chain(e)
+                    chain = extract_chain_exceptions(e)
 
             # Modify filename to point to our temp file
             if len(chain) >= 2 and chain[0]["frames"]:
@@ -362,14 +363,14 @@ class TestAnalyzeExceptionChainLinks:
             os.unlink(temp_file)
 
     def test_frame_with_range_uses_lfirst(self):
-        """Test that _get_frame_lineno uses range[0] when available."""
+        """Test that get_frame_lineno uses range[0] when available."""
 
         frame = {
             "range": Range(lfirst=10, lfinal=15, cbeg=0, cend=5),
             "lineno": 20,
             "linenostart": 25,
         }
-        lineno = _get_frame_lineno(frame)
+        lineno = get_frame_lineno(frame)
         assert lineno == 10  # Should use lfirst from range
 
     def test_frame_lineno_none_continues(self):
@@ -377,13 +378,13 @@ class TestAnalyzeExceptionChainLinks:
         try:
             raise ValueError("test")
         except ValueError as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         # Add a second exception with a frame that has no lineno
         try:
             raise RuntimeError("second")
         except RuntimeError as e2:
-            chain2 = extract_chain(e2)
+            chain2 = extract_chain_exceptions(e2)
             chain.extend(chain2)
 
         # Modify the second chain's frames to have no lineno
@@ -407,7 +408,7 @@ class TestEnrichChainWithLinks:
         try:
             chained_from_and_without()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         enriched = enrich_chain_with_links(chain)
 
@@ -419,7 +420,7 @@ class TestEnrichChainWithLinks:
         try:
             reraise_context()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         enriched = enrich_chain_with_links(chain)
 
@@ -444,7 +445,7 @@ class TestBuildChronologicalFrames:
         try:
             raise ValueError("single")
         except ValueError as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -458,7 +459,7 @@ class TestBuildChronologicalFrames:
         try:
             chained_from_and_without()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -476,7 +477,7 @@ class TestBuildChronologicalFrames:
         try:
             error_via_call_in_except()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -496,7 +497,7 @@ class TestBuildChronologicalFrames:
         try:
             unrelated_error_in_except()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -510,7 +511,7 @@ class TestBuildChronologicalFrames:
         try:
             error_via_call_in_except()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -525,7 +526,7 @@ class TestBuildChronologicalFrames:
         try:
             chained_from_and_without()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -547,7 +548,7 @@ class TestBuildChronologicalFrames:
         try:
             deeply_nested_chain_with_calls()
         except Exception as e:
-            chain = extract_chain(e)
+            chain = extract_chain_exceptions(e)
 
         chrono = build_chronological_frames(chain)
 
@@ -695,7 +696,7 @@ except Exception:
 
 
 class TestFindChainLinkFallbacks:
-    """Tests for _find_chain_link fallback paths."""
+    """Tests for find_chain_link fallback paths."""
 
     def test_no_full_source_fallback_to_file(self):
         """Test fallback to file-based parsing when full_source not available (lines 347-352)."""
@@ -706,7 +707,7 @@ class TestFindChainLinkFallbacks:
             try:
                 raise RuntimeError("outer")
             except RuntimeError as e:
-                chain = extract_chain(e)
+                chain = extract_chain_exceptions(e)
 
         # Remove full_source from inner frame to trigger fallback
         if len(chain) >= 2 and chain[0]["frames"]:
@@ -725,7 +726,7 @@ class TestFindChainLinkFallbacks:
             try:
                 raise RuntimeError("outer")
             except RuntimeError as e:
-                chain = extract_chain(e)
+                chain = extract_chain_exceptions(e)
 
         # Remove both full_source and filename
         if len(chain) >= 2 and chain[0]["frames"]:
@@ -745,7 +746,7 @@ class TestFindChainLinkFallbacks:
             try:
                 raise RuntimeError("outer")
             except RuntimeError as e:
-                chain = extract_chain(e)
+                chain = extract_chain_exceptions(e)
 
         # Remove lineno from outer frames
         if len(chain) >= 2 and chain[1]["frames"]:
@@ -779,13 +780,13 @@ class TestFindChainLinkFallbacks:
                 }
             ],
         }
-        # _find_chain_link should return None since no try-except can be found
-        result = _find_chain_link(inner_exc, outer_exc)
+        # find_chain_link should return None since no try-except can be found
+        result = find_chain_link(inner_exc, outer_exc)
         assert result is None
 
 
 class TestFilterHiddenFrames:
-    """Tests for _filter_hidden_frames function."""
+    """Tests for filter_hidden_frames function."""
 
     def test_filters_hidden_frames(self):
         """Test that hidden frames are filtered out (line 493)."""
@@ -794,7 +795,7 @@ class TestFilterHiddenFrames:
             {"lineno": 2, "hidden": True},  # Should be filtered
             {"lineno": 3},  # No hidden key = not hidden
         ]
-        result = _filter_hidden_frames(frames)
+        result = filter_hidden_frames(frames)
         assert len(result) == 2
         assert result[0]["lineno"] == 1
         assert result[1]["lineno"] == 3
@@ -816,7 +817,7 @@ class TestFilterHiddenFrames:
                 ],
             },
         ]
-        result = _filter_hidden_frames(frames)
+        result = filter_hidden_frames(frames)
         assert len(result) == 1
         # First parallel branch should have hidden frames filtered
         assert len(result[0]["parallel"]) == 1  # Second branch was all hidden
@@ -833,13 +834,13 @@ class TestFilterHiddenFrames:
                 ],
             },
         ]
-        result = _filter_hidden_frames(frames)
+        result = filter_hidden_frames(frames)
         # The frame with empty parallel branches should not be included
         assert len(result) == 0
 
 
 class TestApplyBaseExceptionSuppression:
-    """Tests for _apply_base_exception_suppression function."""
+    """Tests for apply_base_exception_suppression function."""
 
     def test_no_suppression_without_flag(self):
         """Test that suppression doesn't happen without suppress_inner flag."""
@@ -849,7 +850,7 @@ class TestApplyBaseExceptionSuppression:
             {"lineno": 3, "relevance": "error"},
         ]
         chain = [{"type": "ValueError"}]  # No suppress_inner
-        result = _apply_base_exception_suppression(chronological, chain)
+        result = apply_base_exception_suppression(chronological, chain)
         assert result == chronological
 
     def test_suppression_with_flag(self):
@@ -865,7 +866,7 @@ class TestApplyBaseExceptionSuppression:
             },
         ]
         chain = [{"suppress_inner": True}]
-        result = _apply_base_exception_suppression(chronological, chain)
+        result = apply_base_exception_suppression(chronological, chain)
         # Bug frame plus the final error frame are kept; the library call is suppressed
         assert len(result) == 3
         # The error frame keeps its own exception banner
@@ -880,7 +881,7 @@ class TestApplyBaseExceptionSuppression:
             {"lineno": 2, "relevance": "stop", "parallel": [["branch1"]]},
         ]
         chain = [{"suppress_inner": True}]
-        result = _apply_base_exception_suppression(chronological, chain)
+        result = apply_base_exception_suppression(chronological, chain)
         # The library stop frame is suppressed; its parallel moves to the bug frame
         assert len(result) == 1
         assert result[0].get("parallel") == [["branch1"]]
@@ -892,13 +893,13 @@ class TestApplyBaseExceptionSuppression:
             {"lineno": 2, "relevance": "error"},
         ]
         chain = [{"suppress_inner": True}]
-        result = _apply_base_exception_suppression(chronological, chain)
+        result = apply_base_exception_suppression(chronological, chain)
         # Should return as-is when no bug frame found
         assert result == chronological
 
     def test_empty_chain(self):
         """Test with empty chain."""
-        result = _apply_base_exception_suppression([], [])
+        result = apply_base_exception_suppression([], [])
         assert result == []
 
     def test_suppression_transfers_exception_from_suppressed_frame(self):
@@ -908,7 +909,7 @@ class TestApplyBaseExceptionSuppression:
             {"lineno": 2, "relevance": "call", "exception": {"type": "RuntimeError"}},
             {"lineno": 3, "relevance": "error", "exception": {"type": "ValueError"}},
         ]
-        result = _apply_base_exception_suppression(
+        result = apply_base_exception_suppression(
             chronological, [{"suppress_inner": True}]
         )
         assert result[0]["exception"]["type"] == "RuntimeError"
@@ -916,29 +917,29 @@ class TestApplyBaseExceptionSuppression:
 
 
 class TestGetFrameLinenoFallbacks:
-    """Tests for _get_frame_lineno function fallbacks."""
+    """Tests for get_frame_lineno function fallbacks."""
 
     def test_uses_lineno_fallback(self):
         """Test fallback to lineno when no range."""
         frame = {"lineno": 15}
-        assert _get_frame_lineno(frame) == 15
+        assert get_frame_lineno(frame) == 15
 
     def test_uses_linenostart_fallback(self):
         """Test fallback to linenostart when no lineno."""
         frame = {"linenostart": 20}
-        assert _get_frame_lineno(frame) == 20
+        assert get_frame_lineno(frame) == 20
 
     def test_returns_none_when_no_line_info(self):
         """Test returns None when no line info available."""
         frame = {"filename": "test.py"}
-        assert _get_frame_lineno(frame) is None
+        assert get_frame_lineno(frame) is None
 
 
 class TestFindChainLinkEdgeCases:
-    """Additional edge case tests for _find_chain_link."""
+    """Additional edge case tests for find_chain_link."""
 
     def test_inner_frame_lineno_none(self):
-        """Test _find_chain_link returns None when inner frame has no lineno (line 334)."""
+        """Test find_chain_link returns None when inner frame has no lineno (line 334)."""
         inner_exc = {
             "type": "ValueError",
             "frames": [
@@ -957,7 +958,7 @@ class TestFindChainLinkEdgeCases:
                 }
             ],
         }
-        result = _find_chain_link(inner_exc, outer_exc)
+        result = find_chain_link(inner_exc, outer_exc)
         assert result is None
 
     def test_outer_frame_lineno_none_skipped(self):
@@ -988,7 +989,7 @@ class TestFindChainLinkEdgeCases:
         }
         # First outer frame has no lineno and should be skipped,
         # second frame should match
-        result = _find_chain_link(inner_exc, outer_exc)
+        result = find_chain_link(inner_exc, outer_exc)
         # Since source shows try on line 1 (try_start=1, try_end=2),
         # and inner is at line 10 (not in try block 1-2), it won't match
         # This test exercises the continue path but won't find a match
@@ -1016,7 +1017,7 @@ class TestFindChainLinkEdgeCases:
                 },
             ],
         }
-        result = _find_chain_link(inner_exc, outer_exc)
+        result = find_chain_link(inner_exc, outer_exc)
         assert result is None
 
 
@@ -1035,7 +1036,7 @@ class TestSuppressionRelevanceChange:
             },
         ]
         chain = [{"suppress_inner": True}]
-        result = _apply_base_exception_suppression(chronological, chain)
+        result = apply_base_exception_suppression(chronological, chain)
         # Bug frame is followed by the kept error frame
         assert len(result) == 2
         # Bug frame relevance should be changed to "stop"
@@ -1054,7 +1055,7 @@ class TestSuppressionRelevanceChange:
             },
         ]
         chain = [{"suppress_inner": True}]
-        result = _apply_base_exception_suppression(chronological, chain)
+        result = apply_base_exception_suppression(chronological, chain)
         # Both the bug frame and the error frame are kept
         assert len(result) == 2
         # The error frame keeps its exception and relevance
@@ -1072,7 +1073,7 @@ class TestSuppressionRelevanceChange:
             {"lineno": 2, "relevance": "error", "exception": {"type": "Error"}},
         ]
         chain = [{"suppress_inner": True}]
-        result = _apply_base_exception_suppression(chronological, chain)
+        result = apply_base_exception_suppression(chronological, chain)
         assert len(result) == 2
         # Bug frame's "warning" relevance gets changed to "stop"
         assert result[0]["relevance"] == "stop"
@@ -1087,7 +1088,7 @@ class TestSuppressionRelevanceChange:
             {"lineno": 3, "relevance": "error", "exception": {"type": "Error"}},
         ]
         chain = [{"suppress_inner": True}]
-        result = _apply_base_exception_suppression(chronological, chain)
+        result = apply_base_exception_suppression(chronological, chain)
         # All three frames are kept
         assert len(result) == 3
         # First frame keeps "except" relevance
@@ -1112,7 +1113,7 @@ class TestSuppressionRelevanceChange:
             },  # Will be suppressed
         ]
         chain = [{"suppress_inner": True}]
-        result = _apply_base_exception_suppression(chronological, chain)
+        result = apply_base_exception_suppression(chronological, chain)
         # Error frames are kept, so both frames remain
         assert len(result) == 2
         # Existing parallel on the bug frame should not be overwritten
@@ -1122,12 +1123,12 @@ class TestSuppressionRelevanceChange:
 
 
 class TestFrameInExceptHandler:
-    """Tests for _frame_in_except_handler helper."""
+    """Tests for frame_in_except_handler helper."""
 
     def test_missing_filename_and_lineno_returns_false(self):
         """Line 310: no filename/lineno means the frame can't be in an except."""
-        assert _frame_in_except_handler({}) is False
-        assert _frame_in_except_handler({"filename": None, "lineno": None}) is False
+        assert frame_in_except_handler({}) is False
+        assert frame_in_except_handler({"filename": None, "lineno": None}) is False
 
     def test_parse_source_exception_returns_false(self):
         """Lines 318-320: parsing failure falls back to False."""
@@ -1135,7 +1136,7 @@ class TestFrameInExceptHandler:
             "filename": 123,  # non-string filename triggers an unexpected exception
             "lineno": 1,
         }
-        assert _frame_in_except_handler(frame) is False
+        assert frame_in_except_handler(frame) is False
 
     def test_frame_inside_except_handler(self):
         """Frame whose line is inside an except body is detected."""
@@ -1145,7 +1146,7 @@ class TestFrameInExceptHandler:
             "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
             "full_source_start": 1,
         }
-        assert _frame_in_except_handler(frame) is True
+        assert frame_in_except_handler(frame) is True
 
     def test_frame_outside_except_handler(self):
         """Frame whose line is in the try body is not in the except handler."""
@@ -1155,7 +1156,7 @@ class TestFrameInExceptHandler:
             "full_source": "try:\n    pass\nexcept ValueError:\n    handler()\n",
             "full_source_start": 1,
         }
-        assert _frame_in_except_handler(frame) is False
+        assert frame_in_except_handler(frame) is False
 
     def test_string_parse_empty_falls_back_to_file(self):
         """When full_source parses to nothing, file parsing is used as fallback."""
@@ -1176,7 +1177,7 @@ class TestFrameInExceptHandler:
                 "full_source": "    except ValueError:\n        handler()\n",
                 "full_source_start": 1,
             }
-            assert _frame_in_except_handler(frame) is True
+            assert frame_in_except_handler(frame) is True
         finally:
             os.unlink(temp_file)
 
