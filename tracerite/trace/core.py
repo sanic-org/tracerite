@@ -120,19 +120,19 @@ symdesc = {
 symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑", "except": "⚠️"}
 
 # Fixed membership sets used throughout the pipeline
-TRIPLE_QUOTES: frozenset[str] = frozenset(('"""', "'''"))
-QUOTES: frozenset[str] = frozenset(('"', "'"))
-STRING_PREFIX_PAIRS: frozenset[str] = frozenset(("fr", "rf", "br", "rb"))
-STRING_PREFIXES: frozenset[str] = frozenset(("f", "r", "b", "u"))
-EMPHASIS_BEG: frozenset[str] = frozenset(("solo", "beg"))
-EMPHASIS_FIN: frozenset[str] = frozenset(("solo", "fin"))
-EMPHASIS_MARKS: frozenset[str] = frozenset(("solo", "beg", "fin"))
-COMP_CODE_NAMES: frozenset[str] = frozenset(
+TRIPLE_QUOTES = frozenset(('"""', "'''"))
+QUOTES = frozenset(('"', "'"))
+STRING_PREFIX_PAIRS = frozenset(("fr", "rf", "br", "rb"))
+STRING_PREFIXES = frozenset(("f", "r", "b", "u"))
+EMPHASIS_BEG = frozenset(("solo", "beg"))
+EMPHASIS_FIN = frozenset(("solo", "fin"))
+EMPHASIS_MARKS = frozenset(("solo", "beg", "fin"))
+COMP_CODE_NAMES = frozenset(
     ("<module>", "<listcomp>", "<dictcomp>", "<setcomp>", "<genexpr>")
 )
-KEEP_AFTER_SUPPRESSION: frozenset[str] = frozenset(("except", "error"))
-HIGHLIGHT_RELEVANCES: frozenset[str] = frozenset(("error", "stop"))
-PROMOTABLE_RELEVANCES: frozenset[str] = frozenset(("call", "warning"))
+KEEP_AFTER_SUPPRESSION = frozenset(("except", "error"))
+HIGHLIGHT_RELEVANCES = frozenset(("error", "stop"))
+PROMOTABLE_RELEVANCES = frozenset(("call", "warning"))
 
 
 def libdir_match(path):
