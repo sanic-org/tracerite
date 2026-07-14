@@ -83,7 +83,7 @@
 :root .tracerite .exctype { color: var(--tracerite-exception); }
 
 :root .tracerite .traceback-details p { margin: 1em 0; }
-:root .tracerite .traceback-details pre { width: 50vw; padding: .5em; font-size: 0.8em; }
+:root .tracerite .traceback-details pre { width: 50vw; padding: .5em; }
 :root .tracerite .traceback-details .codeline { text-indent: 4ch each-line; }
 :root .tracerite .traceback-details .codeline::before {
   content: attr(data-lineno);
