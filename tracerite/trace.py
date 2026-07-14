@@ -212,6 +212,7 @@ def extract_chain(exc=None, **kwargs) -> list:
     exc = exc or sys.exc_info()[1]
     chain = _collect_exception_chain(exc, **kwargs)
     chain = _digest_exception_chain(chain)
+    _set_chain_relevances(chain)
     chronological = _build_chronological_frames(chain)
     chronological = _finalize_chronological(chronological, chain)
     return chronological
@@ -219,12 +220,24 @@ def extract_chain(exc=None, **kwargs) -> list:
 
 def extract_chain_exceptions(exc=None, **kwargs) -> list:
     """Extract raw exception info dicts, oldest first (internal)."""
-    return _digest_exception_chain(_collect_exception_chain(exc, **kwargs))
+    chain = _digest_exception_chain(_collect_exception_chain(exc, **kwargs))
+    _set_chain_relevances(chain)
+    return chain
 
 
 # =============================================================================
 # Stage 1: collect the raw exception chain
 # =============================================================================
+
+
+def _collect_exception_objects(exc=None) -> list[BaseException]:
+    """Return the live exception objects in chronological order, oldest first."""
+    chain = []
+    exc = exc or sys.exc_info()[1]
+    while exc:
+        chain.append(exc)
+        exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
+    return list(reversed(chain))
 
 
 def _collect_exception_chain(exc=None, **kwargs) -> list[dict]:
@@ -234,13 +247,8 @@ def _collect_exception_chain(exc=None, **kwargs) -> list[dict]:
     the kwargs that should be passed when it is digested.  Skip-related kwargs
     are attached only to the outermost (newest) exception.
     """
-    chain = []
-    exc = exc or sys.exc_info()[1]
-    while exc:
-        chain.append(exc)
-        exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
-    chain = list(reversed(chain))
-    return [{"exc": e, "kwargs": kwargs if e is chain[-1] else {}} for e in chain]
+    objects = _collect_exception_objects(exc)
+    return [{"exc": e, "kwargs": kwargs if e is objects[-1] else {}} for e in objects]
 
 
 # =============================================================================
@@ -249,11 +257,8 @@ def _collect_exception_chain(exc=None, **kwargs) -> list[dict]:
 
 
 def _digest_exception_chain(raw_chain: list[dict]) -> list[dict]:
-    """Convert the raw chain into fully digested exception info dicts."""
-    return [
-        extract_exception(item["exc"], _defer_variables=True, **item["kwargs"])
-        for item in raw_chain
-    ]
+    """Convert the raw chain into digested exception info dicts."""
+    return [_digest_exception(item["exc"], **item["kwargs"]) for item in raw_chain]
 
 
 # =============================================================================
@@ -261,10 +266,21 @@ def _digest_exception_chain(raw_chain: list[dict]) -> list[dict]:
 # =============================================================================
 
 
+def _set_chain_relevances(chain: list[dict]) -> None:
+    """Set error/stop/warning relevances on each exception's raw frames."""
+    for exc in chain:
+        e = exc.pop("_exc")
+        _set_relevances(exc.get("frames", []), e)
+        for sub_chain in exc.get("subexceptions") or []:
+            _set_chain_relevances(sub_chain)
+
+
 def _finalize_chronological(chronological: list[dict], chain: list[dict]) -> list[dict]:
-    """Fill variables and attach metadata that belongs to the final view."""
-    _fill_chronological_variables(chronological)
+    """Apply all final-stage passes to the chronological frame list."""
+    chronological = _filter_hidden_frames(chronological)
+    chronological = _apply_base_exception_suppression(chronological, chain)
     _attach_leaf_types(chain, chronological)
+    _fill_chronological_variables(chronological)
     return chronological
 
 
@@ -307,9 +323,23 @@ def _set_relevances(frames: list, e: BaseException) -> None:
             break
 
 
-def extract_exception(
-    e, *, skip_outmost=0, skip_until=None, _defer_variables=False
-) -> dict:
+def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
+    """Extract a fully finalized exception info dict (Python order)."""
+    info = _digest_exception(e, skip_outmost=skip_outmost, skip_until=skip_until)
+    try:
+        _finalize_python_order_exception(info, e)
+    except Exception:
+        logger.exception("Error extracting traceback")
+        info["frames"] = []
+    return info
+
+
+def _digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
+    """Digest one exception into raw frames and metadata.
+
+    The returned dict still contains the live exception object under the
+    private ``_exc`` key so that finalization passes can use it later.
+    """
     raw_tb = e.__traceback__
     try:
         tb = inspect.getinnerframes(raw_tb)
@@ -320,10 +350,10 @@ def extract_exception(
 
     # For SyntaxError, check if the error is in user code (notebook cell or matching skip_until)
     syntax_frame = None
-    if isinstance(e, SyntaxError):
+    is_syntax_error = isinstance(e, SyntaxError)
+    if is_syntax_error:
         syntax_frame = _extract_syntax_error_frame(e)
         if syntax_frame:
-            # Check if this is a notebook cell (using IPython's filename map) or matches skip_until
             is_user_code = _is_notebook_cell(e.filename) or (
                 skip_until and skip_until in (e.filename or "")
             )
@@ -345,34 +375,21 @@ def extract_exception(
 
     # Header and exception message
     message = getattr(e, "message", "") or str(e)
-    # For SyntaxError, trim redundant location info from message
-    if isinstance(e, SyntaxError):
+    if is_syntax_error:
         message = clean_syntax_error_message(message)
     summary = _create_summary(message)
-    # Check if context is suppressed (raise X from None) - affects source trimming
     f = _chain_reason(e)
+
     try:
-        frames = extract_frames(
-            tb,
-            raw_tb,
-            except_block=(f != "none"),
-            exc=e,
-            exc_message=message,
-            _defer_variables=_defer_variables,
-        )
+        frames = _digest_frames(tb, raw_tb, except_block=(f != "none"))
         # For SyntaxError, add the synthetic frame showing the problematic code
         if syntax_frame:
-            # Demote the previous frame (compile, exec, etc.) to call only
-            if frames and frames[-1]["relevance"] == "error":
-                frames[-1]["relevance"] = "call"
             frames.append(syntax_frame)
-    except Exception:
+    except Exception:  # pragma: no cover
         logger.exception("Error extracting traceback")
         frames = None
 
     # Determine if this is a "stop" type exception (BaseException or ExceptionGroup)
-    # These suppress inner library frames, showing only up to the last user code frame.
-    # ExceptionGroups suppress because the interesting parts are in subexceptions.
     is_stop_type = not isinstance(e, Exception) or _is_exception_group(e)
 
     result = {
@@ -383,15 +400,14 @@ def extract_exception(
         "repr": repr(e),
         "frames": frames or [],
         "suppress_inner": is_stop_type,
+        "_exc": e,
     }
 
     # Extract subexceptions for ExceptionGroups (Python 3.11+)
-    # These form parallel timelines within the group's traceback
     subexceptions = _extract_subexceptions(
         e,
         skip_outmost=skip_outmost,
         skip_until=skip_until,
-        _defer_variables=_defer_variables,
     )
     if subexceptions:
         result["subexceptions"] = subexceptions
@@ -399,32 +415,52 @@ def extract_exception(
     return result
 
 
+def _finalize_python_order_exception(info: dict, e: BaseException) -> None:
+    """Finalize a digested exception dict in Python order."""
+    frames = info.get("frames", [])
+    if frames:
+        is_syntax = isinstance(e, SyntaxError) and "frame_obj" not in frames[-1]
+        if is_syntax and len(frames) >= 2:
+            _set_relevances(frames[:-1], e)
+            frames[-2]["relevance"] = "call"
+        else:
+            _set_relevances(frames, e)
+        _fill_variables(frames, info["message"])
+
+    subexceptions = info.get("subexceptions")
+    if subexceptions and hasattr(e, "exceptions"):
+        _finalize_python_order_subexceptions(subexceptions, e.exceptions)
+
+    info.pop("_exc", None)
+
+
+def _finalize_python_order_subexceptions(
+    raw_subs: list[list[dict]], exc_objects: Any
+) -> None:
+    """Finalize raw subexception chains using the live ExceptionGroup objects."""
+    for raw_chain, sub_exc in zip(raw_subs, exc_objects, strict=False):
+        object_chain = _collect_exception_objects(sub_exc)
+        for info, exc in zip(raw_chain, object_chain, strict=False):
+            _finalize_python_order_exception(info, exc)
+
+
 def _extract_subexceptions(
-    e, *, skip_outmost=0, skip_until=None, _defer_variables=False
+    e, *, skip_outmost=0, skip_until=None
 ) -> list[list[dict]] | None:
-    """Return parallel exception chains for an ExceptionGroup, or None."""
-    # Check if this is an ExceptionGroup (Python 3.11+)
-    # BaseExceptionGroup is the base class for both ExceptionGroup and BaseExceptionGroup
-    if not hasattr(e, "exceptions") or not isinstance(
-        getattr(e, "exceptions", None), (tuple, list)
-    ):
+    """Return parallel raw exception chains for an ExceptionGroup, or None."""
+    if not _is_exception_group(e):
         return None
 
     subexceptions = e.exceptions
     if not subexceptions:
         return None
 
-    # Extract each subexception as its own chain
-    # Each subexception may itself be an ExceptionGroup with nested subexceptions
     parallel_chains = []
     for sub_exc in subexceptions:
-        # Recursively extract the chain for this subexception
-        # This handles nested ExceptionGroups and exception chaining within each sub
         sub_chain = _extract_subexception_chain(
             sub_exc,
             skip_outmost=skip_outmost,
             skip_until=skip_until,
-            _defer_variables=_defer_variables,
         )
         if sub_chain:  # pragma: no cover
             parallel_chains.append(sub_chain)
@@ -432,32 +468,11 @@ def _extract_subexceptions(
     return parallel_chains if parallel_chains else None
 
 
-def _extract_subexception_chain(
-    exc, *, skip_outmost=0, skip_until=None, _defer_variables=False
-) -> list[dict]:
-    """Extract the exception chain for one ExceptionGroup subexception."""
-    chain = []
-    current = exc
-    while current:
-        chain.append(current)
-        current = (
-            current.__cause__ or None
-            if current.__suppress_context__
-            else current.__context__
-        )
-    # Reverse to get oldest first
-    chain = list(reversed(chain))
-
-    # Extract info for each exception in the chain
-    # Pass skip args only to the last one (the actual subexception)
+def _extract_subexception_chain(exc, *, skip_outmost=0, skip_until=None) -> list[dict]:
+    """Extract the raw exception chain for one ExceptionGroup subexception."""
+    chain = _collect_exception_objects(exc)
     kwargs = {"skip_outmost": skip_outmost, "skip_until": skip_until}
-    result = [
-        extract_exception(
-            e, _defer_variables=_defer_variables, **(kwargs if e is chain[-1] else {})
-        )
-        for e in chain
-    ]
-    return result
+    return [_digest_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
 
 
 def _is_notebook_cell(filename):
@@ -1263,8 +1278,18 @@ def extract_frames(
     except_block=False,
     exc=None,
     exc_message=None,
-    _defer_variables=False,
 ) -> list:
+    """Extract finalized frames from a traceback frame list (Python order)."""
+    frames = _digest_frames(tb, raw_tb, except_block=except_block)
+    if exc is not None:
+        _finalize_python_order_frames(frames, exc, exc_message)
+    else:
+        _fill_variables(frames, exc_message)
+    return frames
+
+
+def _digest_frames(tb, raw_tb=None, *, except_block=False) -> list[dict]:
+    """Convert a traceback into raw frame dicts without relevances/variables."""
     if not tb:
         return []
 
@@ -1302,14 +1327,15 @@ def extract_frames(
         if frame_info is not None:
             frames.append(frame_info)
 
-    if exc is not None:
-        _set_relevances(frames, exc)
-    if _defer_variables:
-        for frame in frames:
-            frame.setdefault("variables", [])
-    else:
-        _fill_variables(frames, exc_message)
     return frames
+
+
+def _finalize_python_order_frames(
+    frames: list[dict], e: BaseException, exc_message: str | None
+) -> None:
+    """Set relevances and fill variables for a Python-order frame list."""
+    _set_relevances(frames, e)
+    _fill_variables(frames, exc_message)
 
 
 def _extract_single_frame(
