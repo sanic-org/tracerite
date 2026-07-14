@@ -520,9 +520,9 @@ def variable_inspector(doc: Any, variables: list[Any]) -> None:
 
             doc.dt.span(n, class_="var")
             if t:
-                doc(": ").span(f"{t}\u00a0=\u00a0", class_="type")
+                doc(": ").span(t, class_="type").doc("\u00a0=\u00a0")
             else:
-                doc("\u00a0").span("=\u00a0", class_="type")  # No type printed
+                doc("\u00a0=\u00a0")  # No type printed
             doc.dd(class_=f"val val-{fmt}")
             if isinstance(v, str):
                 if fmt == "block":

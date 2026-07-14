@@ -1,5 +1,5 @@
 /* Compact mode uses CSS Grid - see COMPACT MODE section below */
-@import url('https://cdn.jsdelivr.net/npm/@fontsource/monaspace-krypton/index.css');
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@500&display=swap');
 
 /** TraceRite **/
 :root {
@@ -19,7 +19,7 @@
   --tracerite-link-hover: #fff8;
   --tracerite-function: #68f;
   --tracerite-location: #5a6;
-  --tracerite-code-font: 'Monaspace Krypton', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Ubuntu Mono', 'Consolas', 'Courier New';
+  --tracerite-code-font: "Fira Code", "Source Code Pro", Menlo, Meslo, Monaco, Consolas, "Lucida Console", monospace;
   --tracerite-ui-font: system-ui, -apple-system, 'Segoe UI', 'Roboto', 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
 }
 
@@ -48,27 +48,27 @@
   }
 }
 
-:root .tracerite { font-family: var(--tracerite-ui-font); font-size: 16px; }
-:root .tracerite,
-:root .tracerite *,
-:root .tracerite .traceback-details table,
-:root .tracerite > h2,
-:root .tracerite > h3 { margin: 0; padding: 0; outline: none; box-sizing: border-box; line-height: 1.2; font: var(--tracerite-ui-font); font-weight: 700;}
+:root .tracerite {
+  font-family: var(--tracerite-ui-font);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+}
 
-:root .tracerite > h2 { font-size: 1.4em; }
-:root .tracerite > h3 { font-size: 1.2em; }
+:root .tracerite,
+:root .tracerite * { margin: 0; padding: 0; outline: none; box-sizing: border-box; }
+
+:root .tracerite > h2 { font-size: 1.4em; font-weight: 500; }
+:root .tracerite > h3 { font-size: 1.2em; font-weight: 500; }
 
 /* Code font declarations with high specificity - only for code tags */
 :root .tracerite pre,
 :root .tracerite code {
   font-family: var(--tracerite-code-font);
+  font-weight: 500;
   font-feature-settings:
-    "calt" 1,   /* texture healing / contextual alternates */
-    "liga" 1,   /* standard & repeating-character ligatures */
-    "ss01" 1, "ss02" 1, "ss03" 1, "ss04" 1,
-    "ss05" 1, "ss06" 1, "ss07" 1, "ss08" 1, "ss09" 1,  /* coding ligatures */
-    "cv01" 2,   /* slashed zero */
-    "cv31" 1;   /* six-pointed asterisk */
+    "calt" 1,   /* contextual alternates */
+    "liga" 1;   /* standard ligatures */
   font-variant-ligatures: common-ligatures;
   background: none;
   color: var(--tracerite-code);
@@ -76,9 +76,8 @@
   word-break: normal;
 }
 
-:root .tracerite strong { font-weight: bold; padding: 0.2em 0; }
+:root .tracerite strong { font-weight: 700; padding: 0.2em 0; }
 :root .tracerite > h3 {
-  font-weight: bold;
   padding: 0.2rem 0.5rem 0.2rem 1rem;
   white-space: normal;
   overflow-wrap: break-word;
@@ -104,7 +103,10 @@
 
 :root .tracerite .traceback-details p { margin: 1em 0; }
 :root .tracerite .traceback-details pre { width: 50vw; padding: .5em; }
-:root .tracerite .traceback-details .codeline { text-indent: 4ch each-line; }
+:root .tracerite .traceback-details .codeline {
+  text-indent: 4ch each-line;
+  line-height: 1.5;
+}
 :root .tracerite .traceback-details .codeline::before {
   content: attr(data-lineno);
   color: var(--tracerite-lineno);
@@ -120,7 +122,7 @@
 }
 :root .tracerite .traceback-details pre:hover .codeline::before { opacity: 1.0; }
 
-:root .tracerite .traceback-details mark { background: var(--tracerite-highlight); color: var(--tracerite-highlight-text); padding: 0.2em; margin: -0.1em; }
+:root .tracerite .traceback-details mark { background: var(--tracerite-highlight); color: var(--tracerite-highlight-text); padding: 0.08em; margin: -0.1em; }
 :root .tracerite .traceback-details em { font-style: normal; color: var(--tracerite-caret); }
 
 /* Symbol element - display symbol emoji and description together */
@@ -129,7 +131,7 @@
   margin: -0.05em 0 -0.05em 0.5ch;
   text-indent: 0;
   font-size: 1.25em;
-  font-weight: bold;
+  font-weight: 700;
   line-height: 1;
   vertical-align: middle;
   font-family: var(--tracerite-ui-font);
@@ -162,7 +164,7 @@
 :root .tracerite .traceback-ellipsis { min-width: 4ch; text-align: center; }
 
 /* Base styles for frame-function and frame-location */
-:root .tracerite .frame-function { font-weight: 600; color: var(--tracerite-function); line-height: 1.2; }
+:root .tracerite .frame-function { font-weight: 500; color: var(--tracerite-function); line-height: 1.2; }
 :root .tracerite .frame-location { color: var(--tracerite-location); line-height: 1.2; }
 :root .tracerite .frame-colon { color: var(--tracerite-code); font-weight: 700; }
 :root .tracerite .frame-lineno { color: var(--tracerite-lineno); display: inline; }
@@ -194,16 +196,17 @@
   width: 100%;
   text-align: right;
   vertical-align: top;
-  font-weight: normal;
+  font-weight: 400;
   float: none;
 }
 :root .tracerite dl.inspector dt {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
+  align-self: center;
 }
-:root .tracerite .inspector .var { font-weight: bold; color: var(--tracerite-var); }
-:root .tracerite .inspector .type { white-space: nowrap; color: var(--tracerite-type); }
+:root .tracerite .inspector .var { font-weight: 700; color: var(--tracerite-var); }
+:root .tracerite .inspector .type { white-space: nowrap; color: var(--tracerite-type); font-weight: 300; }
 :root .tracerite .inspector .val { white-space: pre; text-overflow: ellipsis; overflow: hidden; color: var(--tracerite-val); }
 
 /* Block format for multi-line strings - left aligned */
@@ -235,32 +238,38 @@
 }
 
 /* Nested table styling (for matrices) */
+:root .tracerite .inspector table {
+  border-collapse: separate;
+  border-spacing: 1px;
+  margin: 0.3em 0;
+}
+
 :root .tracerite .inspector table td {
   color: var(--tracerite-val);
   word-break: keep-all;
   overflow: hidden;
   font-size: 0.8em;
-  border-collapse: collapse;
   text-align: right;
+  background: #8882;
+  padding: 0.1em 0.4em;
+  min-width: 3em;
 }
 
 :root .tracerite .inspector tr {
   background: none;
 }
 
-/* matrix value on a variable */
-:root .tracerite .inspector .val-inline table td {
-  padding: 0 0.4em;
-  min-width: 2em;
-}
+
 
 /* Key-value dl styling (dicts, dataclasses) */
 :root .tracerite .inspector dl.keyvalue-dl {
   display: grid;
   grid-template-columns: auto 1fr;
-  margin: 0;
+  margin: 0.3em 0;
   padding-top: 0.2em;
   font-size: 0.8em;
+  gap: 1px;
+  width: fit-content;
 }
 :root .tracerite .inspector dl.keyvalue-dl dt,
 :root .tracerite .inspector dl.keyvalue-dl dd {
@@ -273,14 +282,18 @@
 :root .tracerite .inspector dl.keyvalue-dl dt {
   text-align: right;
   color: var(--tracerite-var);
-  font-weight: bold;
+  font-weight: 700;
   width: max-content;
   float: none;
+  background: #8882;
+  padding: 0.1em 0.4em;
 }
 :root .tracerite .inspector dl.keyvalue-dl dd {
   text-align: left;
   width: auto;
   float: none;
+  background: #8882;
+  padding: 0.1em 0.4em;
 }
 
 /* Array with scale factor container */
@@ -293,7 +306,7 @@
 /* Scale suffix for arrays (e.g., ×10⁶) */
 :root .tracerite .inspector .scale-suffix {
   font-size: 1.4em;
-  font-weight: bold;
+  font-weight: 700;
   white-space: nowrap;
   align-self: center;
 }
