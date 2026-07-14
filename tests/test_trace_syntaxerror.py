@@ -4,16 +4,15 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from tracerite.trace import (
-    extract_chain,
-    extract_exception,
-    format_location,
-)
+from tracerite.trace import extract_chain
 from tracerite.trace.core import create_summary
 from tracerite.trace.digest import (
     extract_syntax_error_frame,
+    format_location,
     is_notebook_cell,
 )
+
+from .helpers import extract_exception
 
 
 class TestSyntaxErrorFrameExtraction:

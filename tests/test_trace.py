@@ -9,11 +9,9 @@ import textwrap
 import pytest
 
 from tracerite import extract_chain
-from tracerite.trace import (
+from tracerite.trace.finalize import (
     build_chain_header,
     extract_chain_exceptions,
-    extract_exception,
-    extract_frames,
 )
 
 from .errorcases import (
@@ -29,6 +27,7 @@ from .errorcases import (
     unrelated_error_in_except,
     unrelated_error_in_finally,
 )
+from .helpers import extract_exception, extract_frames
 
 
 @pytest.mark.skipif(
@@ -997,7 +996,7 @@ class TestLibdirPattern:
 
     def test_libdir_pattern_matches_site_packages(self):
         """Test that libdir pattern matches site-packages paths."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         assert libdir.fullmatch("/usr/lib/python3.9/site-packages/module.py")
         assert libdir.fullmatch(
@@ -1006,20 +1005,20 @@ class TestLibdirPattern:
 
     def test_libdir_pattern_matches_dist_packages(self):
         """Test that libdir pattern matches dist-packages paths."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         assert libdir.fullmatch("/usr/lib/python3/dist-packages/module.py")
 
     def test_libdir_pattern_matches_usr_paths(self):
         """Test that libdir pattern matches library paths."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         assert libdir.fullmatch("/usr/lib/python3.9/site-packages/module.py")
         assert libdir.fullmatch("/usr/local/lib/python3.9/dist-packages/module.py")
 
     def test_libdir_pattern_does_not_match_user_code(self):
         """Test that libdir pattern doesn't match user code paths."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         assert not libdir.fullmatch("/home/user/project/module.py")
         assert not libdir.fullmatch("./mycode.py")
@@ -1027,7 +1026,7 @@ class TestLibdirPattern:
 
     def test_libdir_pattern_matches_cache_directories(self):
         """Test that libdir pattern matches .cache directory paths."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         assert libdir.fullmatch("/home/user/.cache/some_lib/module.py")
         assert libdir.fullmatch("/home/user/.cache/torch/model.py")
@@ -1037,7 +1036,7 @@ class TestLibdirPattern:
 
     def test_libdir_pattern_does_not_match_ipython_input(self):
         """Test that libdir pattern doesn't match IPython/Jupyter input cells."""
-        from tracerite.trace import libdir
+        from tracerite.trace.core import libdir
 
         # IPython input cells should be treated as user code
         assert not libdir.fullmatch("<ipython-input-1>")
@@ -1095,7 +1094,7 @@ def test_extract_source_lines_invalid_range():
 
     # Modify the frame's code to have invalid lineno or something? Wait, hard.
     # Perhaps this test is not needed.
-    from tracerite.trace import extract_source_lines
+    from tracerite.trace.digest import extract_source_lines
 
     lines, start, indent, _ = extract_source_lines(frame, frame.f_lineno)
     assert lines  # Should return something
@@ -1128,7 +1127,7 @@ def test_extract_source_lines_with_trailing_blank_lines():
     """
     import linecache
 
-    from tracerite.trace import extract_exception
+    from .helpers import extract_exception
 
     # Create an error case with blank lines after the error line
     # The error is early in the function so trailing lines are included

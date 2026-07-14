@@ -6,15 +6,16 @@ import sys
 import pytest
 
 from tracerite.html import html_traceback
-from tracerite.trace import (
+from tracerite.trace.chain_analysis import build_chronological_frames
+from tracerite.trace.digest import extract_subexceptions, is_exception_group
+from tracerite.trace.finalize import (
     build_chain_header,
     extract_chain,
     extract_chain_exceptions,
-    extract_exception,
 )
-from tracerite.trace.chain_analysis import build_chronological_frames
-from tracerite.trace.digest import extract_subexceptions, is_exception_group
 from tracerite.tty import tty_traceback
+
+from .helpers import extract_exception
 
 
 @pytest.mark.skipif(
@@ -571,7 +572,7 @@ class TestCoverageEdgeCases:
         """Test extract_source_lines for notebook cell without except block (line 478)."""
         from unittest.mock import patch
 
-        from tracerite.trace import extract_source_lines
+        from tracerite.trace.digest import extract_source_lines
 
         # Create a real frame by calling a function
         def dummy():

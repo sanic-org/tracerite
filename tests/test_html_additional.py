@@ -4,8 +4,10 @@ import pytest
 
 from tracerite.html import html_traceback, javascript, style
 from tracerite.inspector import VarInfo
-from tracerite.trace import extract_chain, extract_exception
+from tracerite.trace import extract_chain
 from tracerite.trace.chain_analysis import build_chronological_frames
+
+from .helpers import extract_exception
 
 
 def _chrono(exc_info):

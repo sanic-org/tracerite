@@ -6,10 +6,9 @@ from typing import Any
 
 from tracerite.logging import logger
 
-from .collect import collect_exception_chain, collect_exception_objects
+from .collect import collect_exception_chain
 from .core import libdir_match
 from .digest import (
-    digest_exception,
     digest_exception_chain,
     is_exception_group,
 )
@@ -203,54 +202,6 @@ def set_relevances(frames: list, e: BaseException) -> None:
             break
 
 
-def extract_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
-    """Extract a fully finalized exception info dict (Python order)."""
-    info = digest_exception(e, skip_outmost=skip_outmost, skip_until=skip_until)
-    try:
-        finalize_python_order_exception(info, e)
-    except Exception:
-        logger.exception("Error extracting traceback")
-        info["frames"] = []
-    return info
-
-
-def finalize_python_order_exception(info: dict, e: BaseException) -> None:
-    """Finalize a digested exception dict in Python order."""
-    frames = info.get("frames", [])
-    if frames:
-        is_syntax = isinstance(e, SyntaxError) and "frame_obj" not in frames[-1]
-        if is_syntax and len(frames) >= 2:
-            set_relevances(frames[:-1], e)
-            frames[-2]["relevance"] = "call"
-        else:
-            set_relevances(frames, e)
-        fill_variables(frames, info["message"])
-
-    subexceptions = info.get("subexceptions")
-    if subexceptions and hasattr(e, "exceptions"):
-        finalize_python_order_subexceptions(subexceptions, e.exceptions)
-
-    info.pop("_exc", None)
-
-
-def finalize_python_order_subexceptions(
-    raw_subs: list[list[dict]], exc_objects: Any
-) -> None:
-    """Finalize raw subexception chains using the live ExceptionGroup objects."""
-    for raw_chain, sub_exc in zip(raw_subs, exc_objects, strict=False):
-        object_chain = collect_exception_objects(sub_exc)
-        for info, exc in zip(raw_chain, object_chain, strict=False):
-            finalize_python_order_exception(info, exc)
-
-
-def finalize_python_order_frames(
-    frames: list[dict], e: BaseException, exc_message: str | None
-) -> None:
-    """Set relevances and fill variables for a Python-order frame list."""
-    set_relevances(frames, e)
-    fill_variables(frames, exc_message)
-
-
 def fill_frame_variables(frame: dict, exc_message: str | None = None) -> None:
     """Extract variables for a single frame and drop its live frame object."""
     from tracerite.inspector import extract_variables
@@ -262,11 +213,15 @@ def fill_frame_variables(frame: dict, exc_message: str | None = None) -> None:
         frame.setdefault("variables", [])
         return
 
-    frame["variables"] = extract_variables(
-        frame_obj.f_locals,
-        variable_source,
-        exc_message=exc_message,
-    )
+    try:
+        frame["variables"] = extract_variables(
+            frame_obj.f_locals,
+            variable_source,
+            exc_message=exc_message,
+        )
+    except Exception:
+        logger.exception("Error extracting variables")
+        frame["variables"] = []
 
 
 def fill_variables(frames: list[dict], exc_message: str | None = None) -> None:

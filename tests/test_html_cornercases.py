@@ -6,8 +6,11 @@ import pytest
 from bs4 import BeautifulSoup
 
 from tracerite.html import html_traceback, javascript, style
-from tracerite.trace import extract_chain, extract_exception, symbols
+from tracerite.trace import extract_chain
 from tracerite.trace.chain_analysis import build_chronological_frames
+from tracerite.trace.core import symbols
+
+from .helpers import extract_exception
 
 
 def _chrono(exc_info):

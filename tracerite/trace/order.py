@@ -158,7 +158,7 @@ def build_chronological_frames(
     if len(chain) == 1 and not chain[0].get("subexceptions"):
         exc = chain[0]
         frames = exc.get("frames", [])
-        chronological: list[dict] = [append_copied_frame([], frame) for frame in frames]
+        chronological: list[dict] = [{**frame} for frame in frames]
         if chronological:
             chronological[-1]["exception"] = make_exception_banner(exc, 0)
         chronological = filter_hidden_frames(chronological)
@@ -223,14 +223,10 @@ def apply_base_exception_suppression(
 
 
 def find_last_bug_frame(chronological: list[dict]) -> int | None:
-    return next(
-        (
-            idx
-            for idx, frame in enumerate(chronological)
-            if frame.get("relevance") == "warning"
-        ),
-        None,
-    )
+    for idx in reversed(range(len(chronological))):
+        if chronological[idx].get("relevance") == "warning":
+            return idx
+    return None
 
 
 def split_suppressed_frames(

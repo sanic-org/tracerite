@@ -8,19 +8,22 @@ import warnings
 from pathlib import Path
 from typing import Any, TextIO
 
-from .trace import (
+from .trace.core import (
+    EMPHASIS_BEG,
+    EMPHASIS_FIN,
+    chainmsg,
+    symbols,
+    symdesc,
+)
+from .trace.finalize import (
     build_chain_header,
     call_run_ranges,
-    chainmsg,
     exception_info,
     extract_chain,
     extract_chain_exceptions,
     function_display,
     normalize_variable,
-    symbols,
-    symdesc,
 )
-from .trace.core import EMPHASIS_BEG, EMPHASIS_FIN
 
 __all__ = ["load", "unload", "tty_traceback"]
 
@@ -138,7 +141,8 @@ def tty_traceback(
         term_width: Terminal width. Auto-detected if None.
         **extract_args: Additional arguments passed to extract_chain().
     """
-    chain = chain or extract_chain(exc=exc, **extract_args)
+    if chain is None:
+        chain = extract_chain(exc=exc, **extract_args)
 
     # Build header message if not provided
     if msg is None and chain:
@@ -178,11 +182,16 @@ def tty_traceback(
             term_width = 80
 
     if not chain and exc is not None:
-        # Exception with no frames: render banners directly
-        for exc_dict in extract_chain_exceptions(exc):
-            last_banner_start = len(output)
-            output += _build_exception_banner(exception_info(exc_dict), term_width)
+        # Exception with no frames: build banners into chrono_output so
+        # last_banner_start stays relative to chrono_output, just like the
+        # normal path.
         chrono_output = ""
+        last_banner_start = 0
+        for exc_dict in extract_chain_exceptions(exc):
+            last_banner_start = len(chrono_output)
+            chrono_output += _build_exception_banner(
+                exception_info(exc_dict), term_width
+            )
     else:
         chrono_output, last_banner_start = _print_chronological(
             chain, term_width, no_inspector

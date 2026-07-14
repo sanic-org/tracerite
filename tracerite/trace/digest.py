@@ -182,7 +182,7 @@ def extract_subexception_chain(
 
 def is_notebook_cell(filename):
     """Check if the filename corresponds to a Jupyter notebook cell."""
-    from . import ipython
+    from .core import ipython
 
     try:
         return filename in ipython.compile._filename_map  # type: ignore[attr-defined]
@@ -453,7 +453,7 @@ def get_full_source(frame, lineno=None, *, cache: dict | None = None):
 
 def format_location(filename, lineno, col=1):
     """Return (filename, location_string, urls) for a frame."""
-    from . import ipython
+    from .core import ipython
 
     urls = {}
     location = None
@@ -757,7 +757,7 @@ def resolve_syntax_error_source(e, filename, notebook_cell):
     """Resolve source text for a SyntaxError from linecache or e.text."""
     import linecache
 
-    from . import ipython
+    from .core import ipython
 
     lines = None
     start = 1
@@ -878,26 +878,6 @@ def _build_syntax_mark_ranges(
         )
 
     return mark_range, em_ranges
-
-
-def extract_frames(
-    tb,
-    raw_tb=None,
-    *,
-    except_block=False,
-    exc=None,
-    exc_message=None,
-) -> list:
-    """Extract finalized frames from a traceback frame list (Python order)."""
-    frames = digest_frames(tb, raw_tb, except_block=except_block)
-    # Local import to avoid a top-level circular dependency with finalize.py.
-    from .finalize import fill_variables, finalize_python_order_frames
-
-    if exc is not None:
-        finalize_python_order_frames(frames, exc, exc_message)
-    else:
-        fill_variables(frames, exc_message)
-    return frames
 
 
 def digest_frames(

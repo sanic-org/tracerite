@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from tracerite.trace import extract_chain_exceptions as extract_chain
+from tracerite.trace.finalize import extract_chain_exceptions as extract_chain
 
 
 def test_fragments_basic_structure():

@@ -6,14 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.hidden_module import internal_helper_function
-from tracerite.trace import (
-    Range,
-    compute_cursor_position,
-    extract_exception,
-    extract_frames,
-    format_location,
-)
+from tracerite.trace.core import Range, compute_cursor_position
+from tracerite.trace.digest import format_location
 from tracerite.trace.fragments import fallback_mark_range_for_line
+
+from .helpers import extract_exception, extract_frames
 
 
 def _trigger_error_no_source():
@@ -218,9 +215,10 @@ class TestTraceCornercases:
                 "tracerite.inspector.extract_variables",
                 side_effect=RuntimeError("test"),
             ):
-                # Should catch and log exception, return None for frames
+                # Should catch the per-frame variable error and continue
                 info = extract_exception(e)
-                assert info["frames"] == []
+                assert info["frames"]
+                assert info["frames"][-1]["variables"] == []
 
     def test_skip_until_not_found(self):
         """Test skip_until when pattern is not found in any frame."""
@@ -233,7 +231,7 @@ class TestTraceCornercases:
 
     def test_getsourcelines_oserror_call_frame(self):
         """Test OSError in getsourcelines causes call frames to be skipped (line 113)."""
-        from tracerite.trace import extract_frames
+        from .helpers import extract_frames
 
         def level_1():
             level_2()
@@ -268,7 +266,7 @@ class TestTraceCornercases:
 
     def test_tracebackhide_in_locals(self):
         """Test __tracebackhide__ in f_locals skips frame (line 87)."""
-        from tracerite.trace import extract_frames
+        from .helpers import extract_frames
 
         # Use exec to create a function with __tracebackhide__ that persists
         code = """
@@ -457,8 +455,9 @@ hidden_frame()
                     # In the new API, we also have a range field
                     range_obj = error_frame.get("range")
 
-                    # The error is raised on line 21 in _trigger_error_no_source
-                    expected_lineno = 21
+                    # When source is unavailable, the fallback starts at the
+                    # line where the exception was raised.
+                    expected_lineno = error_frame["lineno"]
 
                     # Verify the range contains the correct line number
                     if range_obj:
@@ -468,7 +467,7 @@ hidden_frame()
 
                     # Verify start was properly initialized when OSError occurred
                     assert linenostart == expected_lineno, (
-                        f"linenostart should be {expected_lineno} (line where error was raised), "
+                        f"linenostart should be {expected_lineno} (function start), "
                         f"but got {linenostart}"
                     )
 
@@ -723,7 +722,7 @@ hidden_frame()
 
     def test_convert_range_to_positions_empty(self):
         """Test convert_range_to_positions with empty lines (line 508)."""
-        from tracerite.trace import Range
+        from tracerite.trace.core import Range
         from tracerite.trace.fragments import convert_range_to_positions
 
         # Empty lines - this should trigger line 508
@@ -922,7 +921,7 @@ class TestMissingCoverageBranches:
         the code should skip the is_user_code check and continue.
         This happens when filename or lineno is None.
         """
-        from tracerite.trace import extract_exception
+        from .helpers import extract_exception
 
         e = SyntaxError("test error")
         e.filename = None  # This will cause extract_syntax_error_frame to return None
@@ -1073,7 +1072,7 @@ class TestMissingCoverageBranches:
         When a frame has __tracebackhide__ = "until", all previous frames
         should be cleared.
         """
-        from tracerite.trace import extract_frames
+        from .helpers import extract_frames
 
         def early_frame():
             middle_frame()
@@ -1271,7 +1270,7 @@ class TestExtractSourceLinesEdgeCases:
         """Test extract_source_lines returns empty when error_idx < 0 (line 506)."""
         from unittest.mock import MagicMock, patch
 
-        from tracerite.trace import extract_source_lines
+        from tracerite.trace.digest import extract_source_lines
 
         # Create a mock frame
         frame = MagicMock()
@@ -1291,7 +1290,7 @@ class TestExtractSourceLinesEdgeCases:
         """Test extract_source_lines when lineno >= len(lines) (line 506)."""
         from unittest.mock import MagicMock, patch
 
-        from tracerite.trace import extract_source_lines
+        from tracerite.trace.digest import extract_source_lines
 
         frame = MagicMock()
         frame.f_code.co_filename = "test.py"
@@ -1312,7 +1311,7 @@ class TestHiddenFramesWithNoSource:
         """Test that hidden frames without source are still tracked (lines 1040-1041)."""
         from unittest.mock import patch
 
-        from tracerite.trace import extract_frames
+        from .helpers import extract_frames
 
         # This tests the case where a hidden frame (from tracebackhide)
         # has no source lines but is not the last frame
@@ -1475,7 +1474,8 @@ class TestFallbackMarkRange:
 
     def test_extract_frames_fallback_mark_range(self, monkeypatch):
         """Test fallback mark range when position columns are unavailable (line 1539)."""
-        from tracerite.trace import extract_chain_exceptions, trace_cpy
+        from tracerite.trace import trace_cpy
+        from tracerite.trace.finalize import extract_chain_exceptions
 
         monkeypatch.setattr(
             trace_cpy, "_get_code_position", lambda code, idx: (None, None, None, None)
@@ -1494,21 +1494,22 @@ class TestFallbackMarkRange:
 
     def test_extract_frames_error_line_zero(self, monkeypatch):
         """Test branch when error_line_in_context is 0 (line 1539->1545)."""
-        from tracerite import trace
-        from tracerite.trace import extract_chain_exceptions, trace_cpy
+        from tracerite.trace import digest, trace_cpy
+        from tracerite.trace.finalize import extract_chain_exceptions
 
         def fake_extract_source_lines(
-            filename,
+            frame,
             lineno,
             end_lineno=None,
-            frame=None,
-            except_block=False,
+            *,
             notebook_cell=False,
+            except_block=False,
+            cache=None,
         ):
             # Start source after the error line so error_line_in_context becomes 0
-            return ("    pass\n", lineno + 1, "    ")
+            return ("    pass\n", lineno + 1, "    ", None)
 
-        monkeypatch.setattr(trace, "extract_source_lines", fake_extract_source_lines)
+        monkeypatch.setattr(digest, "extract_source_lines", fake_extract_source_lines)
         monkeypatch.setattr(
             trace_cpy, "_get_code_position", lambda code, idx: (None, None, None, None)
         )

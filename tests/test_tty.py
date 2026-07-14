@@ -9,7 +9,7 @@ import pytest
 
 from tracerite import extract_chain, hooks
 from tracerite.hooks import load, unload
-from tracerite.trace import extract_chain_exceptions
+from tracerite.trace.finalize import extract_chain_exceptions
 from tracerite.tty import (
     ANSI_ESCAPE_RE,
     ARROW_LEFT,
@@ -27,6 +27,8 @@ from tracerite.tty import (
     FUNC,
     INDENT,
     LINE_PREFIX,
+    LINE_PREFIX_BOT,
+    LINE_PREFIX_TOP,
     LOCFN,
     MARK_BG,
     MARK_TEXT,
@@ -77,6 +79,31 @@ class TestTtyTraceback:
         result = output.getvalue()
         assert "ValueError" in result
         assert "test error message" in result
+
+    def test_no_frames_exception_with_msg(self):
+        """A frameless exception with a log message gets a proper bottom border."""
+        output = io.StringIO()
+        exc = ValueError("frameless error")
+        tty_traceback(exc=exc, msg="log message", file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "frameless error" in result
+        # Non-TTY output has ANSI stripped; compare the plain glyphs.
+        assert ANSI_ESCAPE_RE.sub("", LINE_PREFIX_BOT) in result
+        # Banner continuation lines should not keep the vertical border.
+        assert f"\n{ANSI_ESCAPE_RE.sub('', LINE_PREFIX)}" not in result
+
+    def test_no_frames_exception_without_msg(self):
+        """A frameless exception with no log message renders without crashing."""
+        output = io.StringIO()
+        exc = ValueError("frameless error")
+        tty_traceback(exc=exc, file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "frameless error" in result
+        assert result.startswith(ANSI_ESCAPE_RE.sub("", LINE_PREFIX_TOP))
 
     def test_output_contains_frame_location(self):
         """Test that output includes file location and function name."""

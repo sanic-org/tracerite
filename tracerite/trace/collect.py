@@ -11,7 +11,7 @@ def collect_exception_objects(exc=None) -> list:
     exc = exc or sys.exc_info()[1]
     while exc:
         chain.append(exc)
-        exc = exc.__cause__ or None if exc.__suppress_context__ else exc.__context__
+        exc = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
     return list(reversed(chain))
 
 

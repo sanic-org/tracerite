@@ -420,7 +420,7 @@ class TestInspectorCornercases:
         import inspect
         import json
 
-        from tracerite.trace import extract_frames
+        from .helpers import extract_frames
 
         try:
             json.loads("invalid")

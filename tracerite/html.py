@@ -6,19 +6,23 @@ from typing import Any, cast
 
 from html5tagger import HTML, Document, E, Template
 
-from .trace import (
+from .trace.core import (
+    EMPHASIS_BEG,
+    EMPHASIS_FIN,
+    HIGHLIGHT_RELEVANCES,
+    chainmsg,
+    symbols,
+    symdesc,
+)
+from .trace.finalize import (
     build_chain_header,
     call_run_ranges,
-    chainmsg,
     exception_info,
     extract_chain,
     extract_chain_exceptions,
     function_display,
     normalize_variable,
-    symbols,
-    symdesc,
 )
-from .trace.core import EMPHASIS_BEG, EMPHASIS_FIN, HIGHLIGHT_RELEVANCES
 
 style = files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
 javascript = (
