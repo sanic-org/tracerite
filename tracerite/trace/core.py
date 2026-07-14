@@ -11,7 +11,7 @@ from typing import Any
 Range = namedtuple("Range", ["lfirst", "lfinal", "cbeg", "cend"])
 
 
-@dataclass
+@dataclass(slots=True)
 class TryExceptBlock:
     """Represents a try-except block with its line ranges."""
 
@@ -48,7 +48,7 @@ class TryExceptBlock:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class ChainLink:
     """Represents a link between two exceptions in a chain.
 

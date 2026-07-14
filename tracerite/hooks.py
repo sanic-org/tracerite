@@ -17,7 +17,7 @@ from . import tty as _tty
 Unset = object()  # Sentinel for modules that didn't have __tracebackhide__ set
 
 
-@dataclass
+@dataclass(slots=True)
 class LoaderState:
     """Tracks the original handlers replaced by TraceRite."""
 
