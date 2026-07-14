@@ -15,30 +15,30 @@ from ..chain_analysis import (
 )
 from ..logging import logger
 from ..syntaxerror import clean_syntax_error_message, extract_enhanced_positions
-from .collect import _collect_exception_objects
+from .collect import collect_exception_objects
 from .constants import (
     Range,
-    _chain_reason,
-    _create_summary,
-    _libdir_match,
+    chain_reason,
     compute_cursor_position,
+    create_summary,
+    libdir_match,
 )
 from .fragments import (
-    _build_frame_ranges,
-    _count_bracket_depth,
-    _dedent_lines,
-    _find_clean_start_line,
-    _make_trace_id,
-    _parse_lines_to_fragments,
+    build_frame_ranges,
+    count_bracket_depth,
+    dedent_lines,
+    find_clean_start_line,
+    make_trace_id,
+    parse_lines_to_fragments,
 )
 
 
-def _digest_exception_chain(raw_chain: list[dict]) -> list[dict]:
+def digest_exception_chain(raw_chain: list[dict]) -> list[dict]:
     """Convert the raw chain into digested exception info dicts."""
-    return [_digest_exception(item["exc"], **item["kwargs"]) for item in raw_chain]
+    return [digest_exception(item["exc"], **item["kwargs"]) for item in raw_chain]
 
 
-def _digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
+def digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     """Digest one exception into raw frames and metadata.
 
     The returned dict still contains the live exception object under the
@@ -56,12 +56,9 @@ def _digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     syntax_frame = None
     is_syntax_error = isinstance(e, SyntaxError)
     if is_syntax_error:
-        syntax_frame = _extract_syntax_error_frame(e)
+        syntax_frame = extract_syntax_error_frame(e)
         if syntax_frame:
-            # Look up via the package so tests can patch tracerite.trace._is_notebook_cell.
-            from ..trace import _is_notebook_cell as _is_nb_cell
-
-            is_user_code = _is_nb_cell(e.filename) or (
+            is_user_code = is_notebook_cell(e.filename) or (
                 skip_until and skip_until in (e.filename or "")
             )
             if is_user_code:
@@ -84,11 +81,11 @@ def _digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     message = getattr(e, "message", "") or str(e)
     if is_syntax_error:
         message = clean_syntax_error_message(message)
-    summary = _create_summary(message)
-    f = _chain_reason(e)
+    summary = create_summary(message)
+    f = chain_reason(e)
 
     try:
-        frames = _digest_frames(tb, raw_tb, except_block=(f != "none"))
+        frames = digest_frames(tb, raw_tb, except_block=(f != "none"))
         # For SyntaxError, add the synthetic frame showing the problematic code
         if syntax_frame:
             frames.append(syntax_frame)
@@ -97,7 +94,7 @@ def _digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         frames = None
 
     # Determine if this is a "stop" type exception (BaseException or ExceptionGroup)
-    is_stop_type = not isinstance(e, Exception) or _is_exception_group(e)
+    is_stop_type = not isinstance(e, Exception) or is_exception_group(e)
 
     result = {
         "type": type(e).__name__,
@@ -111,7 +108,7 @@ def _digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     }
 
     # Extract subexceptions for ExceptionGroups (Python 3.11+)
-    subexceptions = _extract_subexceptions(
+    subexceptions = extract_subexceptions(
         e,
         skip_outmost=skip_outmost,
         skip_until=skip_until,
@@ -122,11 +119,11 @@ def _digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     return result
 
 
-def _extract_subexceptions(
+def extract_subexceptions(
     e, *, skip_outmost=0, skip_until=None
 ) -> list[list[dict]] | None:
     """Return parallel raw exception chains for an ExceptionGroup, or None."""
-    if not _is_exception_group(e):
+    if not is_exception_group(e):
         return None
 
     subexceptions = e.exceptions
@@ -135,7 +132,7 @@ def _extract_subexceptions(
 
     parallel_chains = []
     for sub_exc in subexceptions:
-        sub_chain = _extract_subexception_chain(
+        sub_chain = extract_subexception_chain(
             sub_exc,
             skip_outmost=skip_outmost,
             skip_until=skip_until,
@@ -146,14 +143,14 @@ def _extract_subexceptions(
     return parallel_chains if parallel_chains else None
 
 
-def _extract_subexception_chain(exc, *, skip_outmost=0, skip_until=None) -> list[dict]:
+def extract_subexception_chain(exc, *, skip_outmost=0, skip_until=None) -> list[dict]:
     """Extract the raw exception chain for one ExceptionGroup subexception."""
-    chain = _collect_exception_objects(exc)
+    chain = collect_exception_objects(exc)
     kwargs = {"skip_outmost": skip_outmost, "skip_until": skip_until}
-    return [_digest_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
+    return [digest_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
 
 
-def _is_notebook_cell(filename):
+def is_notebook_cell(filename):
     """Check if the filename corresponds to a Jupyter notebook cell."""
     from . import ipython
 
@@ -163,7 +160,7 @@ def _is_notebook_cell(filename):
         return False
 
 
-def _is_exception_group(e: BaseException) -> bool:
+def is_exception_group(e: BaseException) -> bool:
     """Check if exception is an ExceptionGroup (Python 3.11+)."""
     # Check for BaseExceptionGroup which is the base class for both
     # ExceptionGroup and BaseExceptionGroup
@@ -172,7 +169,7 @@ def _is_exception_group(e: BaseException) -> bool:
     )
 
 
-def _find_except_start_for_line(frame, lineno: int) -> int | None:
+def find_except_start_for_line(frame, lineno: int) -> int | None:
     """Return the 'except' line number if lineno is inside a handler."""
 
     try:
@@ -187,7 +184,7 @@ def _find_except_start_for_line(frame, lineno: int) -> int | None:
     return None
 
 
-def _get_source_lines_from_code(code, lineno: int, end_lineno: int | None = None):
+def get_source_lines_from_code(code, lineno: int, end_lineno: int | None = None):
     """Fallback source-line retrieval for code objects (e.g. REPL, exec)."""
     # Python 3.13+ has linecache._getline_from_code for interactive code
     if not hasattr(linecache, "_getline_from_code"):
@@ -257,15 +254,15 @@ def extract_source_lines(
     try:
         lines, start = _get_source_from_frame(frame)
         except_start = (
-            _find_except_start_for_line(frame, lineno) if except_block else None
+            find_except_start_for_line(frame, lineno) if except_block else None
         )
 
-        lines, start = _slice_source_context(
+        lines, start = slice_source_context(
             lines, start, lineno, end_lineno, notebook_cell, except_start
         )
 
         error_idx, end_idx = _error_indices(lineno, end_lineno, start)
-        if not _valid_error_position(lines, error_idx):
+        if not valid_error_position(lines, error_idx):
             return "", lineno, ""
 
         error_indent = _line_indent(lines[error_idx])
@@ -274,10 +271,10 @@ def extract_source_lines(
         )
         lines = _trim_trailing_lines(lines, end_idx, error_indent)
 
-        lines, common_indent = _dedent_lines(lines)
+        lines, common_indent = dedent_lines(lines)
         return "".join(lines), start, common_indent
     except OSError:
-        return _fallback_source_lines(frame, lineno, end_lineno)
+        return fallback_source_lines(frame, lineno, end_lineno)
 
 
 def _get_source_from_frame(frame):
@@ -288,9 +285,7 @@ def _get_source_from_frame(frame):
     return lines, start
 
 
-def _slice_source_context(
-    lines, start, lineno, end_lineno, notebook_cell, except_start
-):
+def slice_source_context(lines, start, lineno, end_lineno, notebook_cell, except_start):
     """Slice source lines to the desired context window around the error."""
     if notebook_cell:
         if except_start is not None and except_start >= start:
@@ -305,14 +300,14 @@ def _slice_source_context(
     slice_start = max(0, lineno - start - lines_before)
     slice_end = max(0, lineno - start + lines_after + 1)
 
-    slice_start = _find_clean_start_line(lines, slice_start)
+    slice_start = find_clean_start_line(lines, slice_start)
     lines = lines[slice_start:slice_end]
     start += slice_start
 
-    return _trim_to_except_line(lines, start, except_start)
+    return trim_to_except_line(lines, start, except_start)
 
 
-def _trim_to_except_line(lines, start, except_start):
+def trim_to_except_line(lines, start, except_start):
     """Trim lines so they start from the except line when applicable."""
     if except_start is not None and except_start > start:
         skip = except_start - start
@@ -329,7 +324,7 @@ def _error_indices(lineno, end_lineno, start):
     return error_idx, end_idx
 
 
-def _valid_error_position(lines, error_idx):
+def valid_error_position(lines, error_idx):
     """Check that the error line index falls within the available lines."""
     return bool(lines) and 0 <= error_idx < len(lines)
 
@@ -355,11 +350,11 @@ def _trim_leading_lines(lines, error_idx, end_idx, start, error_indent):
 def _trim_trailing_lines(lines, end_idx, error_indent):
     """Drop trailing lines that are less indented than the error line."""
     trim_after = end_idx + 1
-    bracket_depth = _count_bracket_depth("".join(lines[: end_idx + 1]))
+    bracket_depth = count_bracket_depth("".join(lines[: end_idx + 1]))
     while trim_after < len(lines):
         line = lines[trim_after]
         if bracket_depth > 0:  # pragma: no cover
-            bracket_depth += _count_bracket_depth(line)
+            bracket_depth += count_bracket_depth(line)
             trim_after += 1
             continue
         if line.strip() and _line_indent(line) < error_indent:
@@ -368,19 +363,19 @@ def _trim_trailing_lines(lines, end_idx, error_indent):
     return lines[:trim_after]
 
 
-def _fallback_source_lines(frame, lineno, end_lineno):  # pragma: no cover
+def fallback_source_lines(frame, lineno, end_lineno):  # pragma: no cover
     """Fallback source retrieval for interactive code objects."""
     code = frame.f_code if hasattr(frame, "f_code") else frame
-    fallback_lines, fallback_start = _get_source_lines_from_code(
+    fallback_lines, fallback_start = get_source_lines_from_code(
         code, lineno, end_lineno
     )
     if fallback_lines:
-        lines, common_indent = _dedent_lines(fallback_lines)
+        lines, common_indent = dedent_lines(fallback_lines)
         return "".join(lines), fallback_start, common_indent
     return "", lineno, ""
 
 
-def _get_full_source(frame, lineno=None):
+def get_full_source(frame, lineno=None):
     """Return (source, start_line) for a frame, using inspect and fallbacks."""
     try:
         lines, start = inspect.getsourcelines(frame)
@@ -393,7 +388,7 @@ def _get_full_source(frame, lineno=None):
         code = frame.f_code if hasattr(frame, "f_code") else frame  # pragma: no cover
         if lineno is None:  # pragma: no cover
             lineno = getattr(frame, "f_lineno", code.co_firstlineno)
-        fallback_lines, fallback_start = _get_source_lines_from_code(
+        fallback_lines, fallback_start = get_source_lines_from_code(
             code, lineno
         )  # pragma: no cover
         if fallback_lines:  # pragma: no cover
@@ -425,7 +420,7 @@ def format_location(filename, lineno, col=1):
         filename = fn.as_posix()
     if not location and filename:
         # Use library short path if available, otherwise truncate long paths
-        location = _libdir_match(filename)
+        location = libdir_match(filename)
         if location is None:
             split = (
                 filename.rfind("/", 10, len(filename) - 20) + 1
@@ -439,7 +434,7 @@ def format_location(filename, lineno, col=1):
     return filename, location, urls
 
 
-def _get_qualified_function_name(frame, function):
+def get_qualified_function_name(frame, function):
     """Get qualified function name with class prefix if available."""
     if function == "<module>":
         return None
@@ -455,7 +450,7 @@ def _get_qualified_function_name(frame, function):
     return ".".join(function.split(".")[-2:])
 
 
-def _extract_text_from_range(lines: str, mark_range) -> str | None:
+def extract_text_from_range(lines: str, mark_range) -> str | None:
     """Return the source text covered by a Range."""
     if mark_range is None:
         return None
@@ -490,7 +485,7 @@ def _extract_text_from_range(lines: str, mark_range) -> str | None:
     return " ".join(extracted_parts)
 
 
-def _find_comprehension_range(lines: str, lineno: int, start: int):
+def find_comprehension_range(lines: str, lineno: int, start: int):
     """Return the (start, end) line indices of a comprehension, or None."""
     import ast
 
@@ -515,9 +510,9 @@ def _find_comprehension_range(lines: str, lineno: int, start: int):
     return None
 
 
-def _trim_source_to_comprehension(lines: str, lineno: int, start: int):
+def trim_source_to_comprehension(lines: str, lineno: int, start: int):
     """Trim source context to the enclosing comprehension if any."""
-    result = _find_comprehension_range(lines, lineno, start)
+    result = find_comprehension_range(lines, lineno, start)
     if result:
         lines_list = lines.splitlines(keepends=True)
         comp_start_idx, comp_end_idx = result
@@ -527,12 +522,12 @@ def _trim_source_to_comprehension(lines: str, lineno: int, start: int):
     return lines, start
 
 
-def _get_variable_source_for_comprehension(
+def get_variable_source_for_comprehension(
     lines: str, lineno: int, start: int, mark_range
 ) -> str:
     """Return source code for variable extraction, expanding comprehensions."""
     # Check if we're inside a comprehension
-    comp_range = _find_comprehension_range(lines, lineno, start)
+    comp_range = find_comprehension_range(lines, lineno, start)
 
     if comp_range is not None:
         # Inside a comprehension: use full comprehension text
@@ -541,11 +536,11 @@ def _get_variable_source_for_comprehension(
         return "".join(lines_list[comp_start_idx:comp_end_idx])
 
     # Not in a comprehension: use marked text or fall back to full lines
-    marked_text = _extract_text_from_range(lines, mark_range)
+    marked_text = extract_text_from_range(lines, mark_range)
     return marked_text or lines
 
 
-def _extract_emphasis_columns(
+def extract_emphasis_columns(
     lines, error_line_in_context, end_line, start_col, end_col, start
 ):
     """Return the emphasis Range from caret anchors, or None."""
@@ -597,7 +592,7 @@ def _extract_emphasis_columns(
     return Range(lfirst, lfinal, c0, c1)
 
 
-def _build_position_map(raw_tb):
+def build_position_map(raw_tb):
     """Map each frame object to its list of code positions."""
     position_map = {}
     if not raw_tb:
@@ -610,19 +605,17 @@ def _build_position_map(raw_tb):
     return position_map
 
 
-def _extract_syntax_error_frame(e):
+def extract_syntax_error_frame(e):
     """Create a synthetic frame dict for a SyntaxError showing the problematic code."""
     if not isinstance(e, SyntaxError):
         return None
 
-    filename, lineno, end_lineno, start_col, end_col = _syntax_error_positions(e)
+    filename, lineno, end_lineno, start_col, end_col = syntax_error_positions(e)
     if not filename or not lineno:
         return None
 
-    from ..trace import _is_notebook_cell as _is_nb_cell
-
-    notebook_cell = _is_nb_cell(filename)
-    lines, lines_list, start, source_from_text = _resolve_syntax_error_source(
+    notebook_cell = is_notebook_cell(filename)
+    lines, lines_list, start, source_from_text = resolve_syntax_error_source(
         e, filename, notebook_cell
     )
     if not lines:
@@ -638,7 +631,7 @@ def _extract_syntax_error_frame(e):
         end_col = enhanced_mark.cend
 
     lines, lines_list, start, error_line_in_context, end_line = (
-        _slice_syntax_error_window(
+        slice_syntax_error_window(
             lines_list, lineno, end_lineno, start, source_from_text
         )
     )
@@ -654,7 +647,7 @@ def _extract_syntax_error_frame(e):
         lines,
     )
 
-    fragments = _parse_lines_to_fragments(lines, mark_range, em_ranges)
+    fragments = parse_lines_to_fragments(lines, mark_range, em_ranges)
 
     cursor_line, cursor_col = compute_cursor_position(mark_range, em_ranges, start, "")
 
@@ -663,7 +656,7 @@ def _extract_syntax_error_frame(e):
     codeline = lines_list[error_line_in_context - 1].strip() if lines_list else None
 
     return {
-        "id": _make_trace_id(),
+        "id": make_trace_id(),
         "relevance": "error",
         "idframe": id(e),
         "filename": fmt_filename,
@@ -687,7 +680,7 @@ def _extract_syntax_error_frame(e):
     }
 
 
-def _syntax_error_positions(e):
+def syntax_error_positions(e):
     """Extract position information from a SyntaxError."""
     filename = e.filename
     lineno = e.lineno
@@ -705,7 +698,7 @@ def _syntax_error_positions(e):
     return filename, lineno, end_lineno, start_col, end_col
 
 
-def _resolve_syntax_error_source(e, filename, notebook_cell):
+def resolve_syntax_error_source(e, filename, notebook_cell):
     """Resolve source text for a SyntaxError from linecache or e.text."""
     import linecache
 
@@ -757,7 +750,7 @@ def _clamp_syntax_columns(lines_list, lineno, start_col, end_col):
     return start_col, end_col
 
 
-def _slice_syntax_error_window(lines_list, lineno, end_lineno, start, source_from_text):
+def slice_syntax_error_window(lines_list, lineno, end_lineno, start, source_from_text):
     """Slice SyntaxError source to a small window around the error."""
     error_line_in_context = lineno - start + 1
     end_line = end_lineno - start + 1 if end_lineno else error_line_in_context
@@ -820,7 +813,7 @@ def _build_syntax_mark_ranges(
     else:
         mark_lfinal = end_line or error_line_in_context
         mark_range = Range(error_line_in_context, mark_lfinal, start_col, end_col)
-        em_ranges = _extract_emphasis_columns(
+        em_ranges = extract_emphasis_columns(
             lines,
             error_line_in_context,
             end_line,
@@ -841,23 +834,23 @@ def extract_frames(
     exc_message=None,
 ) -> list:
     """Extract finalized frames from a traceback frame list (Python order)."""
-    frames = _digest_frames(tb, raw_tb, except_block=except_block)
+    frames = digest_frames(tb, raw_tb, except_block=except_block)
     # Local import to avoid a top-level circular dependency with finalize.py.
-    from .finalize import _fill_variables, _finalize_python_order_frames
+    from .finalize import fill_variables, finalize_python_order_frames
 
     if exc is not None:
-        _finalize_python_order_frames(frames, exc, exc_message)
+        finalize_python_order_frames(frames, exc, exc_message)
     else:
-        _fill_variables(frames, exc_message)
+        fill_variables(frames, exc_message)
     return frames
 
 
-def _digest_frames(tb, raw_tb=None, *, except_block=False) -> list[dict]:
+def digest_frames(tb, raw_tb=None, *, except_block=False) -> list[dict]:
     """Convert a traceback into raw frame dicts without relevances/variables."""
     if not tb:
         return []
 
-    position_map = _build_position_map(raw_tb)
+    position_map = build_position_map(raw_tb)
 
     frames = []
     for frame, filename, lineno, function, codeline, _ in tb:
@@ -877,7 +870,7 @@ def _digest_frames(tb, raw_tb=None, *, except_block=False) -> list[dict]:
         pos = frame_positions.popleft() if frame_positions else [None] * 4
 
         is_last_frame = frame is tb[-1][0]
-        frame_info = _extract_single_frame(
+        frame_info = extract_single_frame(
             frame,
             filename,
             lineno,
@@ -894,7 +887,7 @@ def _digest_frames(tb, raw_tb=None, *, except_block=False) -> list[dict]:
     return frames
 
 
-def _extract_single_frame(
+def extract_single_frame(
     frame,
     filename,
     lineno,
@@ -908,7 +901,7 @@ def _extract_single_frame(
 ):
     """Extract a single frame's worth of traceback information."""
     pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
-    notebook_cell = _is_notebook_cell(filename)
+    notebook_cell = is_notebook_cell(filename)
 
     lines, start, original_common_indent = extract_source_lines(
         frame,
@@ -921,9 +914,9 @@ def _extract_single_frame(
     if not lines and not is_last_frame:
         if hidden:
             # Still include hidden frames with minimal info for chain analysis
-            full_source, full_source_start = _get_full_source(frame)
+            full_source, full_source_start = get_full_source(frame)
             return {
-                "id": _make_trace_id(),
+                "id": make_trace_id(),
                 "relevance": "call",
                 "hidden": True,
                 "idframe": id(frame),
@@ -934,21 +927,21 @@ def _extract_single_frame(
             }
         return None
 
-    full_source, full_source_start = _get_full_source(frame)
+    full_source, full_source_start = get_full_source(frame)
 
-    lines, start = _trim_source_to_comprehension(lines, lineno, start)
+    lines, start = trim_source_to_comprehension(lines, lineno, start)
     lines_list = lines.splitlines(keepends=True)
-    lines, extra_indent = _dedent_lines(lines_list)
+    lines, extra_indent = dedent_lines(lines_list)
     lines = "".join(lines)
     total_indent = len(original_common_indent) + len(extra_indent)
 
     original_filename = filename
-    function = _get_qualified_function_name(frame, function)
+    function = get_qualified_function_name(frame, function)
 
     error_line_in_context = lineno - start + 1
     end_line = pos_end_lineno - start + 1 if pos_end_lineno else None
 
-    frame_range, mark_range = _build_frame_ranges(
+    frame_range, mark_range = build_frame_ranges(
         lineno,
         pos_end_lineno,
         error_line_in_context,
@@ -959,7 +952,7 @@ def _extract_single_frame(
         lines,
     )
 
-    em_range = _extract_emphasis_columns(
+    em_range = extract_emphasis_columns(
         lines,
         error_line_in_context,
         end_line,
@@ -967,7 +960,7 @@ def _extract_single_frame(
         mark_range.cend if mark_range else None,
         start,
     )
-    fragments = _parse_lines_to_fragments(lines, mark_range, em_range)
+    fragments = parse_lines_to_fragments(lines, mark_range, em_range)
 
     cursor_line, cursor_col = compute_cursor_position(
         mark_range, em_range, start, original_common_indent + extra_indent
@@ -977,12 +970,12 @@ def _extract_single_frame(
         original_filename, cursor_line, cursor_col
     )
 
-    variable_source = _get_variable_source_for_comprehension(
+    variable_source = get_variable_source_for_comprehension(
         lines, lineno, start, mark_range
     )
 
     result = {
-        "id": _make_trace_id(),
+        "id": make_trace_id(),
         "relevance": "call",
         "hidden": hidden,
         "idframe": id(frame),

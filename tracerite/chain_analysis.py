@@ -208,62 +208,63 @@ def find_matching_try_for_inner_exception(
     return None
 
 
-# The chronological-order builders live in trace.py.  The names below are kept
-# here so existing imports from ``tracerite.chain_analysis`` continue to work.
+# The chronological-order builders live in tracerite.trace.order. The names
+# below are kept here so existing imports from ``tracerite.chain_analysis``
+# continue to work.
 
 
 def analyze_exception_chain_links(chain: list[dict]) -> list:
     """Analyze an exception chain to find try-except relationships."""
-    from .trace import _analyze_exception_chain_links
+    from .trace.order import analyze_exception_chain_links
 
-    return _analyze_exception_chain_links(chain)
+    return analyze_exception_chain_links(chain)
 
 
 def enrich_chain_with_links(chain: list[dict]) -> list[dict]:
     """Enrich exception chain with try-except link information."""
-    from .trace import _enrich_chain_with_links
+    from .trace.order import enrich_chain_with_links
 
-    return _enrich_chain_with_links(chain)
+    return enrich_chain_with_links(chain)
 
 
 def build_chronological_frames(chain: list[dict]) -> list[dict]:
     """Build a chronological list of frames showing the actual sequence of events."""
-    from .trace import _build_chronological_frames
+    from .trace.order import build_chronological_frames
 
-    return _build_chronological_frames(chain)
+    return build_chronological_frames(chain)
 
 
-# Private helpers that moved to trace.py together with the pipeline code.
+# Helpers that moved to tracerite.trace.order together with the pipeline code.
 # They are re-exported here for backward compatibility with existing tests.
 
 
-def _get_frame_lineno(frame: dict):
-    from .trace import _get_frame_lineno
+def get_frame_lineno(frame: dict):
+    from .trace.order import get_frame_lineno
 
-    return _get_frame_lineno(frame)
-
-
-def _frame_in_except_handler(frame: dict) -> bool:
-    from .trace import _frame_in_except_handler
-
-    return _frame_in_except_handler(frame)
+    return get_frame_lineno(frame)
 
 
-def _find_chain_link(inner_exc: dict, outer_exc: dict):
-    from .trace import _find_chain_link
+def frame_in_except_handler(frame: dict) -> bool:
+    from .trace.order import frame_in_except_handler
 
-    return _find_chain_link(inner_exc, outer_exc)
-
-
-def _filter_hidden_frames(chronological: list[dict]) -> list[dict]:
-    from .trace import _filter_hidden_frames
-
-    return _filter_hidden_frames(chronological)
+    return frame_in_except_handler(frame)
 
 
-def _apply_base_exception_suppression(
+def find_chain_link(inner_exc: dict, outer_exc: dict):
+    from .trace.order import find_chain_link
+
+    return find_chain_link(inner_exc, outer_exc)
+
+
+def filter_hidden_frames(chronological: list[dict]) -> list[dict]:
+    from .trace.order import filter_hidden_frames
+
+    return filter_hidden_frames(chronological)
+
+
+def apply_base_exception_suppression(
     chronological: list[dict], chain: list[dict]
 ) -> list[dict]:
-    from .trace import _apply_base_exception_suppression
+    from .trace.order import apply_base_exception_suppression
 
-    return _apply_base_exception_suppression(chronological, chain)
+    return apply_base_exception_suppression(chronological, chain)

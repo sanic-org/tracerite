@@ -404,9 +404,9 @@ def test_fragments_multiline_error_marking():
 
 def test_build_frame_ranges_error_line_zero():
     """Branch 135->145: when error_line_in_context is zero, return no ranges."""
-    from tracerite.trace import _build_frame_ranges
+    from tracerite.trace.fragments import build_frame_ranges
 
-    assert _build_frame_ranges(
+    assert build_frame_ranges(
         lineno=1,
         pos_end_lineno=1,
         error_line_in_context=0,
@@ -420,9 +420,9 @@ def test_build_frame_ranges_error_line_zero():
 
 def test_build_frame_ranges_fallback_none_for_whitespace_line():
     """Fallback is None on a whitespace-only line, so return no ranges."""
-    from tracerite.trace import _build_frame_ranges
+    from tracerite.trace.fragments import build_frame_ranges
 
-    assert _build_frame_ranges(
+    assert build_frame_ranges(
         lineno=1,
         pos_end_lineno=1,
         error_line_in_context=1,

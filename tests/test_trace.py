@@ -1102,15 +1102,15 @@ def test_extract_source_lines_invalid_range():
 
 
 def test_find_except_start_invalid_file():
-    """Test _find_except_start_for_line with invalid file triggers exception handling."""
-    from tracerite.trace import _find_except_start_for_line
+    """Test find_except_start_for_line with invalid file triggers exception handling."""
+    from tracerite.trace.digest import find_except_start_for_line
 
     # Create a mock frame with invalid filename
     class MockFrame:
         f_code = type("MockCode", (), {"co_filename": "/nonexistent/file.py"})()
 
     frame = MockFrame()
-    result = _find_except_start_for_line(frame, 10)
+    result = find_except_start_for_line(frame, 10)
     assert result is None  # Should return None on exception
 
 
@@ -1193,7 +1193,7 @@ requires_python_313 = pytest.mark.skipif(
 
 @requires_python_313
 class TestGetSourceLinesFromCode:
-    """Tests for _get_source_lines_from_code function.
+    """Tests for get_source_lines_from_code function.
 
     These tests verify source code retrieval from code objects for interactive
     code (REPL, -c commands) using Python 3.13+ linecache._getline_from_code.
@@ -1203,7 +1203,7 @@ class TestGetSourceLinesFromCode:
         """Test retrieving source for a function code object."""
         import linecache
 
-        from tracerite.trace import _get_source_lines_from_code
+        from tracerite.trace.digest import get_source_lines_from_code
 
         source = "def broken():\n    x = 1 / 0\n"
         code = compile(source, "<test>", "exec")
@@ -1219,7 +1219,7 @@ class TestGetSourceLinesFromCode:
 
         assert func_code is not None
 
-        lines, start = _get_source_lines_from_code(func_code, 2)
+        lines, start = get_source_lines_from_code(func_code, 2)
         assert lines is not None
         assert start == 1  # Function starts at line 1
         assert "def broken():" in "".join(lines)
@@ -1229,26 +1229,26 @@ class TestGetSourceLinesFromCode:
         """Test retrieving source for module-level code object."""
         import linecache
 
-        from tracerite.trace import _get_source_lines_from_code
+        from tracerite.trace.digest import get_source_lines_from_code
 
         source = "x = 10\ny = 0\nresult = x / y\n"
         code = compile(source, "<test-module>", "exec")
         linecache._register_code(code, source, "<test-module>")
 
-        lines, start = _get_source_lines_from_code(code, 3)
+        lines, start = get_source_lines_from_code(code, 3)
         assert lines is not None
         assert "result = x / y" in "".join(lines)
 
     def test_get_source_lines_from_code_no_source(self):
         """Test that function returns None when no source is available."""
-        from tracerite.trace import _get_source_lines_from_code
+        from tracerite.trace.digest import get_source_lines_from_code
 
         # Create code without registering source
         source = "x = 1\n"
         code = compile(source, "<unregistered>", "exec")
         # Don't register it
 
-        lines, start = _get_source_lines_from_code(code, 1)
+        lines, start = get_source_lines_from_code(code, 1)
         assert lines is None
         assert start is None
 
@@ -1256,7 +1256,7 @@ class TestGetSourceLinesFromCode:
         """Test that function boundaries are determined by inspect.getblock."""
         import linecache
 
-        from tracerite.trace import _get_source_lines_from_code
+        from tracerite.trace.digest import get_source_lines_from_code
 
         source = """def foo():
     x = 1
@@ -1277,7 +1277,7 @@ def bar():
 
         assert foo_code is not None
 
-        lines, start = _get_source_lines_from_code(foo_code, 2)
+        lines, start = get_source_lines_from_code(foo_code, 2)
         assert lines is not None
         joined = "".join(lines)
         # Should include foo but NOT bar

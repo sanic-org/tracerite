@@ -65,7 +65,7 @@ symdesc = {
 symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑", "except": "⚠️"}
 
 
-def _libdir_match(path):
+def libdir_match(path):
     """Check if path is in a library directory and return the short suffix if so."""
     m = libdir.fullmatch(path)
     if m:
@@ -73,12 +73,12 @@ def _libdir_match(path):
     return None
 
 
-def _create_summary(message: str) -> str:
+def create_summary(message: str) -> str:
     """Extract the first line of the exception message as summary."""
     return message.split("\n", 1)[0]
 
 
-def _chain_reason(e: BaseException) -> str:
+def chain_reason(e: BaseException) -> str:
     """Return the chaining relationship for an exception."""
     if e.__cause__:
         return "cause"
