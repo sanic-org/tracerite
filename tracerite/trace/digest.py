@@ -291,7 +291,7 @@ def extract_source_lines(
     cache: dict | None = None,
 ):
     try:
-        lines, start = _get_source_from_frame(frame)
+        lines, start = _get_source_from_frame(frame, cache=cache)
         except_start = (
             find_except_start_for_line(frame, lineno, cache=cache)
             if except_block
@@ -318,11 +318,20 @@ def extract_source_lines(
         return *fallback_source_lines(frame, lineno, end_lineno), None
 
 
-def _get_source_from_frame(frame):
+def _get_source_from_frame(frame, *, cache: dict | None = None):
     """Get source lines and starting line number for a frame."""
+    code = frame.f_code
+    key = ("source_block", code)
+    if cache is not None and key in cache:
+        stored_lines, start = cache[key]
+        return list(stored_lines), start
+
     lines, start = inspect.getsourcelines(frame)
     if start == 0:
         start = 1
+
+    if cache is not None:
+        cache[key] = (tuple(lines), start)
     return lines, start
 
 
@@ -416,25 +425,34 @@ def fallback_source_lines(frame, lineno, end_lineno):  # pragma: no cover
     return "", lineno, ""
 
 
-def get_full_source(frame, lineno=None):
+def get_full_source(frame, lineno=None, *, cache: dict | None = None):
     """Return (source, start_line) for a frame, using inspect and fallbacks."""
+    code = frame.f_code if hasattr(frame, "f_code") else frame  # pragma: no cover
+    key = ("full_source", code)
+    if cache is not None and key in cache:
+        return cache[key]
+
     try:
         lines, start = inspect.getsourcelines(frame)
         if start == 0:
             start = 1
-        return "".join(lines), start
+        result = ("".join(lines), start)
     except OSError:
         # Fallback: try to get source from code object (Python 3.13+ interactive code)
         # This is tested via subprocess tests in test_tty.py::TestInteractiveSourceRetrieval
-        code = frame.f_code if hasattr(frame, "f_code") else frame  # pragma: no cover
         if lineno is None:  # pragma: no cover
             lineno = getattr(frame, "f_lineno", code.co_firstlineno)
         fallback_lines, fallback_start = get_source_lines_from_code(
             code, lineno
         )  # pragma: no cover
         if fallback_lines:  # pragma: no cover
-            return "".join(fallback_lines), fallback_start
-        return None, None
+            result = ("".join(fallback_lines), fallback_start)
+        else:
+            result = (None, None)
+
+    if cache is not None:
+        cache[key] = result
+    return result
 
 
 def format_location(filename, lineno, col=1):
@@ -960,7 +978,7 @@ def extract_single_frame(
     if not lines and not is_last_frame:
         if hidden:
             # Still include hidden frames with minimal info for chain analysis
-            full_source, full_source_start = get_full_source(frame)
+            full_source, full_source_start = get_full_source(frame, cache=cache)
             return {
                 "id": make_trace_id(),
                 "relevance": "call",
@@ -973,7 +991,7 @@ def extract_single_frame(
             }
         return None
 
-    full_source, full_source_start = get_full_source(frame)
+    full_source, full_source_start = get_full_source(frame, cache=cache)
 
     lines, start = trim_source_to_comprehension(lines, lineno, start)
     lines_list = lines.splitlines(keepends=True)
