@@ -1282,7 +1282,7 @@ class TestExtractSourceLinesEdgeCases:
             "inspect.getsourcelines", return_value=(["line1\n", "line2\n"], 100)
         ):
             # lineno 1 is before start (100), so error_idx will be negative
-            lines, start, marks = extract_source_lines(frame, lineno=1)
+            lines, start, marks, _ = extract_source_lines(frame, lineno=1)
             # Should return empty on invalid error_idx
             assert lines == ""
             assert marks == ""
@@ -1299,7 +1299,7 @@ class TestExtractSourceLinesEdgeCases:
         # Patch getsourcelines to return small source with high start
         with patch("inspect.getsourcelines", return_value=(["line1\n"], 1)):
             # lineno 1000 is way beyond the source
-            lines, start, marks = extract_source_lines(frame, lineno=1000)
+            lines, start, marks, _ = extract_source_lines(frame, lineno=1000)
             # Should return empty for invalid error_idx
             assert lines == ""
             assert marks == ""

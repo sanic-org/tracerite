@@ -33,12 +33,25 @@ from .fragments import (
 )
 
 
-def digest_exception_chain(raw_chain: list[dict]) -> list[dict]:
+def digest_exception_chain(
+    raw_chain: list[dict],
+    *,
+    cache: dict | None = None,
+) -> list[dict]:
     """Convert the raw chain into digested exception info dicts."""
-    return [digest_exception(item["exc"], **item["kwargs"]) for item in raw_chain]
+    return [
+        digest_exception(item["exc"], cache=cache, **item["kwargs"])
+        for item in raw_chain
+    ]
 
 
-def digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
+def digest_exception(
+    e,
+    *,
+    skip_outmost=0,
+    skip_until=None,
+    cache: dict | None = None,
+) -> dict:
     """Digest one exception into raw frames and metadata.
 
     The returned dict still contains the live exception object under the
@@ -85,7 +98,7 @@ def digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
     f = chain_reason(e)
 
     try:
-        frames = digest_frames(tb, raw_tb, except_block=(f != "none"))
+        frames = digest_frames(tb, raw_tb, except_block=(f != "none"), cache=cache)
         # For SyntaxError, add the synthetic frame showing the problematic code
         if syntax_frame:
             frames.append(syntax_frame)
@@ -112,6 +125,7 @@ def digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
         e,
         skip_outmost=skip_outmost,
         skip_until=skip_until,
+        cache=cache,
     )
     if subexceptions:
         result["subexceptions"] = subexceptions
@@ -120,7 +134,11 @@ def digest_exception(e, *, skip_outmost=0, skip_until=None) -> dict:
 
 
 def extract_subexceptions(
-    e, *, skip_outmost=0, skip_until=None
+    e,
+    *,
+    skip_outmost=0,
+    skip_until=None,
+    cache: dict | None = None,
 ) -> list[list[dict]] | None:
     """Return parallel raw exception chains for an ExceptionGroup, or None."""
     if not is_exception_group(e):
@@ -136,6 +154,7 @@ def extract_subexceptions(
             sub_exc,
             skip_outmost=skip_outmost,
             skip_until=skip_until,
+            cache=cache,
         )
         if sub_chain:  # pragma: no cover
             parallel_chains.append(sub_chain)
@@ -143,11 +162,20 @@ def extract_subexceptions(
     return parallel_chains if parallel_chains else None
 
 
-def extract_subexception_chain(exc, *, skip_outmost=0, skip_until=None) -> list[dict]:
+def extract_subexception_chain(
+    exc,
+    *,
+    skip_outmost=0,
+    skip_until=None,
+    cache: dict | None = None,
+) -> list[dict]:
     """Extract the raw exception chain for one ExceptionGroup subexception."""
     chain = collect_exception_objects(exc)
     kwargs = {"skip_outmost": skip_outmost, "skip_until": skip_until}
-    return [digest_exception(e, **(kwargs if e is chain[-1] else {})) for e in chain]
+    return [
+        digest_exception(e, cache=cache, **(kwargs if e is chain[-1] else {}))
+        for e in chain
+    ]
 
 
 def is_notebook_cell(filename):
@@ -169,12 +197,17 @@ def is_exception_group(e: BaseException) -> bool:
     )
 
 
-def find_except_start_for_line(frame, lineno: int) -> int | None:
+def find_except_start_for_line(
+    frame,
+    lineno: int,
+    *,
+    cache: dict | None = None,
+) -> int | None:
     """Return the 'except' line number if lineno is inside a handler."""
 
     try:
         filename = frame.f_code.co_filename
-        blocks = parse_source_for_try_except(filename)
+        blocks = parse_source_for_try_except(filename, _cache=cache)
         # Find the innermost except block containing this line
         block = find_try_block_for_except_line(blocks, lineno)
         if block:
@@ -249,12 +282,20 @@ def get_source_lines_from_code(code, lineno: int, end_lineno: int | None = None)
 
 
 def extract_source_lines(
-    frame, lineno, end_lineno=None, *, notebook_cell=False, except_block=False
+    frame,
+    lineno,
+    end_lineno=None,
+    *,
+    notebook_cell=False,
+    except_block=False,
+    cache: dict | None = None,
 ):
     try:
         lines, start = _get_source_from_frame(frame)
         except_start = (
-            find_except_start_for_line(frame, lineno) if except_block else None
+            find_except_start_for_line(frame, lineno, cache=cache)
+            if except_block
+            else None
         )
 
         lines, start = slice_source_context(
@@ -263,7 +304,7 @@ def extract_source_lines(
 
         error_idx, end_idx = _error_indices(lineno, end_lineno, start)
         if not valid_error_position(lines, error_idx):
-            return "", lineno, ""
+            return "", lineno, "", None
 
         error_indent = _line_indent(lines[error_idx])
         lines, error_idx, end_idx, start = _trim_leading_lines(
@@ -272,9 +313,9 @@ def extract_source_lines(
         lines = _trim_trailing_lines(lines, end_idx, error_indent)
 
         lines, common_indent = dedent_lines(lines)
-        return "".join(lines), start, common_indent
+        return "".join(lines), start, common_indent, except_start
     except OSError:
-        return fallback_source_lines(frame, lineno, end_lineno)
+        return *fallback_source_lines(frame, lineno, end_lineno), None
 
 
 def _get_source_from_frame(frame):
@@ -845,7 +886,9 @@ def extract_frames(
     return frames
 
 
-def digest_frames(tb, raw_tb=None, *, except_block=False) -> list[dict]:
+def digest_frames(
+    tb, raw_tb=None, *, except_block=False, cache: dict | None = None
+) -> list[dict]:
     """Convert a traceback into raw frame dicts without relevances/variables."""
     if not tb:
         return []
@@ -880,6 +923,7 @@ def digest_frames(tb, raw_tb=None, *, except_block=False) -> list[dict]:
             hidden,
             is_last_frame,
             except_block=except_block,
+            cache=cache,
         )
         if frame_info is not None:
             frames.append(frame_info)
@@ -898,17 +942,19 @@ def extract_single_frame(
     is_last_frame,
     *,
     except_block=False,
+    cache: dict | None = None,
 ):
     """Extract a single frame's worth of traceback information."""
     pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
     notebook_cell = is_notebook_cell(filename)
 
-    lines, start, original_common_indent = extract_source_lines(
+    lines, start, original_common_indent, except_start = extract_source_lines(
         frame,
         lineno,
         pos_end_lineno,
         notebook_cell=notebook_cell,
         except_block=except_block,
+        cache=cache,
     )
 
     if not lines and not is_last_frame:
@@ -998,6 +1044,7 @@ def extract_single_frame(
         "variable_source": variable_source,
         "full_source": full_source,
         "full_source_start": full_source_start,
+        "_except_start": except_start,
     }
 
     return result

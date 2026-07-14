@@ -587,7 +587,7 @@ class TestCoverageEdgeCases:
             return_value=(["line1\n", "line2\n", "line3\n"], 1),
         ):
             # notebook_cell=True, no except_block -> should hit lines_before = 0
-            lines, start, marks = extract_source_lines(
+            lines, start, marks, _ = extract_source_lines(
                 frame, lineno=2, notebook_cell=True, except_block=False
             )
             # Should return something (the notebook cell path)

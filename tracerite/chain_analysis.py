@@ -123,69 +123,99 @@ class TryExceptVisitor(ast.NodeVisitor):
 
 
 def parse_source_for_try_except(
-    filename: str, function_name: str | None = None
+    filename: str,
+    function_name: str | None = None,
+    *,
+    _cache: dict | None = None,
 ) -> list[TryExceptBlock]:
     """Parse source file and extract try-except blocks.
 
     Args:
         filename: Path to the source file
         function_name: Optional function name to limit scope
+        _cache: Optional append-only cache mapping source keys to parsed blocks.
+            Intended for single-call use only; not persisted across calls.
 
     Returns:
         List of TryExceptBlock objects found in the source
     """
-    return _parse_source_for_try_except(filename, function_name)
+    return _parse_source_for_try_except(filename, function_name, _cache=_cache)
 
 
 def _parse_source_for_try_except(
-    filename: str, function_name: str | None = None
+    filename: str,
+    function_name: str | None = None,
+    *,
+    _cache: dict | None = None,
 ) -> list[TryExceptBlock]:
+    key = ("file", filename, function_name)
+    if _cache is not None and key in _cache:
+        return _cache[key]
+
     try:
         lines = linecache.getlines(filename)
         if not lines:
-            return []
+            result: list[TryExceptBlock] = []
+        else:
+            source = "".join(lines)
+            tree = ast.parse(source, filename=filename)
 
-        source = "".join(lines)
-        tree = ast.parse(source, filename=filename)
+            visitor = TryExceptVisitor()
+            visitor.visit(tree)
 
-        visitor = TryExceptVisitor()
-        visitor.visit(tree)
-
-        return visitor.try_except_blocks
+            result = visitor.try_except_blocks
     except (SyntaxError, OSError, ValueError) as e:
         logger.debug(f"Failed to parse {filename} for try-except analysis: {e}")
-        return []
+        result = []
+
+    if _cache is not None:
+        _cache[key] = result
+    return result
 
 
 def parse_source_string_for_try_except(
-    source: str, start_line: int = 1
+    source: str,
+    start_line: int = 1,
+    *,
+    _cache: dict | None = None,
 ) -> list[TryExceptBlock]:
     """Parse source string and extract try-except blocks.
 
     Args:
         source: The source code as a string
         start_line: The line number where this source starts (for offset adjustment)
+        _cache: Optional append-only cache mapping source keys to parsed blocks.
+            Intended for single-call use only; not persisted across calls.
 
     Returns:
         List of TryExceptBlock objects found in the source
     """
+    key = ("string", source, start_line)
+    if _cache is not None and key in _cache:
+        return _cache[key]
+
     try:
         if not source:
-            return []
+            result: list[TryExceptBlock] = []
+        else:
+            tree = ast.parse(source)
 
-        tree = ast.parse(source)
+            visitor = TryExceptVisitor()
+            visitor.visit(tree)
 
-        visitor = TryExceptVisitor()
-        visitor.visit(tree)
+            blocks = visitor.try_except_blocks
+            if start_line != 1:
+                offset = start_line - 1
+                blocks = [block.offset_by(offset) for block in blocks]
 
-        if start_line != 1:
-            offset = start_line - 1
-            return [block.offset_by(offset) for block in visitor.try_except_blocks]
-
-        return visitor.try_except_blocks
+            result = blocks
     except (SyntaxError, ValueError) as e:
         logger.debug(f"Failed to parse source string for try-except analysis: {e}")
-        return []
+        result = []
+
+    if _cache is not None:
+        _cache[key] = result
+    return result
 
 
 def find_try_block_for_except_line(

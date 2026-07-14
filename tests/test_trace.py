@@ -1097,7 +1097,7 @@ def test_extract_source_lines_invalid_range():
     # Perhaps this test is not needed.
     from tracerite.trace import extract_source_lines
 
-    lines, start, indent = extract_source_lines(frame, frame.f_lineno)
+    lines, start, indent, _ = extract_source_lines(frame, frame.f_lineno)
     assert lines  # Should return something
 
 
