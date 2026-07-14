@@ -87,7 +87,7 @@ async def comprehension():
 
 @app.get("/longmsg")
 async def longmsg():
-    """Chained exception with a single-line overflow followed by the full long body."""
+    """Long exception messages word wrapped and shortened."""
     try:
         msg = 'The configuration validation failed because the supplied manifest references several deprecated fields and contains sections that cannot be parsed automatically, so you will need to review them manually before the deployment can continue safely.'
         raise ValueError(msg)

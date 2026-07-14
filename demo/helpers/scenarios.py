@@ -80,7 +80,7 @@ def comprehension() -> None:
 
 
 def longmsg() -> None:
-    """Chained exception with a single-line overflow followed by the full long body."""
+    """Long exception messages word wrapped and shortened."""
     try:
         msg = (
             "The configuration validation failed because the supplied manifest references "
