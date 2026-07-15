@@ -43,9 +43,8 @@ p { margin: 0 0 0.5em 0; }
 # fmt: off
 Page = Template(
     Document(E.Title, lang="en")
-    .style(style)
+    .style(style, id="tracerite-style")
     .style(PAGE_STYLE)
-    .script(javascript)
     .Header
     .main(E.Heading.Content)
     .Footer
