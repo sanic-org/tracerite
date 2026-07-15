@@ -60,6 +60,9 @@ def _handler_body_source(func: Any) -> str:
     If the scenario exposes an ``_async_impl`` helper, the handler awaits it
     directly (e.g. ``await acme.run_concurrent_tasks()``).  Otherwise the sync
     body is copied and ``asyncio.run(...)`` is rewritten to ``await ...``.
+
+    Source formatting is preserved for statements that do not need rewriting;
+    only transformed statements fall back to ``ast.unparse``.
     """
     async_impl = getattr(func, "_async_impl", None)
     if async_impl is not None:
@@ -80,11 +83,28 @@ def _handler_body_source(func: Any) -> str:
     ):
         body = body[1:]
 
-    body = [_AsyncioRunToAwait().visit(stmt) for stmt in body]
-    for stmt in body:
+    transformed = [_AsyncioRunToAwait().visit(stmt) for stmt in body]
+    for stmt in transformed:
         ast.fix_missing_locations(stmt)
 
-    return "\n".join(ast.unparse(stmt) for stmt in body)
+    def _dedent_by_col_offset(segment: str, col_offset: int) -> str:
+        lines = segment.splitlines()
+        dedented: list[str] = []
+        for line in lines:
+            stripped = line[col_offset:] if line.startswith(" " * col_offset) else line.lstrip()
+            dedented.append(stripped)
+        return "\n".join(dedented)
+
+    parts: list[str] = []
+    for original, tx in zip(body, transformed):
+        if ast.dump(original) == ast.dump(tx):
+            segment = ast.get_source_segment(source, original)
+            assert segment is not None
+            parts.append(_dedent_by_col_offset(segment, original.col_offset))
+        else:
+            parts.append(ast.unparse(tx))
+
+    return "\n".join(parts)
 
 
 def _fastapi_handlers(items: list[tuple[str, Any]]) -> str:
