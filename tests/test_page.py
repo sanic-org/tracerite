@@ -100,7 +100,7 @@ def test_html_page_includes_tracerite_assets():
 
 def test_html_page_body_font():
     html = html_page(_sample_exception())
-    assert "body { font-family: var(--tracerite-ui-font);" in html
+    assert ":root { color-scheme: light dark; font-family: system-ui, sans-serif }" in html
 
 
 def test_html_page_traceback_embedded_without_fragment_assets():

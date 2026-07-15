@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import asyncio
 import inspect
 import os
 import re
@@ -31,6 +32,7 @@ import nbclient
 import nbformat
 
 from demo.helpers import discover_scenarios
+from demo.helpers.html import build_index_html
 
 
 class _AsyncioRunToAwait(ast.NodeTransformer):
@@ -141,7 +143,7 @@ def _startup_handler_source(for_sanic: bool = False) -> str:
     if for_sanic:
         return """@app.before_server_start
 async def _build_index(app):
-    app.ctx.index_html = await build_index_html()
+    app.ctx.index_html = await build_index_html(framework="Sanic")
 """
     return """@app.on_event("startup")
 async def _build_index():
@@ -174,7 +176,7 @@ patch_fastapi()
 
 @asynccontextmanager
 async def _lifespan(app):
-    app.state.index_html = await build_index_html()
+    app.state.index_html = await build_index_html(framework="FastAPI")
     yield
 
 app = FastAPI(title="TraceRiteDemo", debug=True, lifespan=_lifespan)
@@ -235,7 +237,6 @@ def _notebook_setup_cells() -> list[Any]:
                 "import importlib\n"
                 "import json\n"
                 "import re\n"
-                "import asyncio\n"
                 "\n"
                 "from demo.helpers import acme\n"
                 "from demo.helpers.types import Bar, Foo\n"
@@ -348,6 +349,11 @@ def main() -> None:
         default="demo/Notebook.ipynb",
         help="Output path for the generated notebook (default: demo/Notebook.ipynb)",
     )
+    parser.add_argument(
+        "--demo-html-path",
+        default="demo/Demo.html",
+        help="Output path for the standalone HTML demo (default: demo/Demo.html)",
+    )
     args = parser.parse_args()
 
     items = discover_scenarios()
@@ -357,6 +363,7 @@ def main() -> None:
     fastapi_path = Path(args.fastapi_path)
     sanic_path = Path(args.sanic_path)
     notebook_path = Path(args.notebook_path)
+    demo_html_path = Path(args.demo_html_path)
 
     fastapi_path.write_text(_fastapi_app(items), encoding="utf-8")
     fastapi_path.chmod(0o755)
@@ -367,10 +374,12 @@ def main() -> None:
     notebook = _normalize_traceback_ids(notebook)
     notebook = _assign_deterministic_cell_ids(notebook)
     notebook_path.write_text(nbformat.writes(notebook), encoding="utf-8")
+    demo_html_path.write_text(asyncio.run(build_index_html()), encoding="utf-8")
 
     print(f"Wrote {fastapi_path}")
     print(f"Wrote {sanic_path}")
     print(f"Wrote {notebook_path}")
+    print(f"Wrote {demo_html_path}")
 
 
 if __name__ == "__main__":

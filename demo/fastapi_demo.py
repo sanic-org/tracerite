@@ -22,7 +22,7 @@ patch_fastapi()
 
 @asynccontextmanager
 async def _lifespan(app):
-    app.state.index_html = await build_index_html()
+    app.state.index_html = await build_index_html(framework="FastAPI")
     yield
 
 app = FastAPI(title="TraceRiteDemo", debug=True, lifespan=_lifespan)

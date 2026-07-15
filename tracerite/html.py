@@ -32,12 +32,9 @@ javascript = (
 detail_show = "{display: inherit}"
 
 PAGE_STYLE = """\
-:root { color-scheme: light dark; }
-body { font-family: var(--tracerite-ui-font); margin: 1em; }
-header { margin-bottom: 1em; }
-main { margin: 0; }
-h1 { margin: 0 0 0.25em 0; }
-p { margin: 0 0 0.5em 0; }
+:root { color-scheme: light dark; font-family: system-ui, sans-serif }
+main { padding: 1em }
+p { margin: 0 0 0.5em 0 }
 """
 
 # fmt: off
@@ -357,6 +354,9 @@ def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
 
             if use_highlight:
                 doc(HTML("</mark>"))
+    else:
+        with doc.code(class_="compact-code"):
+            doc.span("(no source code)", class_="no-source")
     # Add space before symbol for error/stop frames
     if use_highlight:
         doc(" ")
@@ -373,7 +373,7 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
 
     if not fragments:
         # Show "(no source code)" with the symbol emoji like a code line would have
-        doc.p("(no source code) ")
+        doc.p[".no-source"]("(no source code) ")
         doc.span(class_="tracerite-symbol", data_text=symbol_text)
         return
 
