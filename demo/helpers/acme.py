@@ -27,20 +27,24 @@ def recurse(n: int) -> int:
 # ---------------------------------------------------------------------------
 
 
-def risky_computation() -> float:
+def risky_computation(y) -> float:
     """Inner computation that divides by zero."""
     x = 10
-    y = 0
     return x / y
+
+
+def bad_handler(arg):
+    if arg <= 0:
+        raise Exception
 
 
 def innerstep() -> None:
     """Middle of the cause chain: accidentally raises TypeError in except:."""
     where = "inner step"
     try:
-        risky_computation()
+        risky_computation(0)
     except ZeroDivisionError as e:
-        x = where + 123
+        bad_handler(where)
 
 
 def outerstep() -> None:
