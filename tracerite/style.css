@@ -4,11 +4,11 @@
 /** TraceRite **/
 :root {
   --tracerite-var: #8af;
-  --tracerite-type: #5c8;
+  --tracerite-type: #5a6;
   --tracerite-val: #8af;
-  --tracerite-highlight: #ff8;
+  --tracerite-highlight: #fd3;
   --tracerite-highlight-text: #000;
-  --tracerite-call-symbol-color: #ff8;
+  --tracerite-call-symbol-color: #fd3;
   --tracerite-call-symbol-shadow: 0 0 .1em black;
   --tracerite-call-highlight: #da0;
   --tracerite-caret: #f00;
@@ -19,6 +19,7 @@
   --tracerite-link-hover: #fff8;
   --tracerite-function: #68f;
   --tracerite-location: #5a6;
+  --tracerite-dim-bg: #dde8f7;
   --tracerite-code-font: "Fira Code", "Source Code Pro", Menlo, Meslo, Monaco, Consolas, "Lucida Console", monospace;
   --tracerite-ui-font: system-ui, -apple-system, 'Segoe UI', 'Roboto', 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
 }
@@ -32,11 +33,11 @@
     --tracerite-var: #8af;
     --tracerite-type: #5c8;
     --tracerite-val: #8af;
-    --tracerite-highlight: #ff0;
+    --tracerite-highlight: #fd3;
     --tracerite-highlight-text: #000;
-    --tracerite-call-symbol-color: #ff0;
+    --tracerite-call-symbol-color: #fd3;
     --tracerite-call-symbol-shadow: none;
-    --tracerite-call-highlight: #ff0;
+    --tracerite-call-highlight: #fd3;
     --tracerite-caret: #f55;
     --tracerite-exception: #aaa;
     --tracerite-code: #ccc;
@@ -45,6 +46,7 @@
     --tracerite-link-hover: #0008;
     --tracerite-function: #8af;
     --tracerite-location: #6b8;
+    --tracerite-dim-bg: #202a3a;
   }
 }
 
@@ -206,7 +208,7 @@
   align-self: center;
 }
 :root .tracerite .inspector .var { font-weight: 700; color: var(--tracerite-var); }
-:root .tracerite .inspector .type { white-space: nowrap; color: var(--tracerite-type); font-weight: 300; }
+:root .tracerite .inspector .type { white-space: nowrap; color: var(--tracerite-type); font-weight: 400; }
 :root .tracerite .inspector .val { white-space: pre; text-overflow: ellipsis; overflow: hidden; color: var(--tracerite-val); }
 
 /* Block format for multi-line strings - left aligned */
@@ -239,9 +241,8 @@
 
 /* Nested table styling (for matrices) */
 :root .tracerite .inspector table {
-  border-collapse: separate;
-  border-spacing: 1px;
-  margin: 0.3em 0;
+  border-collapse: collapse;
+  margin: 0.25em 0;
 }
 
 :root .tracerite .inspector table td {
@@ -250,10 +251,13 @@
   overflow: hidden;
   font-size: 0.8em;
   text-align: right;
-  background: #8882;
+  background: var(--tracerite-dim-bg);
   padding: 0.1em 0.4em;
   min-width: 3em;
+  border-right: 1px solid transparent;
+  border-bottom: 1px solid transparent;
 }
+
 
 :root .tracerite .inspector tr {
   background: none;
@@ -268,32 +272,32 @@
   margin: 0.3em 0;
   padding-top: 0.2em;
   font-size: 0.8em;
-  gap: 1px;
   width: fit-content;
 }
 :root .tracerite .inspector dl.keyvalue-dl dt,
 :root .tracerite .inspector dl.keyvalue-dl dd {
   margin: 0;
-  padding: 0 0.3em;
+  padding: 0.1em 0.4em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  background: var(--tracerite-dim-bg);
+  background-clip: padding-box;
+  border-right: 1px solid transparent;
+  border-bottom: 1px solid transparent;
 }
+:root .tracerite .inspector dl.keyvalue-dl dd { border-right: none; }
 :root .tracerite .inspector dl.keyvalue-dl dt {
   text-align: right;
   color: var(--tracerite-var);
   font-weight: 700;
   width: max-content;
   float: none;
-  background: #8882;
-  padding: 0.1em 0.4em;
 }
 :root .tracerite .inspector dl.keyvalue-dl dd {
   text-align: left;
   width: auto;
   float: none;
-  background: #8882;
-  padding: 0.1em 0.4em;
 }
 
 /* Array with scale factor container */
@@ -474,7 +478,7 @@
 
 :root .tracerite .parallel-branch {
   flex: 1 1 40em;
-  min-width: 40em;
+  min-width: min(40em, 100%);
   max-width: 100%;
   display: flex;
   flex-direction: column;

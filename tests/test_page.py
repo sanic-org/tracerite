@@ -97,6 +97,7 @@ def test_html_page_includes_tracerite_assets():
     assert "--tracerite-ui-font" in html
     assert "tracerite.autodark" in html
 
+action: int = foo
 
 def test_html_page_body_font():
     html = html_page(_sample_exception())
