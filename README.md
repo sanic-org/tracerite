@@ -77,7 +77,7 @@ Renders a complete HTML5 document with a TraceRite traceback, ready to serve fro
 
 ### `extract_chain(exc)`
 
-Extracts exception information as a list of dictionaries—useful for logging, custom formatting, or machine processing.
+Extracts exception information as a JSON compatible list of dictionaries—useful for logging, custom formatting, or machine processing.
 
 ### `prettyvalue(value)`
 
@@ -91,11 +91,9 @@ Extracts and formats variables mentioned in a line of source code.
 
 Load or remove TraceRite as the default exception handler for terminal applications. Handles both `sys.excepthook` and `threading.excepthook`.
 
-Granular loaders are also available: `load_hooks()` / `unload_hooks()`, `load_logging_capture()` / `unload_logging_capture()`, and `load_suppressions()` / `unload_suppressions()`.
-
 ### `tty_traceback(exc)`
 
-Renders an exception as colorful terminal output with ANSI escape codes. Pass an exception object, or call with no arguments inside an `except` block.
+Renders an exception as colorful terminal output with ANSI escape codes. Pass an exception object, or call with no arguments inside an `except` block. `file=io.StringIO()` may be used for plain text output. The output is well readable by all major LLMs, not only by humans.
 
 See the [API documentation](https://github.com/sanic-org/tracerite/blob/main/docs/API.md) for details, or [Development guide](https://github.com/sanic-org/tracerite/blob/main/docs/Development.md) for contributors.
 
