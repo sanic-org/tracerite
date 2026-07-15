@@ -19,7 +19,7 @@ app = Sanic("TraceRiteDemo")
 
 @app.before_server_start
 async def _build_index(app):
-    app.ctx.index_html = await build_index_html()
+    app.ctx.index_html = await build_index_html(framework="Sanic")
 
 @app.get("/")
 async def index(request):

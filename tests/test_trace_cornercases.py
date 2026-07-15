@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from tests.hidden_module import internal_helper_function
 from tracerite.trace.core import Range, compute_cursor_position
-from tracerite.trace.digest import format_location
+from tracerite.trace.digest import format_location, slice_source_context
 from tracerite.trace.fragments import fallback_mark_range_for_line
 
 from .helpers import extract_exception, extract_frames
@@ -1520,3 +1520,17 @@ class TestFallbackMarkRange:
             chain = extract_chain_exceptions(exc=e)
             assert chain
             assert chain[0]["frames"]
+
+    def test_slice_source_context_notebook_except_start(self):
+        """Notebook source context starts from the except line when available."""
+        lines = [f"line {i}\n" for i in range(1, 21)]
+        result_lines, result_start = slice_source_context(
+            lines,
+            start=1,
+            lineno=15,
+            end_lineno=15,
+            notebook_cell=True,
+            except_start=10,
+        )
+        assert result_start == 10
+        assert result_lines == lines[9:15]

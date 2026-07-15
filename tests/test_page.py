@@ -100,7 +100,9 @@ def test_html_page_includes_tracerite_assets():
 
 def test_html_page_body_font():
     html = html_page(_sample_exception())
-    assert "body { font-family: var(--tracerite-ui-font);" in html
+    assert (
+        ":root { color-scheme: light dark; font-family: system-ui, sans-serif }" in html
+    )
 
 
 def test_html_page_traceback_embedded_without_fragment_assets():
@@ -109,9 +111,9 @@ def test_html_page_traceback_embedded_without_fragment_assets():
     soup = BeautifulSoup(html, "html.parser")
     styles = soup.find_all("style")
     scripts = soup.find_all("script")
-    # Page has exactly two styles (tracerite + page) and one script
+    # Page has exactly two styles (tracerite + page) and no script
     assert len(styles) == 2
-    assert len(scripts) == 1
+    assert len(scripts) == 0
     tracerite_div = soup.find("div", class_="tracerite")
     assert tracerite_div is not None
     # The tracerite div itself contains no style/script children

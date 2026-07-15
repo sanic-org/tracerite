@@ -38,6 +38,7 @@ nb = [
     "jupyter-client>=8.6.3",
     "jupyterlab>=4.3.8",
     "notebook>=7.3.3",
+    "numpy>=2.2.6",
 ]
 
 [dependency-groups]

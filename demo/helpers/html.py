@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from html5tagger import HTML, E
 
+import tracerite
+
 from demo.helpers import discover_scenarios
 from tracerite.html import Header, Page, html_traceback
 
@@ -20,6 +22,7 @@ def first_sentence(doc: str | None) -> str:
 async def generate_previews() -> list[tuple[str, str]]:
     """Generate HTML previews for all scenarios."""
     __tracebackhide__ = True
+    tracerite.load()
     previews: list[tuple[str, str]] = []
     for _name, _func in SCENARIOS:
         _async_impl = getattr(_func, "_async_impl", None)
@@ -36,19 +39,24 @@ async def generate_previews() -> list[tuple[str, str]]:
     return previews
 
 
-async def build_index_html() -> str:
+async def build_index_html(*, framework: str | None = None) -> str:
     """Generate previews and build the demo index page HTML."""
     previews = await generate_previews()
-    return _build_index_html(previews)
+    return _build_index_html(previews, framework=framework)
 
 
-def _build_index_html(previews: list[tuple[str, str]]) -> str:
+def _build_index_html(
+    previews: list[tuple[str, str]], *, framework: str | None = None
+) -> str:
     """Build the demo index page HTML from generated previews."""
     preview_map = dict(previews)
     with E.div() as content:
         for name, func in SCENARIOS:
-            with content.h2:
-                content.a[".open-link"]("▶ ", name, href=name)
+            if framework is None:
+                content.h2(name.upper())
+            else:
+                with content.h2:
+                    content.a[".open-link"]("▶ ", name.upper(), href=name)
             content.p[".scenario-doc"](func.__doc__)
             _preview = preview_map.get(name, "")
             if _preview:
@@ -56,14 +64,17 @@ def _build_index_html(previews: list[tuple[str, str]]) -> str:
 
     return str(
         Page(
-            Title="TraceRite Demo",
+            Title="TraceRite",
             Header=E.style(INDEX_STYLE),
             Heading=Header(
-                Heading="TraceRite Demo",
+                Heading="Python tracebacks for Humans (and Machines)",
                 Ingress=(
-                    "The examples rendered below demonstrate the output in various "
-                    "error scenarios. You may click the buttons to run the code live, "
-                    "letting your framework handle it."
+                    "You are viewing the TraceRite standalone HTML demo. "
+                    "The examples below show rendered reports for various error scenarios."
+                    if framework is None
+                    else f"You are viewing the TraceRite {framework} demo. "
+                    "The examples below show rendered reports for various error scenarios. "
+                    f"Click the ▶ buttons to run a scenario live and let {framework} handle it."
                 ),
             ),
             Content=content,
@@ -79,7 +90,6 @@ h2 { margin: 1em 0 0 0; }
   padding: 0.1em 0.5em;
   margin: 0;
   font-size: 0.8em;
-  font-variant: small-caps;
   background: #06c;
   color: #fff;
   border-radius: 0.1em;

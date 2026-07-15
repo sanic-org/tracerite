@@ -32,20 +32,16 @@ javascript = (
 detail_show = "{display: inherit}"
 
 PAGE_STYLE = """\
-:root { color-scheme: light dark; }
-body { font-family: var(--tracerite-ui-font); margin: 1em; }
-header { margin-bottom: 1em; }
-main { margin: 0; }
-h1 { margin: 0 0 0.25em 0; }
-p { margin: 0 0 0.5em 0; }
+:root { color-scheme: light dark; font-family: system-ui, sans-serif }
+main { padding: 1em }
+p { margin: 0 0 0.5em 0 }
 """
 
 # fmt: off
 Page = Template(
     Document(E.Title, lang="en")
-    .style(style)
+    .style(style, id="tracerite-style")
     .style(PAGE_STYLE)
-    .script(javascript)
     .Header
     .main(E.Heading.Content)
     .Footer
@@ -137,8 +133,7 @@ def html_traceback(
     msg: str | None | EllipsisType = ...,
     include_js_css: bool = True,
     local_urls: bool = False,
-    replace_previous: bool = False,
-    cleanup_mode: str = "replace",
+    clear: bool = False,
     autodark: bool = True,
     **extract_args: Any,
 ) -> Any:
@@ -150,11 +145,9 @@ def html_traceback(
     provides them.
     """
     chain = chain or extract_chain(exc=exc, **extract_args)
-    classes = "tracerite autodark" if autodark else "tracerite"
-    with E.div(
-        class_=classes,
-        data_replace_previous="1" if replace_previous else None,
-        data_cleanup_mode=cleanup_mode if replace_previous else None,
+    with E.div[".tracerite"](
+        classes={"autodark": autodark},
+        data_cleanup_mode="replace" if clear else None,
     ) as doc:
         if include_js_css:
             doc._style(style)
@@ -361,6 +354,9 @@ def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
 
             if use_highlight:
                 doc(HTML("</mark>"))
+    else:
+        with doc.code(class_="compact-code"):
+            doc.span("(no source code)", class_="no-source")
     # Add space before symbol for error/stop frames
     if use_highlight:
         doc(" ")
@@ -377,7 +373,7 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
 
     if not fragments:
         # Show "(no source code)" with the symbol emoji like a code line would have
-        doc.p("(no source code) ")
+        doc.p[".no-source"]("(no source code) ")
         doc.span(class_="tracerite-symbol", data_text=symbol_text)
         return
 
@@ -520,9 +516,8 @@ def variable_inspector(doc: Any, variables: list[Any]) -> None:
 
             doc.dt.span(n, class_="var")
             if t:
-                doc(": ").span(f"{t}\u00a0=\u00a0", class_="type")
-            else:
-                doc("\u00a0").span("=\u00a0", class_="type")  # No type printed
+                doc(": ").span(t, class_="type")
+            doc("\u00a0=\u00a0")
             doc.dd(class_=f"val val-{fmt}")
             if isinstance(v, str):
                 if fmt == "block":

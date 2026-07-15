@@ -33,8 +33,10 @@ class LoaderState:
 
 _state = LoaderState()
 
+SuppressionValue = bool | Literal["until"]
+
 # Modules on which to set __tracebackhide__ when loaded.
-_SUPPRESSIONS: dict[str, bool | Literal["until"]] = {
+_SUPPRESSIONS: dict[str, SuppressionValue] = {
     "asyncio.base_events": True,
     "asyncio.runners": True,
     "importlib": True,
@@ -137,9 +139,18 @@ def unload_logging_capture() -> None:
         _state.original_stream_handler_emit = None
 
 
-def load_suppressions() -> None:
-    """Set ``__tracebackhide__`` on library modules whose frames should be hidden."""
-    for module_name, hide_value in _SUPPRESSIONS.items():
+def load_suppressions(*, extra: dict[str, SuppressionValue] | None = None) -> None:
+    """Set ``__tracebackhide__`` on library modules whose frames should be hidden.
+
+    Args:
+        extra: Additional module names mapped to the value to assign to their
+            ``__tracebackhide__`` attribute. These are applied alongside the
+            built-in suppressions and are restored by ``unload_suppressions()``.
+    """
+    suppressions = _SUPPRESSIONS.copy()
+    if extra:
+        suppressions.update(extra)
+    for module_name, hide_value in suppressions.items():
         try:
             module = importlib.import_module(module_name)
         except Exception:

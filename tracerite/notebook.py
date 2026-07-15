@@ -10,8 +10,8 @@ from .html import html_traceback
 from .logging import logger
 from .tty import tty_traceback
 
-# Cleanup mode: "replace" (default) removes old reports, "keep" only removes script/style
-_cleanup_mode = "replace"
+# Whether to clear previous HTML tracebacks before showing a new one
+_clear = True
 
 
 def _can_display_html() -> bool:
@@ -26,15 +26,7 @@ def _can_display_html() -> bool:
 
 def load_ipython_extension(ipython: Any) -> None:
     trace.ipython = ipython
-    load_suppressions()
-
-    # Hide IPython's internal frames from tracebacks
-    try:
-        from IPython.core import interactiveshell
-
-        object.__setattr__(interactiveshell, "__tracebackhide__", True)
-    except ImportError:
-        pass
+    load_suppressions(extra={"IPython.core.interactiveshell": True})
 
     # Define handlers that check HTML capability at call time, not load time.
     # This allows the same extension to work in both Jupyter and terminal.
@@ -46,9 +38,7 @@ def load_ipython_extension(ipython: Any) -> None:
                 display(
                     html_traceback(
                         skip_until="<ipython-input-",
-                        replace_previous=True,
-                        cleanup_mode=_cleanup_mode,
-                        autodark=False,
+                        clear=_clear,
                     )
                 )
             else:
@@ -65,9 +55,7 @@ def load_ipython_extension(ipython: Any) -> None:
                 display(
                     html_traceback(
                         skip_until="<ipython-input-",
-                        replace_previous=True,
-                        cleanup_mode=_cleanup_mode,
-                        autodark=False,
+                        clear=_clear,
                     )
                 )
             else:
@@ -93,12 +81,16 @@ def load_ipython_extension(ipython: Any) -> None:
 
         Usage:
             %tracerite keep - Keep all previous error reports visible
+            %tracerite replace - Replace existing reports (default)
         """
-        global _cleanup_mode
-        if line.strip().lower() == "keep":
-            _cleanup_mode = "keep"
+        global _clear
+        line = line.strip().lower()
+        if line == "keep":
+            _clear = False
+        elif line == "replace":
+            _clear = True
         else:
-            print("Usage: %tracerite keep")
+            print("Usage: %tracerite keep|replace")
 
 
 def unload_ipython_extension(ipython: Any) -> None:
@@ -110,12 +102,4 @@ def unload_ipython_extension(ipython: Any) -> None:
         del ipython.showtraceback
     with contextlib.suppress(AttributeError):
         del ipython.showsyntaxerror
-    # Remove the __tracebackhide__ we injected
-    try:
-        from IPython.core import interactiveshell
-
-        with contextlib.suppress(AttributeError):
-            object.__delattr__(interactiveshell, "__tracebackhide__")
-    except ImportError:
-        pass
     trace.ipython = None
