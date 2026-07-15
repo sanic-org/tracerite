@@ -52,8 +52,11 @@ def _build_index_html(
     preview_map = dict(previews)
     with E.div() as content:
         for name, func in SCENARIOS:
-            with content.h2:
-                content.a[".open-link"]("▶ ", name.upper(), href=name)
+            if framework is None:
+                content.h2(name.upper())
+            else:
+                with content.h2:
+                    content.a[".open-link"]("▶ ", name.upper(), href=name)
             content.p[".scenario-doc"](func.__doc__)
             _preview = preview_map.get(name, "")
             if _preview:
