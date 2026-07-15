@@ -89,6 +89,7 @@ def load_ipython_extension(ipython: Any) -> None:
 
         Usage:
             %tracerite keep - Keep all previous error reports visible
+            %tracerite replace - Replace existing reports (default)
         """
         global _clear
         line = line.strip().lower()

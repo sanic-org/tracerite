@@ -78,11 +78,6 @@
 :root .tracerite code {
   font-family: var(--tracerite-code-font);
   font-weight: 500;
-}
-
-:root .tracerite pre em,
-:root .tracerite code em {
-  font-weight: 700;
   font-feature-settings:
     "calt" 1,   /* contextual alternates */
     "liga" 1;   /* standard ligatures */
@@ -90,6 +85,11 @@
   color: var(--tracerite-code);
   text-overflow: ellipsis;
   word-break: normal;
+}
+
+:root .tracerite pre em,
+:root .tracerite code em {
+  font-weight: 700;
 }
 
 :root .tracerite strong { padding: 0.2em 0; }
