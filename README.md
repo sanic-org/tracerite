@@ -1,6 +1,6 @@
-# TraceRite
+# Tracebacks for Humans (and Machines)
 
-**Beautiful, readable error messages for Python, with text and HTML formatting.**
+**TraceRite makes beautiful, readable error messages for Python, with text, HTML and JSON formatting.**
 
 [![PyPI version](https://badge.fury.io/py/tracerite.svg)](https://pypi.org/project/tracerite/)
 ![Tests](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/img/tests-badge.svg)
