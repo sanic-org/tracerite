@@ -335,7 +335,7 @@ def slice_source_context(lines, start, lineno, end_lineno, notebook_cell, except
     """Slice source lines to the desired context window around the error."""
     if notebook_cell:
         if except_start is not None and except_start >= start:
-            lines_before = lineno - except_start  # pragma: no cover
+            lines_before = min(lineno - except_start, 10)
         else:
             lines_before = 0
         lines_after = (end_lineno - lineno) if end_lineno else 0
