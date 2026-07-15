@@ -136,8 +136,7 @@ def html_traceback(
     msg: str | None | EllipsisType = ...,
     include_js_css: bool = True,
     local_urls: bool = False,
-    replace_previous: bool = False,
-    cleanup_mode: str = "replace",
+    clear: bool = False,
     autodark: bool = True,
     **extract_args: Any,
 ) -> Any:
@@ -149,11 +148,9 @@ def html_traceback(
     provides them.
     """
     chain = chain or extract_chain(exc=exc, **extract_args)
-    classes = "tracerite autodark" if autodark else "tracerite"
-    with E.div(
-        class_=classes,
-        data_replace_previous="1" if replace_previous else None,
-        data_cleanup_mode=cleanup_mode if replace_previous else None,
+    with E.div[".tracerite"](
+        classes={"autodark": autodark},
+        data_cleanup_mode="replace" if clear else None,
     ) as doc:
         if include_js_css:
             doc._style(style)

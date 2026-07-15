@@ -10,8 +10,8 @@ from .html import html_traceback
 from .logging import logger
 from .tty import tty_traceback
 
-# Cleanup mode: "replace" (default) removes old reports, "keep" only removes script/style
-_cleanup_mode = "replace"
+# Whether to clear previous HTML tracebacks before showing a new one
+_clear = True
 
 
 def _can_display_html() -> bool:
@@ -46,9 +46,7 @@ def load_ipython_extension(ipython: Any) -> None:
                 display(
                     html_traceback(
                         skip_until="<ipython-input-",
-                        replace_previous=True,
-                        cleanup_mode=_cleanup_mode,
-                        autodark=False,
+                        clear=_clear,
                     )
                 )
             else:
@@ -65,9 +63,7 @@ def load_ipython_extension(ipython: Any) -> None:
                 display(
                     html_traceback(
                         skip_until="<ipython-input-",
-                        replace_previous=True,
-                        cleanup_mode=_cleanup_mode,
-                        autodark=False,
+                        clear=_clear,
                     )
                 )
             else:
@@ -94,11 +90,14 @@ def load_ipython_extension(ipython: Any) -> None:
         Usage:
             %tracerite keep - Keep all previous error reports visible
         """
-        global _cleanup_mode
-        if line.strip().lower() == "keep":
-            _cleanup_mode = "keep"
+        global _clear
+        line = line.strip().lower()
+        if line == "keep":
+            _clear = False
+        elif line == "replace":
+            _clear = True
         else:
-            print("Usage: %tracerite keep")
+            print("Usage: %tracerite keep|replace")
 
 
 def unload_ipython_extension(ipython: Any) -> None:
