@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from html5tagger import HTML, E
 
+import tracerite
+
 from demo.helpers import discover_scenarios
 from tracerite.html import Header, Page, html_traceback
 
@@ -20,6 +22,7 @@ def first_sentence(doc: str | None) -> str:
 async def generate_previews() -> list[tuple[str, str]]:
     """Generate HTML previews for all scenarios."""
     __tracebackhide__ = True
+    tracerite.load()
     previews: list[tuple[str, str]] = []
     for _name, _func in SCENARIOS:
         _async_impl = getattr(_func, "_async_impl", None)
