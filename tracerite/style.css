@@ -252,7 +252,7 @@
   font-size: 0.8em;
   text-align: right;
   background: var(--tracerite-dim-bg);
-  padding: 0.1em 0.4em;
+  padding: 0.5em 0.5em 0.5em 0;
   min-width: 3em;
   border-right: 1px solid transparent;
   border-bottom: 1px solid transparent;
@@ -283,16 +283,15 @@
   text-overflow: ellipsis;
   background: var(--tracerite-dim-bg);
   background-clip: padding-box;
-  border-right: 1px solid transparent;
   border-bottom: 1px solid transparent;
 }
-:root .tracerite .inspector dl.keyvalue-dl dd { border-right: none; }
 :root .tracerite .inspector dl.keyvalue-dl dt {
   text-align: right;
   color: var(--tracerite-var);
   font-weight: 700;
   width: max-content;
   float: none;
+  border-right: 1px solid transparent;
 }
 :root .tracerite .inspector dl.keyvalue-dl dd {
   text-align: left;
