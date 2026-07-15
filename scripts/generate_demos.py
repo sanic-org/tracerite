@@ -93,12 +93,16 @@ def _handler_body_source(func: Any) -> str:
         lines = segment.splitlines()
         dedented: list[str] = []
         for line in lines:
-            stripped = line[col_offset:] if line.startswith(" " * col_offset) else line.lstrip()
+            stripped = (
+                line[col_offset:]
+                if line.startswith(" " * col_offset)
+                else line.lstrip()
+            )
             dedented.append(stripped)
         return "\n".join(dedented)
 
     parts: list[str] = []
-    for original, tx in zip(body, transformed):
+    for original, tx in zip(body, transformed, strict=False):
         if ast.dump(original) == ast.dump(tx):
             segment = ast.get_source_segment(source, original)
             assert segment is not None
