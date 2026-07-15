@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;700&display=swap');
 
 /** TraceRite **/
 :root {
@@ -57,7 +57,14 @@
 }
 
 :root .tracerite,
-:root .tracerite * { margin: 0; padding: 0; outline: none; box-sizing: border-box; }
+:root .tracerite * {
+  margin: 0;
+  padding: 0;
+  outline: none;
+  box-sizing: border-box;
+  background: transparent;
+  border-radius: 0;
+}
 
 :root .tracerite > h2 { font-size: 1.4em; font-weight: 500; }
 :root .tracerite > h3 { font-size: 1.2em; font-weight: 500; }
@@ -67,11 +74,15 @@
 :root .tracerite code {
   font-family: var(--tracerite-code-font);
   font-weight: 500;
+}
+
+:root .tracerite pre em,
+:root .tracerite code em {
+  font-weight: 700;
   font-feature-settings:
     "calt" 1,   /* contextual alternates */
     "liga" 1;   /* standard ligatures */
   font-variant-ligatures: common-ligatures;
-  background: none;
   color: var(--tracerite-code);
   text-overflow: ellipsis;
   word-break: normal;
