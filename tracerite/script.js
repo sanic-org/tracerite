@@ -32,7 +32,7 @@ if(current?.classList.contains('autodark')){
     return 'rgb(255,255,255)'
   }
   const red=getBg(current).match(/rgba?\(\s*(\d+)/)?.[1]
-  if(red && parseInt(red)/255>0.5){
+  if(red && parseInt(red)>=128){
     current.classList.remove('autodark')
   }
 }
