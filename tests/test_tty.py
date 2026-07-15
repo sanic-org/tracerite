@@ -893,6 +893,19 @@ class TestLoadUnload:
         finally:
             unload()
 
+    def test_load_suppressions_extra(self, monkeypatch):
+        """Test load_suppressions(extra=) sets and restores extra suppressions."""
+        fake_module = types.ModuleType("fake_extra_module")
+        fake_module.__tracebackhide__ = "until"
+        monkeypatch.setitem(sys.modules, "fake_extra_module", fake_module)
+        hooks.load_suppressions(extra={"fake_extra_module": True})
+        try:
+            assert fake_module.__tracebackhide__ is True
+            assert fake_module in hooks._state.suppressed
+        finally:
+            hooks.unload_suppressions()
+        assert fake_module.__tracebackhide__ == "until"
+
 
 class TestFrameFormatting:
     """Tests for frame label and info extraction."""

@@ -26,15 +26,7 @@ def _can_display_html() -> bool:
 
 def load_ipython_extension(ipython: Any) -> None:
     trace.ipython = ipython
-    load_suppressions()
-
-    # Hide IPython's internal frames from tracebacks
-    try:
-        from IPython.core import interactiveshell
-
-        object.__setattr__(interactiveshell, "__tracebackhide__", True)
-    except ImportError:
-        pass
+    load_suppressions(extra={"IPython.core.interactiveshell": True})
 
     # Define handlers that check HTML capability at call time, not load time.
     # This allows the same extension to work in both Jupyter and terminal.
@@ -110,12 +102,4 @@ def unload_ipython_extension(ipython: Any) -> None:
         del ipython.showtraceback
     with contextlib.suppress(AttributeError):
         del ipython.showsyntaxerror
-    # Remove the __tracebackhide__ we injected
-    try:
-        from IPython.core import interactiveshell
-
-        with contextlib.suppress(AttributeError):
-            object.__delattr__(interactiveshell, "__tracebackhide__")
-    except ImportError:
-        pass
     trace.ipython = None
