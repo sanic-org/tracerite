@@ -129,7 +129,7 @@ def create_comparison():
     # label's 80 px margin from the seam.
     tty_label = "Terminal"
     tty_bbox = draw.textbbox((0, 0), tty_label, font=font)
-    tty_text_width = tty_bbox[2] - tty_bbox[0]
+    tty_bbox[2] - tty_bbox[0]
     tty_label_x = html_scaled.width + GAP + 80
     tty_label_y = padding
     draw_label(draw, tty_label, tty_label_x, tty_label_y, font, bg=True)

@@ -105,7 +105,10 @@ def create_composite():
 
     # Scale everything to the fixed output width.
     numpy_scaled = numpy_img.resize(
-        (round(numpy_img.width * numpy_scale * fit_scale), round(numpy_img.height * numpy_scale * fit_scale)),
+        (
+            round(numpy_img.width * numpy_scale * fit_scale),
+            round(numpy_img.height * numpy_scale * fit_scale),
+        ),
         Image.Resampling.LANCZOS,
     )
     syntax_scaled = syntax.resize(
@@ -142,7 +145,9 @@ def create_composite():
     # Expand syntax to the full right-column width, filling from the top-right
     # corner so the prompt arrow stays aligned with compact below.
     fill_color = syntax_scaled.getpixel((syntax_scaled.width - 1, 0))
-    syntax_expanded = Image.new("RGB", (right_col_width, syntax_scaled.height), fill_color)
+    syntax_expanded = Image.new(
+        "RGB", (right_col_width, syntax_scaled.height), fill_color
+    )
     syntax_expanded.paste(syntax_scaled, (0, 0))
     canvas.paste(syntax_expanded, (right_col_x, 0))
 

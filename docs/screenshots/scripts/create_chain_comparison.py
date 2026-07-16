@@ -135,7 +135,14 @@ def create_comparison():
     without_text_height = without_bbox[3] - without_bbox[1]
     box_height = without_text_height + (padding // 2) + int(padding * 1.8)
     without_x = with_scaled.width + GAP - without_text_width - padding - 25
-    without_y = total_height - without_text_height - 180 - without_text_height + box_height + box_height
+    without_y = (
+        total_height
+        - without_text_height
+        - 180
+        - without_text_height
+        + box_height
+        + box_height
+    )
     draw_label(draw, without_label, without_x, without_y, font, bg=True)
 
     canvas.save(OUTPUT_FILE, "WEBP", quality=90)
