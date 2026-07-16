@@ -2174,6 +2174,21 @@ class TestTtyTracebackEdgeCases:
         # Tag should appear on the initial line
         assert "ERRTAG" in result
 
+    def test_msg_with_fastapi_rich_bar_prefix(self):
+        """Colored " ▕" prefix keeps both sides' colors but loses both spaces."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        rich_msg = " \x1b[36m▕\x1b[0m Rich formatted message"
+        try:
+            raise ValueError("test")
+        except Exception as e:
+            tty_traceback(exc=e, file=output, msg=rich_msg)
+
+        first_line = output.getvalue().split("\n", 1)[0]
+        # TraceRite's ╭ and FastAPI's ▕ stay colored; no spaces between them
+        assert first_line.startswith(f"{DIM}╭{RESET}\x1b[36m▕\x1b[0m ")
+        assert "  " not in first_line
+
     def test_empty_chain(self):
         """Test tty_traceback with empty chain."""
         output = io.StringIO()

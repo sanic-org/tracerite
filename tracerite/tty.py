@@ -103,6 +103,9 @@ CODE_INDENT = "  "  # Indent for code in frame
 # Regex pattern to strip ANSI escape sequences
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;:]*[A-Za-z]")
 
+# FastAPI rich log format prefix  " ▕" (plain space + possibly colored bar).
+RICHPREFIX_RE = re.compile(rf"^ (?:{ANSI_ESCAPE_RE.pattern})*▕")
+
 # Token regex: either a full ANSI escape sequence or any single character.
 _TOKEN_RE = re.compile(r"\x1b\[[0-9;:]*[A-Za-z]|.", re.DOTALL)
 
@@ -164,6 +167,9 @@ def tty_traceback(
         msg = msg.rstrip("\n")
         if msg.startswith("  "):
             msg = msg[2:]
+        elif RICHPREFIX_RE.match(msg):
+            msg = msg[1:]
+            output = output.removesuffix(" ")
 
         # Append tag (dim color) if provided
         if tag:
