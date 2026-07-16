@@ -63,8 +63,8 @@ Comes with TraceRite built in. HTML reports are available in debug mode, and con
 - **Custom Styling** - Theme with your colors by defining CSS variables or tty.COLORS.
 - **Automatic dark mode** - Saves your eyes.
 
-![ExceptionGroup comparison](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/group-comparison.webp)
-*Python 3.11+ `ExceptionGroup` errors from parallel execution (e.g., `asyncio.TaskGroup`) are shown clearly by TraceRite in both HTML and terminal output.*
+![ExceptionGroup in HTML and terminal](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/group-comparison.webp)
+*Python 3.11+ concurrent execution errors with `except*` handling are shown clearly in both HTML and terminal output.*
 
 ## Usage
 
