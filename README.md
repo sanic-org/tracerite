@@ -49,7 +49,7 @@ Comes with TraceRite built in. HTML reports are available in debug mode, and con
 ## Clarity in complex situations
 
 ![Exception chain comparison](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/chain-comparison.webp)
-*TraceRite renders complex exception chains in chronological order (left). Python 3.15 traceback needs illustrative arrows to follow execution (right).
+*TraceRite renders complex exception chains in chronological order (left). The Python 3.15 built in traceback needs illustrative arrows to follow execution (right).*
 
 ## Features
 
