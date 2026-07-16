@@ -1,12 +1,13 @@
 # Tracebacks for Humans (and Machines)
 
-**TraceRite makes beautiful, readable error messages for Python, with text, HTML and JSON formatting.**
+**Fixing bugs is easier with well formatted error messages. Console, HTML and JSON.**
 
 [![PyPI version](https://badge.fury.io/py/tracerite.svg)](https://pypi.org/project/tracerite/)
 ![Tests](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/img/tests-badge.svg)
 ![Coverage](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/img/coverage-badge.svg)
 
-![TraceRite features](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/features-composite.webp)
+![TraceRite in Notebook/HTML and terminal](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/features-composite.webp)
+*TraceRite formats Python errors in Jupyter notebooks, in plain HTML, and in the terminal: rich variable inspection (left), plus syntax-error highlighting and compact terminal tracebacks (right).*
 
 ## Installation
 
@@ -43,12 +44,12 @@ This monkeypatches Starlette error handling and FastAPI routing to work with HTM
 
 ### Sanic
 
-Comes with TraceRite built in whenever running in debug mode.
+Comes with TraceRite built in. HTML reports are available in debug mode, and console messages are always formatted by Tracerite.
 
 ## Clarity in complex situations
 
 ![Exception chain comparison](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/chain-comparison.webp)
-*TraceRite shows even complex exception chains in chronological order, as opposed to the convoluted order of Python's own tracebacks where the entry point `func()` is near bottom and the flow jumps back and forth.*
+*TraceRite renders complex exception chains in chronological order (left). Python 3.15 traceback needs illustrative arrows to follow execution (right).
 
 ## Features
 
@@ -63,7 +64,7 @@ Comes with TraceRite built in whenever running in debug mode.
 - **Automatic dark mode** - Saves your eyes.
 
 ![ExceptionGroup comparison](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/group-comparison.webp)
-*Python 3.11+ introduced `ExceptionGroup` for parallel execution errors (e.g., `asyncio.TaskGroup`). TraceRite displays these clearly.*
+*Python 3.11+ `ExceptionGroup` errors from parallel execution (e.g., `asyncio.TaskGroup`) are shown clearly by TraceRite in both HTML and terminal output.*
 
 ## Usage
 
