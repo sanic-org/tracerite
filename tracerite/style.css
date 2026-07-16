@@ -53,7 +53,8 @@
 
 /* CSS reset against external styling */
 :root .tracerite,
-:root .tracerite * {
+:root .tracerite *,
+:root .tracerite table tr {
   margin: 0;
   padding: 0;
   outline: none;
@@ -115,7 +116,7 @@
 }
 :root .tracerite .excmessage { font-size: 0.8em; border-left: .25rem solid var(--tracerite-exception); margin-left: 0.45rem; padding-left: 0.5rem; white-space: pre-wrap; overflow-wrap: break-word; overflow: hidden; }
 :root .tracerite .excmessage-ellipsis { color: var(--tracerite-lineno); }
-:root .tracerite .exctype { color: var(--tracerite-exception); }
+:root .tracerite .exctype { color: var(--tracerite-exception); font-weight: 700; }
 
 :root .tracerite .traceback-details p { margin: 1em 0; }
 :root .tracerite .traceback-details pre { width: 50vw; padding: .5em; }
