@@ -46,7 +46,7 @@ def numpy() -> None:
     a[0, 1] = float("NaN")
     a[1, 2] = float("inf")
     a[2, 1] = float("-inf")
-    _ = a @ b
+    c = a @ b
 
 
 def recursion() -> None:

@@ -60,7 +60,7 @@ async def numpy():
     a[0, 1] = float("NaN")
     a[1, 2] = float("inf")
     a[2, 1] = float("-inf")
-    _ = a @ b
+    c = a @ b
 
 @app.get("/recursion")
 async def recursion():
