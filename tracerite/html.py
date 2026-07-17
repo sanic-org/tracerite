@@ -24,7 +24,9 @@ from .trace.finalize import (
     normalize_variable,
 )
 
-style = files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
+html_style = (
+    files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
+)
 javascript = (
     files(cast(str, __package__)).joinpath("script.js").read_text(encoding="UTF-8")
 )
@@ -40,7 +42,7 @@ p { margin: 0 0 0.5em 0 }
 # fmt: off
 Page = Template(
     Document(E.Title, lang="en")
-    .style(style, id="tracerite-style")
+    .style(html_style, id="tracerite-style")
     .style(PAGE_STYLE)
     .Header
     .main(E.Heading.Content)
@@ -65,17 +67,7 @@ def html_page(
     local_urls: bool = False,
     **extract_args: Any,
 ) -> HTML:
-    """Render a full HTML5 document containing a TraceRite traceback.
-
-    Returns an html5tagger `HTML` string. The underlying `Page` template
-    includes TraceRite's CSS and JavaScript, an optional site-wide header and
-    footer, a heading/ingress block inside `<main>`, and the traceback itself.
-
-    The default heading inside `<main>` is built from the `Header` template,
-    which exposes `Heading` and `Ingress` slots. The `Header` and `Footer`
-    slots of `Page` are empty by default so callers can inject site-wide
-    header/footer content.
-    """
+    """Render a full HTML5 document containing a TraceRite traceback."""
     chain = extract_chain(exc=exc, **extract_args) if chain is None else chain
     page_title = (
         title
@@ -136,10 +128,10 @@ def html_traceback(
     clear: bool = False,
     autodark: bool = True,
     **extract_args: Any,
-) -> Any:
+) -> HTML:
     """Render an exception as an interactive HTML fragment.
 
-    Returns an html5tagger HTML fragment wrapped in a ``<div class="tracerite">``.
+    Returns an html5tagger HTML object wrapped in a ``<div class="tracerite">``.
     By default the fragment includes the TraceRite stylesheet and JavaScript;
     set ``include_js_css=False`` when embedding it in a page that already
     provides them.
@@ -150,7 +142,7 @@ def html_traceback(
         data_cleanup_mode="replace" if clear else None,
     ) as doc:
         if include_js_css:
-            doc._style(style)
+            doc._style(html_style)
 
         # Add chain header (use default if msg is ..., skip if msg is None/empty)
         if msg is ...:
@@ -166,7 +158,7 @@ def html_traceback(
 
         if include_js_css:
             doc._script(javascript)
-    return doc
+    return HTML(doc)
 
 
 def _chronological_output(
