@@ -30,7 +30,7 @@ def inspector() -> None:
         Foo(),
         Bar(),
         divisor=0,
-        multiplier=5,
+        multiplier=-5,
     )
 
 

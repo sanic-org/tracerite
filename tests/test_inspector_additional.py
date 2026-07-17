@@ -35,7 +35,7 @@ class TestFormatScalar:
     def test_float_negative_inf(self):
         """Test negative infinity formatting."""
         result = _format_scalar(float("-inf"))
-        assert result == "-∞"
+        assert result == "\u2212∞"
 
     def test_float_zero(self):
         """Test zero formatting."""
@@ -140,7 +140,7 @@ class TestArrayFormatter:
 
         # Test the formatter handles special values
         assert fmt(float("inf")) == "∞"
-        assert fmt(float("-inf")) == "-∞"
+        assert fmt(float("-inf")) == "\u2212∞"
         assert fmt(float("nan")) == "NaN"
 
     def test_float_array_with_zero_in_formatter(self):

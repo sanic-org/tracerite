@@ -54,7 +54,7 @@ def _format_scalar(v: Any) -> str:
         if math.isnan(v):
             return "NaN"
         if math.isinf(v):
-            return "∞" if v > 0 else "-∞"
+            return "∞" if v > 0 else "\u2212∞"
         if v == 0:
             return "0"
         if v == int(v) and abs(v) < 1e15:
@@ -93,7 +93,9 @@ def _array_formatter(arr: Any) -> tuple[Callable[[Any], str], str]:
         finite = [abs(v) for v in sample if math.isfinite(v)]
         if not finite:
             return (
-                lambda v: "NaN" if math.isnan(float(v)) else ("∞" if v > 0 else "-∞"),
+                lambda v: (
+                    "NaN" if math.isnan(float(v)) else ("∞" if v > 0 else "\u2212∞")
+                ),
                 "",
             )
 
@@ -116,7 +118,7 @@ def _array_formatter(arr: Any) -> tuple[Callable[[Any], str], str]:
             if math.isnan(v):
                 return "NaN"
             if math.isinf(v):
-                return "∞" if v > 0 else "-∞"
+                return "∞" if v > 0 else "\u2212∞"
             scaled = v * sf
             if scaled == 0:
                 return "0"
