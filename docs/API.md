@@ -20,10 +20,8 @@ All three formatters share the same first two parameters and pass any remaining
 keyword arguments through to `extract_chain` (so `skip_outmost` and
 `skip_until` work everywhere):
 
-- **exc** — the exception to render. Defaults to the current exception from
-  `sys.exc_info()`.
-- **chain** — pre-extracted data from `extract_chain`. When given, **exc**
-  is ignored.
+- **exc** — the exception to render. When omitted, the current exception inside an `except` block is used.
+- **chain** — pre-extracted data from `extract_chain`. When given, **exc** is ignored.
 
 ### html_page
 
@@ -56,7 +54,7 @@ Parameters (in addition to **exc**, **chain**, **msg**, **autodark**, and
 - **header**, **footer** — content injected before and after `<main>` (e.g.
   site navigation or extra `<style>` tags). Empty by default.
 
-ℹ️ The function returns a `HTML` object that is a `str` with `__html__` and `_repr_html_` conversions understood by templating engines and frameworks as HTML code not needing escaping, but that also works where plain string is expected.
+ℹ️ The function returns a `html5tagger.HTML` object that is a `str` with `__html__` and `_repr_html_` conversions understood by templating engines and frameworks as HTML code not needing escaping, but that also works where plain string is expected.
 
 #### Web framework integration
 
@@ -71,6 +69,8 @@ def handle_error(exc):
     return html_page(exc, title="Internal Server Error"), 500
 ```
 
+ℹ️ Other frameworks may require `HTMLResponse(html_page(...))` or similar. Remember that you should only render tracebacks in debug mode, never in production.
+
 ### html_traceback
 
 ```python
@@ -80,7 +80,7 @@ html_traceback(exc=None, chain=None, *, msg=..., include_js_css=True,
 
 Renders an exception as an interactive HTML fragment wrapped in `<div class="tracerite">`. This interface allows you to fully composite your own error document, or to return the plain div fragment (useful with htmx or `fetch()`).
 
-ℹ️ The function returns a `HTML` object that is a `str` with `__html__` and `_repr_html_` conversions understood by templating engines and frameworks as HTML code not needing escaping, but that also works where plain string is expected.
+ℹ️ The function returns a `html5tagger.HTML` object that is a `str` with `__html__` and `_repr_html_` conversions understood by templating engines and frameworks as HTML code not needing escaping, but that also works where a plain string is expected.
 
 
 ```python
@@ -104,8 +104,7 @@ Parameters (in addition to **exc** and **chain**):
   fragment carries an `autodark` class that the stylesheet reacts to.
 
 
-**💡 Recommended:** When embedding fragments in a larger page, provide the TraceRite stylesheet once in your page without including them in every fragment you render. By default, each fragment is self-contained and includes both a `<style>` tag and a `<script>` tag. The `<script>` tag is only needed for the `clear=True` replacement behavior and other minor functions useful when we don't control the main document (e.g. Jupyter Notebooks); for most pages the stylesheet alone is sufficient. Use page-level assets whenever you have control over that.
-
+**💡 Recommended:** When embedding fragments in a larger page, provide the TraceRite stylesheet once in your page without including them in every fragment you render. By default, each fragment is self-contained and includes both a `<style>` tag and a `<script>` tag. The script is only needed for the `clear=True` replacement behavior and other minor functions useful when we don't control the main document (e.g. Jupyter Notebooks); for most pages the stylesheet alone is sufficient. Use page-level assets whenever you have control over that.
 
 ```python
 from tracerite import html_traceback, html_style
@@ -117,8 +116,6 @@ html = html_traceback(include_js_css=False)
 # ...
 # {{ html }}
 ```
-
-
 
 ### tty_traceback
 
@@ -169,12 +166,9 @@ The variable accepts two useful values:
 
 - **Any truthy value** (commonly `True`) — hides the individual frame. This
   convention is recognized by pytest and others.
-- **`"until"`** — hides this frame and all frames before it. This is a
-  TraceRite extension: everything from the start of execution to the frame that set `"until"` itself is dropped, leaving only later frames visible.
+- **`"until"`** — hides this frame and all frames before it. This is a TraceRite extension: everything from the start of execution to the frame that set `"until"` itself is dropped, leaving only later frames visible.
 
-Hiding is ignored when an exception actually occurs inside a hidden frame. In
-that case the frame is shown anyway, because the exact location of the error is
-always relevant.
+Hiding is ignored when an exception actually occurs inside a hidden frame. In that case the frame is shown anyway, because the exact location of the error is always relevant.
 
 ```python
 # In a helper module that should not appear in tracebacks
@@ -219,8 +213,7 @@ tracerite.unload()  # Optionally restore the original handlers
 - **suppressions** — set `__tracebackhide__` on selected standard library modules
 - **capture_logging** — capture `logging.StreamHandler.emit` for `logging.exception()`
 
-`unload()` restores all original handlers and attributes, regardless of which
-loaders were used.
+`unload()` restores all original handlers and attributes, regardless of which loaders were used. Other things may be loaded and unloaded also after unload. Does nothing when everything is already unloaded.
 
 ### Individual loaders
 
@@ -253,7 +246,7 @@ patch_fastapi(tty=False) # HTML debug pages only
 extract_chain(exc=None, *, skip_outmost=0, skip_until=None) -> dict
 ```
 
-Extracts traceback information without rendering anything. This is the JSON-compatible intermediate format that all formatters consume, and the right entry point if you want to build your own output. Note that the frames are returned in the chronological order of execution, where exception-raising frames may appear at any point (and at the end).
+Extracts traceback information without rendering anything. This is the JSON-compatible intermediate format that all formatters consume, and the right entry point if you want to build your own output or do machine analysis (although for LLMs the text format is better). Note that the frames are returned in the chronological order of execution, where exception-raising frames may appear at any point (and at the end).
 
 Parameters:
 
