@@ -209,8 +209,8 @@ def fill_frame_variables(frame: FrameInfo, exc_message: str | None = None) -> No
     """Extract variables for a single frame and drop its live frame object."""
     from tracerite.inspector import extract_variables
 
-    frame_obj = frame.pop("frame_obj", None)
-    variable_source = frame.pop("variable_source", None)
+    frame_obj = frame.pop("_frame_obj", None)
+    variable_source = frame.pop("_variable_source", None)
 
     if frame.get("hidden") or frame_obj is None or variable_source is None:
         frame.setdefault("variables", [])
@@ -243,14 +243,14 @@ def fill_chronological_variables(chrono_frames: list[FrameInfo]) -> None:
     def _process_branch(branch: list[FrameInfo]) -> None:
         for frame in reversed(branch):
             idframe = frame.get("idframe")
-            if idframe is not None and idframe not in seen and "frame_obj" in frame:
+            if idframe is not None and idframe not in seen and "_frame_obj" in frame:
                 exc_message = frame.get("exception", {}).get("message")
                 fill_frame_variables(frame, exc_message=exc_message)
                 seen.add(idframe)
             else:
                 frame.setdefault("variables", [])
-                frame.pop("frame_obj", None)
-                frame.pop("variable_source", None)
+                frame.pop("_frame_obj", None)
+                frame.pop("_variable_source", None)
             for sub_branch in frame.get("parallel", []):
                 _process_branch(sub_branch)
 

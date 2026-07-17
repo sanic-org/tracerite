@@ -78,8 +78,7 @@ class VarInfo(TypedDict):
 class FrameInfo(TypedDict, total=False):
     """One call frame in a traceback.
 
-    The internal-only keys (``frame_obj``, ``variable_source``,
-    ``_except_start``) are removed before public emission.
+    The internal-only temp keys are removed before public emission.
     """
 
     id: str
@@ -106,9 +105,9 @@ class FrameInfo(TypedDict, total=False):
     exception: ExceptionInfo
     parallel: list[list[FrameInfo]]
     variables: list[VarInfo]
-    frame_obj: Any
-    variable_source: str | None
-    _except_start: int | None
+    _frame_obj: Any  # temp: digest -> finalize
+    _variable_source: str | None  # temp: digest -> finalize
+    _except_start: int | None  # temp: digest -> order -> finalize
 
 
 ExcChain: TypeAlias = list["ExceptionInfo"]
@@ -128,7 +127,7 @@ ExceptionInfo = TypedDict(
         "leaf_types": list[str],
         "chain_link": ChainLink | None,
         "exc_idx": int,
-        "_exc": BaseException,
+        "_exc": BaseException,  # temp: digest -> removed in finalize
     },
     total=False,
 )
