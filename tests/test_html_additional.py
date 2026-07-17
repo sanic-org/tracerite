@@ -2,7 +2,7 @@
 
 import pytest
 
-from tracerite.html import html_traceback, javascript, style
+from tracerite.html import html_style, html_traceback, javascript
 from tracerite.inspector import VarInfo
 from tracerite.trace import extract_chain
 from tracerite.trace.chain_analysis import build_chronological_frames
@@ -321,7 +321,7 @@ class TestHtmlAdditional:
 
     def test_style_content(self):
         """Test style content."""
-        css = style
+        css = html_style
         assert isinstance(css, str)
         assert len(css) > 0
 
