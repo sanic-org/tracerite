@@ -6,12 +6,12 @@ import sys
 import pytest
 
 from tracerite.html import html_traceback
-from tracerite.trace.chain_analysis import build_chronological_frames
 from tracerite.trace.digest import extract_subexceptions, is_exception_group
 from tracerite.trace.finalize import (
     extract_chain,
     extract_chain_exceptions,
 )
+from tracerite.trace.order import build_chronological_frames
 from tracerite.tty import tty_traceback
 
 from .helpers import extract_exception

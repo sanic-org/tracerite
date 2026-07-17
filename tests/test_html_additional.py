@@ -4,8 +4,8 @@ import pytest
 
 from tracerite.html import html_style, html_traceback, javascript
 from tracerite.trace import extract_chain
-from tracerite.trace.chain_analysis import build_chronological_frames
 from tracerite.trace.finalize import build_chain_header
+from tracerite.trace.order import build_chronological_frames
 
 from .helpers import extract_exception
 

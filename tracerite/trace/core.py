@@ -108,11 +108,9 @@ STRING_PREFIX_PAIRS = frozenset(("fr", "rf", "br", "rb"))
 STRING_PREFIXES = frozenset(("f", "r", "b", "u"))
 EMPHASIS_BEG = frozenset(("solo", "beg"))
 EMPHASIS_FIN = frozenset(("solo", "fin"))
-EMPHASIS_MARKS = frozenset(("solo", "beg", "fin"))
 COMP_CODE_NAMES = frozenset(
     ("<module>", "<listcomp>", "<dictcomp>", "<setcomp>", "<genexpr>")
 )
-KEEP_AFTER_SUPPRESSION = frozenset(("except", "error"))
 HIGHLIGHT_RELEVANCES = frozenset(("error", "stop"))
 PROMOTABLE_RELEVANCES = frozenset(("call", "warning"))
 

@@ -6,9 +6,9 @@ import pytest
 from bs4 import BeautifulSoup
 
 from tracerite.html import html_style, html_traceback, javascript
-from tracerite.trace.chain_analysis import build_chronological_frames
 from tracerite.trace.core import symbols
 from tracerite.trace.finalize import build_chain_header, extract_chain
+from tracerite.trace.order import build_chronological_frames
 
 from .helpers import extract_exception
 

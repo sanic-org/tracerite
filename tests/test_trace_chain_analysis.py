@@ -2,16 +2,8 @@
 
 from tracerite.trace.chain_analysis import (
     TryExceptVisitor,
-    analyze_exception_chain_links,
-    apply_base_exception_suppression,
-    build_chronological_frames,
-    enrich_chain_with_links,
-    filter_hidden_frames,
-    find_chain_link,
     find_matching_try_for_inner_exception,
     find_try_block_for_except_line,
-    frame_in_except_handler,
-    get_frame_lineno,
     parse_source_for_try_except,
     parse_source_string_for_try_except,
 )
@@ -20,6 +12,16 @@ from tracerite.trace.core import (
     block_contains_in_try,
 )
 from tracerite.trace.finalize import extract_chain_exceptions
+from tracerite.trace.order import (
+    analyze_exception_chain_links,
+    apply_base_exception_suppression,
+    build_chronological_frames,
+    enrich_chain_with_links,
+    filter_hidden_frames,
+    find_chain_link,
+    frame_in_except_handler,
+    get_frame_lineno,
+)
 
 from .errorcases import (
     chained_from_and_without,
