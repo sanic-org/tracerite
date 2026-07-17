@@ -182,7 +182,16 @@ def finalize_chronological(chronological: list[dict], chain: list[dict]) -> list
     chronological = apply_base_exception_suppression(chronological, chain)
     attach_leaf_types(chain, chronological)
     fill_chronological_variables(chronological)
+    _clear_internal_frame_keys(chronological)
     return chronological
+
+
+def _clear_internal_frame_keys(frames: list[dict]) -> None:
+    """Remove internal-only keys from frame dicts before public emission."""
+    for frame in frames:
+        frame.pop("_except_start", None)
+        for branch in frame.get("parallel", []):
+            _clear_internal_frame_keys(branch)
 
 
 def set_relevances(frames: list, e: BaseException) -> None:

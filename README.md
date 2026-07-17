@@ -32,6 +32,11 @@ Any error message after that call will be prettified. Handles any syntax errors 
 
 This enables tracebacks in text or HTML format depending on where you are running. Add to `~/.ipython/profile_default/startup/tracerite.ipy` to make it load automatically for all your ipython and notebook sessions. Alternatively, put the two lines at the top of your notebook.
 
+If you are using UV, consider running with your other dependencies:
+```sh
+uvx --with tracerite --with numpy jupyter lab
+```
+
 ### FastAPI
 
 Add the extension loader at the top of your app module:

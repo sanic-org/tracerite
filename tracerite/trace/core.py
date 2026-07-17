@@ -8,7 +8,10 @@ from typing import Any
 
 
 def Range(
-    lfirst: int, lfinal: int | None = None, cbeg: int | None = None, cend: int | None = None
+    lfirst: int,
+    lfinal: int | None = None,
+    cbeg: int | None = None,
+    cend: int | None = None,
 ) -> dict[str, int | None]:
     """Create a position range dict. Lines are 1-based inclusive, columns 0-based exclusive."""
     return {"lfirst": lfirst, "lfinal": lfinal, "cbeg": cbeg, "cend": cend}

@@ -474,7 +474,9 @@ class TestExtractChainSyntaxError:
             chain = extract_chain()
 
             assert len(chain["frames"]) >= 2
-            types = [f["exception"]["type"] for f in chain["frames"] if f.get("exception")]
+            types = [
+                f["exception"]["type"] for f in chain["frames"] if f.get("exception")
+            ]
             assert types == ["SyntaxError", "ValueError"]
 
 

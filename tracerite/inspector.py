@@ -11,6 +11,9 @@ from typing import Any
 
 from tracerite.logging import logger
 
+# Type alias for the dict returned by VarInfo(), used in annotations.
+VarInfoT = dict[str, Any]
+
 # Minimum length for a string value to be considered a match against the
 # exception message.  Short strings are too likely to collide with unrelated
 # variables by accident.
@@ -19,7 +22,12 @@ _EXCEPTION_MESSAGE_MIN_MATCH_LEN = 12
 
 def VarInfo(name: str, typename: str, value: Any, format_hint: str) -> dict[str, Any]:
     """Create a variable-info dict with formatting metadata."""
-    return {"name": name, "typename": typename, "value": value, "format_hint": format_hint}
+    return {
+        "name": name,
+        "typename": typename,
+        "value": value,
+        "format_hint": format_hint,
+    }
 
 
 blacklist_names = {"_", "In", "Out"}
@@ -170,13 +178,13 @@ def _extract_identifiers_regex(sourcecode: str) -> set[str]:
 
 def extract_variables(
     variables: dict[str, Any], sourcecode: str, exc_message: str | None = None
-) -> list[VarInfo]:
+) -> list[VarInfoT]:
     """Extract variable values that appear in sourcecode for display."""
     identifiers = _extract_identifiers_ast(sourcecode)
     if identifiers is None:
         identifiers = _extract_identifiers_regex(sourcecode)
 
-    rows: list[VarInfo] = []
+    rows: list[VarInfoT] = []
     for name, value in variables.items():
         if name in blacklist_names or isinstance(value, blacklist_types):
             continue
@@ -197,7 +205,7 @@ def _extract_variable_rows(
     identifiers: set[str],
     sourcecode: str,
     exc_message: str | None,
-) -> list[VarInfo]:
+) -> list[VarInfoT]:
     """Return VarInfo rows for a single variable, expanding members if needed."""
     if name not in identifiers:
         return []
@@ -249,7 +257,7 @@ def _safe_str(obj: Any) -> str | None:
 
 def _extract_member_rows(
     name: str, value: Any, identifiers: set[str], sourcecode: str
-) -> list[VarInfo]:
+) -> list[VarInfoT]:
     """Extract members of an object with a poor __str__ representation."""
     try:
         members = safe_vars(value).items()

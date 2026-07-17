@@ -41,7 +41,7 @@ def _run_chain() -> None:
     _outerstep()
 
 
-CONCURRENT_SCENARIO = '''\
+CONCURRENT_SCENARIO = """\
 import asyncio
 import json
 
@@ -74,7 +74,7 @@ async def _run():
 
 def _run_concurrent():
     asyncio.run(_run())
-'''
+"""
 
 
 def _extract_from(scenario_func) -> list[dict]:

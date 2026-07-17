@@ -1352,7 +1352,10 @@ def test_exc_message_variable_suppressed_across_same_function_frames():
     except RuntimeError as e:
         chain = extract_chain(e)
         msg_names = {
-            v["name"] for frame in chain["frames"] for v in frame["variables"] if v["name"] == "msg"
+            v["name"]
+            for frame in chain["frames"]
+            for v in frame["variables"]
+            if v["name"] == "msg"
         }
         assert "msg" not in msg_names
 
@@ -1374,7 +1377,9 @@ def test_recursive_frames_keep_distinct_inspectors():
         recurse(3)
     except ValueError as e:
         chain = extract_chain(e)
-        recurse_frames = [fr for fr in chain["frames"] if fr.get("function") == "recurse"]
+        recurse_frames = [
+            fr for fr in chain["frames"] if fr.get("function") == "recurse"
+        ]
         assert len(recurse_frames) == 4
         for fr in recurse_frames:
             names = {v["name"] for v in fr["variables"]}
@@ -1411,7 +1416,10 @@ def test_exc_message_suppressed_at_module_level():
             # Both module frames point at the same frame object.
             assert module_frames[0]["idframe"] == module_frames[1]["idframe"]
             msg_names = {
-                v["name"] for fr in chain["frames"] for v in fr["variables"] if v["name"] == "msg"
+                v["name"]
+                for fr in chain["frames"]
+                for v in fr["variables"]
+                if v["name"] == "msg"
             }
             assert "msg" not in msg_names
         finally:

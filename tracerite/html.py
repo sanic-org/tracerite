@@ -24,6 +24,7 @@ from .trace.finalize import (
 )
 
 style = files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
+html_style = style
 javascript = (
     files(cast(str, __package__)).joinpath("script.js").read_text(encoding="UTF-8")
 )
@@ -126,10 +127,10 @@ def html_traceback(
     clear: bool = False,
     autodark: bool = True,
     **extract_args: Any,
-) -> Any:
+) -> HTML:
     """Render an exception as an interactive HTML fragment.
 
-    Returns an html5tagger HTML fragment wrapped in a ``<div class="tracerite">``.
+    Returns an html5tagger HTML object wrapped in a ``<div class="tracerite">``.
     By default the fragment includes the TraceRite stylesheet and JavaScript;
     set ``include_js_css=False`` when embedding it in a page that already
     provides them.
@@ -157,7 +158,7 @@ def html_traceback(
 
         if include_js_css:
             doc._script(javascript)
-    return doc
+    return HTML(doc)
 
 
 def _chronological_output(

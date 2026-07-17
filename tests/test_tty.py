@@ -3501,7 +3501,9 @@ class TestTTYCoverage:
 
     def test_no_banner_bottom_corner_falls_back_to_last_prefix(self):
         output = io.StringIO()
-        tty_traceback(chain={"header": "", "frames": []}, file=output, msg=f"{LINE_PREFIX} hello")
+        tty_traceback(
+            chain={"header": "", "frames": []}, file=output, msg=f"{LINE_PREFIX} hello"
+        )
         assert "╰" in output.getvalue()
 
 
