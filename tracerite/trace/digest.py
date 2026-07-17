@@ -114,7 +114,7 @@ def digest_exception(
     # Determine if this is a "stop" type exception (BaseException or ExceptionGroup)
     is_stop_type = not isinstance(e, Exception) or is_exception_group(e)
 
-    result = {
+    result: ExceptionInfo = {
         "type": type(e).__name__,
         "message": message,
         "summary": summary,
@@ -1032,7 +1032,7 @@ def extract_single_frame(
         lines, lineno, start, mark_range
     )
 
-    result = {
+    result: FrameInfo = {
         "id": make_trace_id(),
         "relevance": "call",
         "hidden": hidden,

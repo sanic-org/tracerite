@@ -1125,11 +1125,12 @@ def test_extract_chain_no_active_exception():
 
 
 def test_trace_typing_module():
-    """Test the trace type-alias module is importable at runtime."""
+    """Test the trace type definitions are importable at runtime."""
     from tracerite.trace import typing
 
-    assert typing.ExcChain == list[typing.ExceptionInfo]
-    assert typing.FrameInfo is not None
+    assert set(typing.Chain.__annotations__) == {"header", "frames"}
+    assert "from" in typing.ExceptionInfo.__annotations__
+    assert "filename" in typing.FrameInfo.__annotations__
 
 
 def test_extract_source_lines_with_trailing_blank_lines():

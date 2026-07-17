@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -40,7 +41,7 @@ def normalize_variable(var_info: Any) -> tuple[str, str, Any, str]:
 
 
 def call_run_ranges(
-    frames: list[FrameInfo], min_run_length: int = 10
+    frames: Sequence[Mapping[str, Any]], min_run_length: int = 10
 ) -> list[tuple[int, int]]:
     """Return (start, end) ranges of consecutive 'call' frames to collapse."""
     ranges = []

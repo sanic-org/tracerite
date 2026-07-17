@@ -7,12 +7,12 @@ import math
 import re
 import types
 from collections.abc import Callable
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any
 
 from tracerite.logging import logger
 
-# Type alias for the variable-info dicts produced by the inspector.
-VarInfo: TypeAlias = dict[str, Any]
+if TYPE_CHECKING:
+    from .trace.typing import VarInfo
 
 # Minimum length for a string value to be considered a match against the
 # exception message.  Short strings are too likely to collide with unrelated

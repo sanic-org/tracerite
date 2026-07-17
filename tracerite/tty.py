@@ -11,7 +11,30 @@ from typing import TYPE_CHECKING, Any, TextIO
 from .trace.core import EMPHASIS_BEG, EMPHASIS_FIN, chainmsg, symbols, symdesc
 
 if TYPE_CHECKING:
-    from .trace.typing import Chain, ExceptionInfo, Fragment, FrameInfo
+    from typing import TypedDict
+
+    from .trace.typing import (
+        Chain,
+        ExceptionInfo,
+        Fragment,
+        FragmentLine,
+        FrameInfo,
+        Range,
+    )
+
+    class _ChronoFrameInfo(TypedDict):
+        """Precomputed display info for one chronological frame."""
+
+        location_part: str
+        function_part: str
+        fragments: list[FragmentLine]
+        frame_range: Range | None
+        relevance: str
+        exc_info: ExceptionInfo | None
+        marked_lines: list[FragmentLine]
+        frinfo: FrameInfo
+
+
 from .trace.finalize import (
     call_run_ranges,
     extract_chain,
@@ -225,7 +248,7 @@ def tty_traceback(
 
 
 def _find_all_inspector_frames(
-    frame_info_list: list[FrameInfo],
+    frame_info_list: list[_ChronoFrameInfo],
 ) -> list[int]:
     """Find all non-call frames that have variables to show."""
     return [
@@ -266,7 +289,7 @@ def _find_last_marked_line(
 
 
 def _find_collapsible_call_runs(
-    frame_info_list: list[FrameInfo], min_run_length: int = 10
+    frame_info_list: list[_ChronoFrameInfo], min_run_length: int = 10
 ) -> list[tuple[int, int]]:
     """Find consecutive runs of 'call' frames that should be collapsed."""
     runs = call_run_ranges(frame_info_list, min_run_length)
@@ -663,7 +686,7 @@ def _get_frame_label(frinfo: FrameInfo) -> tuple[str, str]:
     return location_part, function_part
 
 
-def _get_chrono_frame_info(frinfo: FrameInfo) -> FrameInfo:
+def _get_chrono_frame_info(frinfo: FrameInfo) -> _ChronoFrameInfo:
     """Gather info needed to print a chronological frame."""
     location_part, function_part = _get_frame_label(frinfo)
     fragments = frinfo["fragments"]
@@ -689,7 +712,7 @@ def _get_chrono_frame_info(frinfo: FrameInfo) -> FrameInfo:
 
 
 def _build_chrono_frame_lines(
-    info: FrameInfo, location_width: int, function_width: int, term_width: int
+    info: _ChronoFrameInfo, location_width: int, function_width: int, term_width: int
 ) -> list[tuple[str, int, bool]]:
     """Build output lines for a chronological frame."""
     location_part = info["location_part"]
@@ -846,7 +869,7 @@ def _build_chrono_frame_lines(
 
 def _find_call_line_ranges(
     output_lines: list[tuple[str, int, int, bool]],
-    frame_info_list: list[FrameInfo],
+    frame_info_list: list[_ChronoFrameInfo],
 ) -> list[tuple[int, int]]:
     """Find line ranges for call frames that can be used for inspector expansion."""
     call_ranges = []
@@ -872,7 +895,7 @@ def _compute_inspector_positions(
     output_lines: list[tuple[str, int, int, bool]],
     inspector_frames: list[int],
     inspector_data: list[tuple[InspectorLines, int]],  # [(lines, error_line), ...]
-    frame_info_list: list[FrameInfo],
+    frame_info_list: list[_ChronoFrameInfo],
 ) -> tuple[list[int], int]:
     """Compute vertical positions for all inspectors, avoiding overlap."""
     if not inspector_frames:  # pragma: no cover
@@ -1053,7 +1076,7 @@ def _merge_chrono_output(
     term_width: int,
     inspector_frame_indices: list[int],
     exception_banners: list[tuple[int, str]],
-    frame_info_list: list[FrameInfo],
+    frame_info_list: list[_ChronoFrameInfo],
 ) -> tuple[str, int | None]:
     """Merge chronological output with multiple inspectors and exception banners."""
     if not inspector_frame_indices:  # pragma: no cover

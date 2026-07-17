@@ -48,7 +48,7 @@ def get_try_except_blocks(
     if full_source:
         blocks = parse_source_string_for_try_except(
             full_source,
-            frame.get("full_source_start", 1),
+            frame.get("full_source_start") or 1,
             _cache=cache,
         )
         if blocks:
@@ -203,8 +203,8 @@ def filter_hidden_frames(chronological: list[FrameInfo]) -> list[FrameInfo]:
                 if filtered_branch:
                     filtered_branches.append(filtered_branch)
             if filtered_branches:
-                frame = {**frame, "parallel": filtered_branches}
-                result.append(frame)
+                filtered: FrameInfo = {**frame, "parallel": filtered_branches}
+                result.append(filtered)
         else:
             result.append(frame)
     return result
@@ -413,10 +413,10 @@ def find_re_raise_frames(
 def make_exception_banner(exc: ExceptionInfo, exc_idx: int) -> ExceptionInfo:
     """Create the exception info dict attached to a frame."""
     return {
-        "type": exc.get("type"),
-        "message": exc.get("message"),
-        "summary": exc.get("summary"),
-        "from": exc.get("from"),
+        "type": exc["type"],
+        "message": exc["message"],
+        "summary": exc["summary"],
+        "from": exc["from"],
         "exc_idx": exc_idx,
     }
 
@@ -432,7 +432,7 @@ def append_copied_frame(
     chronological: list[FrameInfo], frame: FrameInfo, **overrides
 ) -> FrameInfo:
     """Append a shallow copy of a frame with optional overrides."""
-    copied = {**frame, **overrides}
+    copied: FrameInfo = {**frame, **overrides}
     chronological.append(copied)
     return copied
 

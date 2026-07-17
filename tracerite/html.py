@@ -396,7 +396,7 @@ def _traceback_detail_chrono(doc: Any, frinfo: FrameInfo) -> None:
                     leading_whitespace = code[: len(code) - len(code.lstrip())]
                     if leading_whitespace:
                         doc(leading_whitespace)
-                        first_fragment_modified = {
+                        first_fragment_modified: Fragment = {
                             **first_fragment,
                             "code": code.lstrip(),
                         }
