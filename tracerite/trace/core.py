@@ -3,75 +3,51 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .typing import Range, TryExceptBlock
 
 
-def Range(
-    lfirst: int,
-    lfinal: int | None = None,
-    cbeg: int | None = None,
-    cend: int | None = None,
-) -> dict[str, int | None]:
-    """Create a position range dict. Lines are 1-based inclusive, columns 0-based exclusive."""
-    return {"lfirst": lfirst, "lfinal": lfinal, "cbeg": cbeg, "cend": cend}
+def block_contains_in_try(block: TryExceptBlock, lineno: int) -> bool:
+    """Check if a line number is within the try body of *block*."""
+    try_start = block["try_start"]
+    try_end = block["try_end"]
+    return (
+        try_start is not None and try_end is not None and try_start <= lineno <= try_end
+    )
 
 
-@dataclass(slots=True)
-class TryExceptBlock:
-    """Represents a try-except block with its line ranges."""
-
-    try_start: int  # First line of try keyword
-    try_end: int  # Last line of try body (before except/else/finally)
-    except_start: int | None  # First line of except handlers
-    except_end: int | None  # Last line of except handlers
-    finally_start: int | None = None
-    finally_end: int | None = None
-
-    def contains_in_try(self, lineno: int) -> bool:
-        """Check if a line number is within the try body."""
-        return self.try_start <= lineno <= self.try_end
-
-    def contains_in_except(self, lineno: int) -> bool:
-        """Check if a line number is within an except handler."""
-        if self.except_start is None or self.except_end is None:
-            return False
-        return self.except_start <= lineno <= self.except_end
-
-    def offset_by(self, offset: int) -> TryExceptBlock:
-        """Return a new block with all line numbers shifted by offset."""
-
-        def add(x: int | None) -> int | None:
-            return x + offset if x is not None else None
-
-        return TryExceptBlock(
-            try_start=self.try_start + offset,
-            try_end=self.try_end + offset,
-            except_start=add(self.except_start),
-            except_end=add(self.except_end),
-            finally_start=add(self.finally_start),
-            finally_end=add(self.finally_end),
-        )
+def block_contains_in_except(block: TryExceptBlock, lineno: int) -> bool:
+    """Check if a line number is within an except handler of *block*."""
+    except_start = block.get("except_start")
+    except_end = block.get("except_end")
+    return (
+        except_start is not None
+        and except_end is not None
+        and except_start <= lineno <= except_end
+    )
 
 
-@dataclass(slots=True)
-class ChainLink:
-    """Represents a link between two exceptions in a chain.
+def block_offset_by(block: TryExceptBlock, offset: int) -> TryExceptBlock:
+    """Return a new try-except block with all line numbers shifted by *offset*."""
 
-    Attributes:
-        outer_frame_idx: Index of the frame in the outer exception that's in the except block
-        try_block: The TryExceptBlock that links the inner and outer exceptions
-        matched: Whether we successfully matched the try-except relationship
-    """
+    def add(x: int | None) -> int | None:
+        return x + offset if x is not None else None
 
-    outer_frame_idx: int
-    try_block: TryExceptBlock | None
-    matched: bool
+    return {
+        "try_start": add(block["try_start"]),
+        "try_end": add(block["try_end"]),
+        "except_start": add(block.get("except_start")),
+        "except_end": add(block.get("except_end")),
+        "finally_start": add(block.get("finally_start")),
+        "finally_end": add(block.get("finally_end")),
+    }
 
 
 def compute_cursor_position(
-    mark_range: dict[str, int] | None,
-    em_ranges: dict[str, int] | list[dict[str, int]] | None,
+    mark_range: Range | None,
+    em_ranges: Range | list[Range] | None,
     linenostart: int,
     common_indent: str = "",
 ) -> tuple[int, int]:

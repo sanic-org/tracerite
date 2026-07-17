@@ -6,6 +6,7 @@ import tokenize
 from collections import deque
 from contextlib import suppress
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from tracerite.logging import logger
@@ -18,12 +19,14 @@ from .chain_analysis import (
 from .collect import collect_exception_objects
 from .core import (
     COMP_CODE_NAMES,
-    Range,
     chain_reason,
     compute_cursor_position,
     create_summary,
     libdir_match,
 )
+
+if TYPE_CHECKING:
+    from .typing import Chain, ExceptionInfo, FrameInfo, RawChain
 from .fragments import (
     build_frame_ranges,
     count_bracket_depth,
@@ -36,10 +39,10 @@ from .syntaxerror import clean_syntax_error_message, extract_enhanced_positions
 
 
 def digest_exception_chain(
-    raw_chain: list[dict],
+    raw_chain: RawChain,
     *,
     cache: dict | None = None,
-) -> list[dict]:
+) -> Chain:
     """Convert the raw chain into digested exception info dicts."""
     return [
         digest_exception(item["exc"], cache=cache, **item["kwargs"])
@@ -53,7 +56,7 @@ def digest_exception(
     skip_outmost=0,
     skip_until=None,
     cache: dict | None = None,
-) -> dict:
+) -> ExceptionInfo:
     """Digest one exception into raw frames and metadata.
 
     The returned dict still contains the live exception object under the
@@ -141,7 +144,7 @@ def extract_subexceptions(
     skip_outmost=0,
     skip_until=None,
     cache: dict | None = None,
-) -> list[list[dict]] | None:
+) -> list[Chain] | None:
     """Return parallel raw exception chains for an ExceptionGroup, or None."""
     if not is_exception_group(e):
         return None
@@ -170,7 +173,7 @@ def extract_subexception_chain(
     skip_outmost=0,
     skip_until=None,
     cache: dict | None = None,
-) -> list[dict]:
+) -> Chain:
     """Extract the raw exception chain for one ExceptionGroup subexception."""
     chain = collect_exception_objects(exc)
     kwargs = {"skip_outmost": skip_outmost, "skip_until": skip_until}
@@ -213,7 +216,7 @@ def find_except_start_for_line(
         # Find the innermost except block containing this line
         block = find_try_block_for_except_line(blocks, lineno)
         if block:
-            return block.except_start
+            return block["except_start"]
     except Exception:  # pragma: no cover
         pass
     return None
@@ -506,7 +509,7 @@ def get_qualified_function_name(frame, function):
 
 
 def extract_text_from_range(lines: str, mark_range) -> str | None:
-    """Return the source text covered by a Range."""
+    """Return the source text covered by a Range dict."""
     if mark_range is None:
         return None
 
@@ -598,7 +601,7 @@ def get_variable_source_for_comprehension(
 def extract_emphasis_columns(
     lines, error_line_in_context, end_line, start_col, end_col, start
 ):
-    """Return the emphasis Range from caret anchors, or None."""
+    """Return the emphasis Range dict from caret anchors, or None."""
     if not (end_line and start_col is not None and end_col is not None):
         return None
 
@@ -644,7 +647,12 @@ def extract_emphasis_columns(
     lfirst = l0 + segment_start + 1
     lfinal = l1 + segment_start + 1
 
-    return Range(lfirst, lfinal, c0, c1)
+    return {
+        "lfirst": lfirst,
+        "lfinal": lfinal,
+        "cbeg": c0,
+        "cend": c1,
+    }
 
 
 def build_position_map(raw_tb):
@@ -719,7 +727,12 @@ def extract_syntax_error_frame(e):
         "notebook_cell": notebook_cell,
         "codeline": codeline,
         "range": (
-            Range(lineno, end_lineno or lineno, start_col, end_col)
+            {
+                "lfirst": lineno,
+                "lfinal": end_lineno or lineno,
+                "cbeg": start_col,
+                "cend": end_col,
+            }
             if start_col is not None
             else None
         ),
@@ -846,20 +859,20 @@ def _build_syntax_mark_ranges(
 ):
     """Build mark/emphasis ranges for a SyntaxError frame."""
     if enhanced_mark:
-        mark_range = Range(
-            enhanced_mark["lfirst"] - start + 1,
-            enhanced_mark["lfinal"] - start + 1,
-            enhanced_mark["cbeg"],
-            enhanced_mark["cend"],
-        )
+        mark_range = {
+            "lfirst": enhanced_mark["lfirst"] - start + 1,
+            "lfinal": enhanced_mark["lfinal"] - start + 1,
+            "cbeg": enhanced_mark["cbeg"],
+            "cend": enhanced_mark["cend"],
+        }
         em_ranges = (
             [
-                Range(
-                    em["lfirst"] - start + 1,
-                    em["lfinal"] - start + 1,
-                    em["cbeg"],
-                    em["cend"],
-                )
+                {
+                    "lfirst": em["lfirst"] - start + 1,
+                    "lfinal": em["lfinal"] - start + 1,
+                    "cbeg": em["cbeg"],
+                    "cend": em["cend"],
+                }
                 for em in enhanced_em
             ]
             if enhanced_em
@@ -867,7 +880,12 @@ def _build_syntax_mark_ranges(
         )
     else:
         mark_lfinal = end_line or error_line_in_context
-        mark_range = Range(error_line_in_context, mark_lfinal, start_col, end_col)
+        mark_range = {
+            "lfirst": error_line_in_context,
+            "lfinal": mark_lfinal,
+            "cbeg": start_col,
+            "cend": end_col,
+        }
         em_ranges = extract_emphasis_columns(
             lines,
             error_line_in_context,
@@ -882,7 +900,7 @@ def _build_syntax_mark_ranges(
 
 def digest_frames(
     tb, raw_tb=None, *, except_block=False, cache: dict | None = None
-) -> list[dict]:
+) -> list[FrameInfo]:
     """Convert a traceback into raw frame dicts without relevances/variables."""
     if not tb:
         return []
@@ -937,7 +955,7 @@ def extract_single_frame(
     *,
     except_block=False,
     cache: dict | None = None,
-):
+) -> FrameInfo | None:
     """Extract a single frame's worth of traceback information."""
     pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
     notebook_cell = is_notebook_cell(filename)

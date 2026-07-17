@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from secrets import token_urlsafe
 
-from .core import QUOTES, TRIPLE_QUOTES, Range
+from .core import QUOTES, TRIPLE_QUOTES
 
 
 class CodeScanner:
@@ -97,7 +97,7 @@ def find_clean_start_line(lines: list[str], target_idx: int) -> int:
 
 
 def fallback_mark_range_for_line(lines, error_line_in_context):
-    """Build a single-line mark Range when caret columns are missing."""
+    """Build a single-line mark Range dict when caret columns are missing."""
     lines_list = lines.splitlines(keepends=True)
     if not (1 <= error_line_in_context <= len(lines_list)):
         return None
@@ -117,7 +117,12 @@ def fallback_mark_range_for_line(lines, error_line_in_context):
 
     if end_col <= start_col:
         end_col = start_col + 1
-    return Range(error_line_in_context, error_line_in_context, start_col, end_col)
+    return {
+        "lfirst": error_line_in_context,
+        "lfinal": error_line_in_context,
+        "cbeg": start_col,
+        "cend": end_col,
+    }
 
 
 def build_frame_ranges(
@@ -135,24 +140,29 @@ def build_frame_ranges(
         if error_line_in_context:
             fallback = fallback_mark_range_for_line(lines, error_line_in_context)
             if fallback:
-                frame_range = Range(
-                    lineno,
-                    pos_end_lineno or lineno,
-                    fallback["cbeg"] + total_indent,
-                    fallback["cend"] + total_indent,
-                )
+                frame_range = {
+                    "lfirst": lineno,
+                    "lfinal": pos_end_lineno or lineno,
+                    "cbeg": fallback["cbeg"] + total_indent,
+                    "cend": fallback["cend"] + total_indent,
+                }
                 return frame_range, fallback
         return None, None
 
     adjusted_start_col = max(0, start_col - total_indent)
     adjusted_end_col = max(0, end_col - total_indent)
-    frame_range = Range(lineno, pos_end_lineno or lineno, start_col, end_col)
-    mark_range = Range(
-        error_line_in_context,
-        end_line or error_line_in_context,
-        adjusted_start_col,
-        adjusted_end_col,
-    )
+    frame_range = {
+        "lfirst": lineno,
+        "lfinal": pos_end_lineno or lineno,
+        "cbeg": start_col,
+        "cend": end_col,
+    }
+    mark_range = {
+        "lfirst": error_line_in_context,
+        "lfinal": end_line or error_line_in_context,
+        "cbeg": adjusted_start_col,
+        "cend": adjusted_end_col,
+    }
     return frame_range, mark_range
 
 
@@ -168,7 +178,7 @@ def dedent_lines(lines: list[str]) -> tuple[list[str], str]:
 
 
 def collect_positions_from_ranges(ranges, lines: list[str]) -> set[int]:
-    """Collect character positions from a single Range or list of Ranges."""
+    """Collect character positions from a single Range dict or list of Range dicts."""
     positions = set()
     if not ranges:
         return positions
@@ -187,7 +197,7 @@ def calculate_common_indent(lines):
 
 
 def convert_range_to_positions(range_obj, lines):
-    """Convert Range (1-based inclusive lines, 0-based exclusive columns) to absolute character positions."""
+    """Convert a Range dict (1-based inclusive lines, 0-based exclusive columns) to absolute character positions."""
     positions = set()
 
     if not range_obj:

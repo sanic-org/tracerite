@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tracerite.logging import logger
 
 from .collect import collect_exception_chain
 from .core import libdir_match
+
+if TYPE_CHECKING:
+    from .typing import Chain, ExceptionInfo, ExtractChainResult, FrameInfo
 from .digest import (
     digest_exception_chain,
     is_exception_group,
@@ -19,7 +22,7 @@ from .order import (
 )
 
 
-def exception_info(exc: dict[str, Any]) -> dict[str, Any]:
+def exception_info(exc: ExceptionInfo) -> ExceptionInfo:
     """Return a JSON-compatible exception-info dict."""
     return {
         "type": exc.get("type"),
@@ -50,7 +53,7 @@ def normalize_variable(var_info: Any) -> tuple[str, str, Any, str]:
 
 
 def call_run_ranges(
-    frames: list[dict[str, Any]], min_run_length: int = 10
+    frames: list[FrameInfo], min_run_length: int = 10
 ) -> list[tuple[int, int]]:
     """Return (start, end) ranges of consecutive 'call' frames to collapse."""
     ranges = []
@@ -72,7 +75,7 @@ def call_run_ranges(
     return ranges
 
 
-def collect_leaf_exception_types(subexceptions: list[list[dict]]) -> list[str]:
+def collect_leaf_exception_types(subexceptions: list[Chain]) -> list[str]:
     """Recursively collect leaf exception type names from subexception chains."""
     return [
         leaf
@@ -87,7 +90,7 @@ def collect_leaf_exception_types(subexceptions: list[list[dict]]) -> list[str]:
     ]
 
 
-def attach_leaf_types(exc_chain: list[dict], chrono_frames: list[dict]) -> None:
+def attach_leaf_types(exc_chain: Chain, chrono_frames: list[FrameInfo]) -> None:
     """Attach ExceptionGroup leaf types to the final exception banner in frames."""
     if not exc_chain:
         return
@@ -103,7 +106,7 @@ def attach_leaf_types(exc_chain: list[dict], chrono_frames: list[dict]) -> None:
             break
 
 
-def build_chain_header(frames: list[dict]) -> str:
+def build_chain_header(frames: list[FrameInfo]) -> str:
     """Build a header message from a chronological frame list."""
     if not frames:
         return ""
@@ -140,7 +143,7 @@ def build_chain_header(frames: list[dict]) -> str:
 # =============================================================================
 
 
-def extract_chain(exc=None, **kwargs) -> dict[str, Any]:
+def extract_chain(exc=None, **kwargs) -> ExtractChainResult:
     """Extract chronological traceback data for the current exception.
 
     Returns a dict with ``header`` (the combined exception summary) and
@@ -160,14 +163,14 @@ def extract_chain(exc=None, **kwargs) -> dict[str, Any]:
     }
 
 
-def extract_chain_exceptions(exc=None, **kwargs) -> list:
+def extract_chain_exceptions(exc=None, **kwargs) -> Chain:
     """Extract raw exception info dicts, oldest first (internal)."""
     chain = digest_exception_chain(collect_exception_chain(exc, **kwargs))
     set_chain_relevances(chain)
     return chain
 
 
-def set_chain_relevances(chain: list[dict]) -> None:
+def set_chain_relevances(chain: Chain) -> None:
     """Set error/stop/warning relevances on each exception's raw frames."""
     for exc in chain:
         e = exc.pop("_exc")
@@ -176,7 +179,9 @@ def set_chain_relevances(chain: list[dict]) -> None:
             set_chain_relevances(sub_chain)
 
 
-def finalize_chronological(chronological: list[dict], chain: list[dict]) -> list[dict]:
+def finalize_chronological(
+    chronological: list[FrameInfo], chain: Chain
+) -> list[FrameInfo]:
     """Apply all final-stage passes to the chronological frame list."""
     chronological = filter_hidden_frames(chronological)
     chronological = apply_base_exception_suppression(chronological, chain)
@@ -186,7 +191,7 @@ def finalize_chronological(chronological: list[dict], chain: list[dict]) -> list
     return chronological
 
 
-def _clear_internal_frame_keys(frames: list[dict]) -> None:
+def _clear_internal_frame_keys(frames: list[FrameInfo]) -> None:
     """Remove internal-only keys from frame dicts before public emission."""
     for frame in frames:
         frame.pop("_except_start", None)
@@ -194,7 +199,7 @@ def _clear_internal_frame_keys(frames: list[dict]) -> None:
             _clear_internal_frame_keys(branch)
 
 
-def set_relevances(frames: list, e: BaseException) -> None:
+def set_relevances(frames: list[FrameInfo], e: BaseException) -> None:
     """Mark the error, stop, warning, and call frames."""
     if not frames:
         return
@@ -219,7 +224,7 @@ def set_relevances(frames: list, e: BaseException) -> None:
             break
 
 
-def fill_frame_variables(frame: dict, exc_message: str | None = None) -> None:
+def fill_frame_variables(frame: FrameInfo, exc_message: str | None = None) -> None:
     """Extract variables for a single frame and drop its live frame object."""
     from tracerite.inspector import extract_variables
 
@@ -241,7 +246,7 @@ def fill_frame_variables(frame: dict, exc_message: str | None = None) -> None:
         frame["variables"] = []
 
 
-def fill_variables(frames: list[dict], exc_message: str | None = None) -> None:
+def fill_variables(frames: list[FrameInfo], exc_message: str | None = None) -> None:
     """Populate the variables field for a Python-order frame list."""
     last_idx = len(frames) - 1
     for idx, frame in enumerate(frames):
@@ -250,11 +255,11 @@ def fill_variables(frames: list[dict], exc_message: str | None = None) -> None:
         )
 
 
-def fill_chronological_variables(chrono_frames: list[dict]) -> None:
+def fill_chronological_variables(chrono_frames: list[FrameInfo]) -> None:
     """Fill variables on the final occurrence of each frame in chrono order."""
     seen: set[int] = set()
 
-    def _process_branch(branch: list[dict]) -> None:
+    def _process_branch(branch: list[FrameInfo]) -> None:
         for frame in reversed(branch):
             idframe = frame.get("idframe")
             if idframe is not None and idframe not in seen and "frame_obj" in frame:

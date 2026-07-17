@@ -3,7 +3,6 @@
 import pytest
 
 from tracerite.html import html_style, html_traceback, javascript
-from tracerite.inspector import VarInfo
 from tracerite.trace import extract_chain
 from tracerite.trace.chain_analysis import build_chronological_frames
 from tracerite.trace.finalize import build_chain_header
@@ -150,7 +149,12 @@ class TestHtmlAdditional:
             # Add variable with empty typename
             if exc_info["frames"]:
                 exc_info["frames"][-1]["variables"] = [
-                    VarInfo("x", "", "42", "inline"),
+                    {
+                        "name": "x",
+                        "typename": "",
+                        "value": "42",
+                        "format_hint": "inline",
+                    },
                 ]
 
             html = html_traceback(chain=_chrono(exc_info))
@@ -174,17 +178,22 @@ class TestHtmlAdditional:
             # The array dict must be followed by another variable to test loop continuation
             if exc_info["frames"]:
                 exc_info["frames"][-1]["variables"] = [
-                    VarInfo(
-                        "arr",
-                        "ndarray",
-                        {
+                    {
+                        "name": "arr",
+                        "typename": "ndarray",
+                        "value": {
                             "type": "array",
                             "rows": [["1", "2"], ["3", "4"]],
                             # No suffix - this is key to hit branch 265->234
                         },
-                        "inline",
-                    ),
-                    VarInfo("x", "int", "42", "inline"),  # Second variable after array
+                        "format_hint": "inline",
+                    },
+                    {
+                        "name": "x",
+                        "typename": "int",
+                        "value": "42",
+                        "format_hint": "inline",
+                    },  # Second variable after array
                 ]
 
             html = html_traceback(chain=_chrono(exc_info))
@@ -204,16 +213,16 @@ class TestHtmlAdditional:
             # Add variable with matrix containing skip markers
             if exc_info["frames"]:
                 exc_info["frames"][-1]["variables"] = [
-                    VarInfo(
-                        "matrix",
-                        "ndarray",
-                        [
+                    {
+                        "name": "matrix",
+                        "typename": "ndarray",
+                        "value": [
                             [None],  # Row skip marker
                             ["1", "2", None, "3"],  # Column skip marker
                             ["4", "5", "6", "7"],
                         ],
-                        "inline",
-                    ),
+                        "format_hint": "inline",
+                    },
                 ]
 
             html = html_traceback(chain=_chrono(exc_info))

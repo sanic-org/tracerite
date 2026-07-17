@@ -1009,11 +1009,15 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_simple_vars(self):
         """Test inspector with simple variables."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(name="x", typename="int", value="42", format_hint=None),
-            VarInfo(name="name", typename="str", value='"hello"', format_hint=None),
+            {"name": "x", "typename": "int", "value": "42", "format_hint": None},
+            {
+                "name": "name",
+                "typename": "str",
+                "value": '"hello"',
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1026,10 +1030,9 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_without_typename(self):
         """Test inspector with variables that have no type annotation."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(name="y", typename=None, value="100", format_hint=None),
+            {"name": "y", "typename": None, "value": "100", "format_hint": None},
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1041,15 +1044,14 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_keyvalue(self):
         """Test inspector with key-value dict representation."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="d",
-                typename="dict",
-                value={"type": "keyvalue", "rows": [("a", "1"), ("b", "2")]},
-                format_hint=None,
-            ),
+            {
+                "name": "d",
+                "typename": "dict",
+                "value": {"type": "keyvalue", "rows": [("a", "1"), ("b", "2")]},
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1059,15 +1061,14 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_array(self):
         """Test inspector with array representation."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="arr",
-                typename="list",
-                value={"type": "array", "rows": [[1, 2, 3]]},
-                format_hint=None,
-            ),
+            {
+                "name": "arr",
+                "typename": "list",
+                "value": {"type": "array", "rows": [[1, 2, 3]]},
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1077,13 +1078,15 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_truncation(self):
         """Long values are preserved by the builder; truncation is deferred."""
-        from tracerite.inspector import VarInfo
 
         long_value = "x" * 200
         variables = [
-            VarInfo(
-                name="long_var", typename="str", value=long_value, format_hint=None
-            ),
+            {
+                "name": "long_var",
+                "typename": "str",
+                "value": long_value,
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1100,10 +1103,9 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_skips_ellipsis_value(self):
         """Test inspector skips variables with ellipsis value (lines 1241, 1246)."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(name="x", typename="int", value="⋯", format_hint="inline"),
+            {"name": "x", "typename": "int", "value": "⋯", "format_hint": "inline"},
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1138,11 +1140,10 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_preserves_content_ellipsis(self):
         """Ellipsis characters that are part of the value are not restyled."""
-        from tracerite.inspector import VarInfo
         from tracerite.tty import DIM
 
         variables = [
-            VarInfo(name="s", typename="str", value="abc …", format_hint="inline")
+            {"name": "s", "typename": "str", "value": "abc …", "format_hint": "inline"}
         ]
         result, _ = _build_variable_inspector(variables, term_width=200)
         colored, _, _ = result[0]
@@ -1151,11 +1152,10 @@ class TestVariableInspector:
 
     def test_truncate_inspector_line_inline_marker_shortens_right(self):
         """Inline values shorten the right side of the middle ellipsis first."""
-        from tracerite.inspector import VarInfo
 
         value = "head12345 … tail12345"
         variables = [
-            VarInfo(name="s", typename="str", value=value, format_hint="inline")
+            {"name": "s", "typename": "str", "value": value, "format_hint": "inline"}
         ]
         entries, _ = _build_variable_inspector(variables, term_width=200)
         colored, width, value_start = entries[0]
@@ -1177,11 +1177,10 @@ class TestVariableInspector:
 
     def test_truncate_inspector_line_inline_marker_shortens_left(self):
         """Once the right side is gone, shorten the left side and keep trailing ellipsis."""
-        from tracerite.inspector import VarInfo
 
         value = "head12345 … tail12345"
         variables = [
-            VarInfo(name="s", typename="str", value=value, format_hint="inline")
+            {"name": "s", "typename": "str", "value": value, "format_hint": "inline"}
         ]
         entries, _ = _build_variable_inspector(variables, term_width=200)
         colored, width, value_start = entries[0]
@@ -1226,12 +1225,14 @@ class TestVariableInspector:
 
     def test_truncate_inspector_line_inline_marker_empty_right(self):
         """A marker with no right side falls back to trailing ellipsis."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="s", typename="str", value="head12345 … ", format_hint="inline"
-            )
+            {
+                "name": "s",
+                "typename": "str",
+                "value": "head12345 … ",
+                "format_hint": "inline",
+            }
         ]
         entries, _ = _build_variable_inspector(variables, term_width=200)
         colored, width, value_start = entries[0]
@@ -1250,10 +1251,9 @@ class TestVariableInspector:
 
     def test_truncate_inspector_line_inline_marker_both_sides_empty(self):
         """A value that is only a marker collapses to a single ellipsis."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(name="s", typename="str", value=" … ", format_hint="inline")
+            {"name": "s", "typename": "str", "value": " … ", "format_hint": "inline"}
         ]
         entries, _ = _build_variable_inspector(variables, term_width=200)
         colored, width, value_start = entries[0]
@@ -1933,15 +1933,14 @@ class TestVariableInspectorEdgeCases:
 
     def test_array_with_empty_rows(self):
         """Test inspector with array that has empty rows."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="empty_arr",
-                typename="list",
-                value={"type": "array", "rows": []},
-                format_hint=None,
-            ),
+            {
+                "name": "empty_arr",
+                "typename": "list",
+                "value": {"type": "array", "rows": []},
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1950,15 +1949,14 @@ class TestVariableInspectorEdgeCases:
 
     def test_nested_list_format(self):
         """Test inspector with nested list (matrix) value."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="matrix",
-                typename="list",
-                value=[[1, 2, 3], [4, 5, 6]],
-                format_hint=None,
-            ),
+            {
+                "name": "matrix",
+                "typename": "list",
+                "value": [[1, 2, 3], [4, 5, 6]],
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1969,15 +1967,14 @@ class TestVariableInspectorEdgeCases:
 
     def test_simple_list_format(self):
         """Test inspector with simple list value (not nested)."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="simple_list",
-                typename="list",
-                value=[1, 2, 3],
-                format_hint=None,
-            ),
+            {
+                "name": "simple_list",
+                "typename": "list",
+                "value": [1, 2, 3],
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1987,15 +1984,9 @@ class TestVariableInspectorEdgeCases:
 
     def test_generic_value_format(self):
         """Test inspector with generic non-string, non-dict, non-list value."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="num",
-                typename="float",
-                value=3.14159,
-                format_hint=None,
-            ),
+            {"name": "num", "typename": "float", "value": 3.14159, "format_hint": None},
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -2720,14 +2711,18 @@ class TestMergeChronoOutputBranches:
 
     def test_inspector_truncation(self):
         """Test inspector line truncation when it exceeds available width (lines 1028-1053)."""
-        from tracerite.inspector import VarInfo
         from tracerite.tty import _build_variable_inspector, _merge_chrono_output
 
         output_lines = [
             ("x" * 40, 40, 0, True),  # long line sets inspector_col
         ]
         variables = [
-            VarInfo(name="var_name", typename="str", value="x" * 80, format_hint=None),
+            {
+                "name": "var_name",
+                "typename": "str",
+                "value": "x" * 80,
+                "format_hint": None,
+            },
         ]
         # Build with wide terminal so _build_variable_inspector doesn't truncate,
         # letting _merge_chrono_output hit its own truncation path.
@@ -2751,7 +2746,6 @@ class TestMergeChronoOutputBranches:
 
     def test_inspector_extra_line_truncation(self):
         """Continuation inspector lines past the frame are also truncated."""
-        from tracerite.inspector import VarInfo
         from tracerite.tty import _build_variable_inspector, _merge_chrono_output
 
         output_lines = [
@@ -2759,7 +2753,7 @@ class TestMergeChronoOutputBranches:
         ]
         value = "first line\n" + "x" * 100
         variables = [
-            VarInfo(name="var", typename="str", value=value, format_hint="block"),
+            {"name": "var", "typename": "str", "value": value, "format_hint": "block"},
         ]
         inspector_lines, min_width = _build_variable_inspector(
             variables, term_width=200
@@ -2783,19 +2777,18 @@ class TestMergeChronoOutputBranches:
 
     def test_inspector_skipped_when_narrow(self):
         """A multi-line inspector that does not fit is skipped cleanly."""
-        from tracerite.inspector import VarInfo
         from tracerite.tty import _build_variable_inspector, _merge_chrono_output
 
         output_lines = [
             ("short line", 10, 0, True),
         ]
         variables = [
-            VarInfo(
-                name="long_name",
-                typename="str",
-                value="line1\nline2\nline3",
-                format_hint="block",
-            ),
+            {
+                "name": "long_name",
+                "typename": "str",
+                "value": "line1\nline2\nline3",
+                "format_hint": "block",
+            },
         ]
         inspector_lines, min_width = _build_variable_inspector(
             variables, term_width=200

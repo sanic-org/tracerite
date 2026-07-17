@@ -5,7 +5,6 @@ import dataclasses
 import pytest
 
 from tracerite.inspector import (
-    VarInfo,
     _array_formatter,
     _format_scalar,
     _get_flat,
@@ -555,11 +554,11 @@ class TestSafeVars:
 
 
 class TestVarInfo:
-    """Test VarInfo namedtuple."""
+    """Test VarInfo dict."""
 
     def test_varinfo_creation(self):
         """Test VarInfo creation."""
-        info = VarInfo("x", "int", "42", "inline")
+        info = {"name": "x", "typename": "int", "value": "42", "format_hint": "inline"}
         assert info["name"] == "x"
         assert info["typename"] == "int"
         assert info["value"] == "42"
@@ -567,6 +566,6 @@ class TestVarInfo:
 
     def test_varinfo_values_unpacking(self):
         """Test VarInfo values can be unpacked."""
-        info = VarInfo("x", "int", "42", "inline")
+        info = {"name": "x", "typename": "int", "value": "42", "format_hint": "inline"}
         name, typename, value, fmt = info.values()
         assert name == "x"

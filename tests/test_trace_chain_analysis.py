@@ -1,7 +1,6 @@
 """Tests for chain_analysis module - try-except block matching."""
 
 from tracerite.trace.chain_analysis import (
-    TryExceptBlock,
     TryExceptVisitor,
     analyze_exception_chain_links,
     apply_base_exception_suppression,
@@ -16,7 +15,10 @@ from tracerite.trace.chain_analysis import (
     parse_source_for_try_except,
     parse_source_string_for_try_except,
 )
-from tracerite.trace.core import Range
+from tracerite.trace.core import (
+    block_contains_in_except,
+    block_contains_in_try,
+)
 from tracerite.trace.finalize import extract_chain_exceptions
 
 from .errorcases import (
@@ -50,8 +52,8 @@ except Exception:
 
         assert len(visitor.try_except_blocks) == 1
         block = visitor.try_except_blocks[0]
-        assert block.try_start == 2  # 'try:' line
-        assert block.except_start == 7  # 'except Exception:' line
+        assert block["try_start"] == 2  # 'try:' line
+        assert block["except_start"] == 7  # 'except Exception:' line
 
     def test_nested_try_except(self):
         """Test parsing nested try-except blocks."""
@@ -74,51 +76,36 @@ except Exception:
 
 
 class TestTryExceptBlock:
-    """Tests for TryExceptBlock dataclass."""
+    """Tests for TryExceptBlock dict helpers."""
 
     def test_contains_in_try(self):
         """Test checking if line is in try body."""
-        block = TryExceptBlock(
-            try_start=10,
-            try_end=15,
-            except_start=16,
-            except_end=20,
-        )
-        assert block.contains_in_try(10)
-        assert block.contains_in_try(12)
-        assert block.contains_in_try(15)
-        assert not block.contains_in_try(9)
-        assert not block.contains_in_try(16)
+        block = {"try_start": 10, "try_end": 15, "except_start": 16, "except_end": 20}
+        assert block_contains_in_try(block, 10)
+        assert block_contains_in_try(block, 12)
+        assert block_contains_in_try(block, 15)
+        assert not block_contains_in_try(block, 9)
+        assert not block_contains_in_try(block, 16)
 
     def test_contains_in_except(self):
         """Test checking if line is in except handler."""
-        block = TryExceptBlock(
-            try_start=10,
-            try_end=15,
-            except_start=16,
-            except_end=20,
-        )
-        assert block.contains_in_except(16)
-        assert block.contains_in_except(18)
-        assert block.contains_in_except(20)
+        block = {"try_start": 10, "try_end": 15, "except_start": 16, "except_end": 20}
+        assert block_contains_in_except(block, 16)
+        assert block_contains_in_except(block, 18)
+        assert block_contains_in_except(block, 20)
 
     def test_contains_in_except_none_handlers(self):
         """Test contains_in_except when except_start or except_end is None."""
-        block = TryExceptBlock(
-            try_start=10,
-            try_end=15,
-            except_start=None,
-            except_end=20,
-        )
-        assert not block.contains_in_except(18)
+        block = {"try_start": 10, "try_end": 15, "except_start": None, "except_end": 20}
+        assert not block_contains_in_except(block, 18)
 
-        block2 = TryExceptBlock(
-            try_start=10,
-            try_end=15,
-            except_start=16,
-            except_end=None,
-        )
-        assert not block2.contains_in_except(18)
+        block2 = {
+            "try_start": 10,
+            "try_end": 15,
+            "except_start": 16,
+            "except_end": None,
+        }
+        assert not block_contains_in_except(block2, 18)
 
 
 class TestFindMatchingTryForInnerException:
@@ -127,18 +114,18 @@ class TestFindMatchingTryForInnerException:
     def test_match_found(self):
         """Test finding matching try-except block."""
         blocks = [
-            TryExceptBlock(try_start=10, try_end=15, except_start=16, except_end=20),
+            {"try_start": 10, "try_end": 15, "except_start": 16, "except_end": 20},
         ]
 
         # Inner at line 12 (in try), outer at line 18 (in except)
         result = find_matching_try_for_inner_exception(blocks, 12, 18)
         assert result is not None
-        assert result.try_start == 10
+        assert result["try_start"] == 10
 
     def test_no_match_inner_not_in_try(self):
         """Test when inner exception line is not in try body."""
         blocks = [
-            TryExceptBlock(try_start=10, try_end=15, except_start=16, except_end=20),
+            {"try_start": 10, "try_end": 15, "except_start": 16, "except_end": 20},
         ]
 
         # Inner at line 5 (before try), outer at line 18 (in except)
@@ -148,7 +135,7 @@ class TestFindMatchingTryForInnerException:
     def test_no_match_outer_not_in_except(self):
         """Test when outer exception line is not in except handler."""
         blocks = [
-            TryExceptBlock(try_start=10, try_end=15, except_start=16, except_end=20),
+            {"try_start": 10, "try_end": 15, "except_start": 16, "except_end": 20},
         ]
 
         # Inner at line 12 (in try), outer at line 25 (after except)
@@ -158,7 +145,7 @@ class TestFindMatchingTryForInnerException:
     def test_find_try_block_no_matching_except(self):
         """Test find_try_block_for_except_line returns None when no block contains line."""
         blocks = [
-            TryExceptBlock(try_start=10, try_end=15, except_start=16, except_end=20),
+            {"try_start": 10, "try_end": 15, "except_start": 16, "except_end": 20},
         ]
 
         # Line 25 is not in any except handler
@@ -168,18 +155,24 @@ class TestFindMatchingTryForInnerException:
     def test_find_try_block_multiple_matches(self):
         """Test find_try_block_for_except_line returns the most specific (innermost) block."""
         blocks = [
-            TryExceptBlock(
-                try_start=15, try_end=25, except_start=20, except_end=30
-            ),  # Inner
-            TryExceptBlock(
-                try_start=5, try_end=35, except_start=10, except_end=40
-            ),  # Outer
+            {
+                "try_start": 15,
+                "try_end": 25,
+                "except_start": 20,
+                "except_end": 30,
+            },  # Inner
+            {
+                "try_start": 5,
+                "try_end": 35,
+                "except_start": 10,
+                "except_end": 40,
+            },  # Outer
         ]
 
         # Line 22 is in both except handlers, should return the innermost (higher try_start)
         result = find_try_block_for_except_line(blocks, 22)
         assert result is not None
-        assert result.try_start == 15
+        assert result["try_start"] == 15
 
 
 class TestParseSourceForTryExcept:
@@ -260,8 +253,8 @@ class TestAnalyzeExceptionChainLinks:
         # The NameError's first frame is in the try block
         # The RuntimeError has a frame in the except block
         if links[1] is not None:
-            assert links[1].matched
-            assert links[1].try_block is not None
+            assert links[1]["matched"]
+            assert links[1]["try_block"] is not None
 
     def test_reraise_context(self):
         """Test chain analysis with reraise_context error case."""
@@ -278,7 +271,7 @@ class TestAnalyzeExceptionChainLinks:
         assert links[0] is None
 
         if links[1] is not None:
-            assert links[1].matched
+            assert links[1]["matched"]
 
     def test_unrelated_error_in_except(self):
         """Test chain analysis when error in except is unrelated."""
@@ -366,7 +359,7 @@ class TestAnalyzeExceptionChainLinks:
         """Test that get_frame_lineno uses range[0] when available."""
 
         frame = {
-            "range": Range(lfirst=10, lfinal=15, cbeg=0, cend=5),
+            "range": {"lfirst": 10, "lfinal": 15, "cbeg": 0, "cend": 5},
             "lineno": 20,
             "linenostart": 25,
         }
@@ -674,7 +667,7 @@ except Exception:
         blocks = parse_source_string_for_try_except(source, start_line=1)
         assert len(blocks) == 1
         # Line numbers should not be adjusted when start_line=1
-        assert blocks[0].try_start == 2  # Line 2 in the source
+        assert blocks[0]["try_start"] == 2  # Line 2 in the source
 
     def test_start_line_adjustment(self):
         """Test that line numbers are adjusted when start_line != 1."""
@@ -687,7 +680,7 @@ except Exception:
         blocks = parse_source_string_for_try_except(source, start_line=10)
         assert len(blocks) == 1
         # Line numbers should be adjusted by offset
-        assert blocks[0].try_start == 10  # Was 1, +9 offset
+        assert blocks[0]["try_start"] == 10  # Was 1, +9 offset
 
     def test_invalid_syntax_returns_empty(self):
         """Test that invalid syntax returns empty list."""

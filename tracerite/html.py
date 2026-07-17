@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from importlib.resources import files
 from types import EllipsisType
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from html5tagger import HTML, Document, E, Template
 
@@ -14,6 +14,9 @@ from .trace.core import (
     symbols,
     symdesc,
 )
+
+if TYPE_CHECKING:
+    from .trace.typing import ExceptionInfo, ExtractChainResult, Fragment, FrameInfo
 from .trace.finalize import (
     call_run_ranges,
     exception_info,
@@ -61,7 +64,7 @@ def html_page(
     header: Any | None = None,
     footer: Any | None = None,
     msg: str | None | EllipsisType = ...,
-    chain: dict[str, Any] | None = None,
+    chain: ExtractChainResult | None = None,
     autodark: bool = True,
     local_urls: bool = False,
     **extract_args: Any,
@@ -97,9 +100,7 @@ def html_page(
     )
 
 
-def _collapse_call_runs(
-    frames: list[dict[str, Any]], min_run_length: int = 10
-) -> list[Any]:
+def _collapse_call_runs(frames: list[FrameInfo], min_run_length: int = 10) -> list[Any]:
     """Collapse consecutive runs of 'call' frames, keeping first and last of each run."""
     if not frames:
         return frames
@@ -120,7 +121,7 @@ def _collapse_call_runs(
 
 def html_traceback(
     exc: BaseException | None = None,
-    chain: dict[str, Any] | None = None,
+    chain: ExtractChainResult | None = None,
     *,
     msg: str | None | EllipsisType = ...,
     include_js_css: bool = True,
@@ -164,7 +165,7 @@ def html_traceback(
 
 def _chronological_output(
     doc: Any,
-    frames: list[dict[str, Any]],
+    frames: list[FrameInfo],
     *,
     local_urls: bool = False,
 ) -> None:
@@ -174,7 +175,7 @@ def _chronological_output(
 
 def _render_frame_list(
     doc: Any,
-    frames: list[dict[str, Any]],
+    frames: list[FrameInfo],
     *,
     local_urls: bool = False,
 ) -> None:
@@ -237,7 +238,7 @@ def _render_frame_list(
 
 def _render_parallel_branches(
     doc: Any,
-    branches: list[list[dict[str, Any]]],
+    branches: list[list[FrameInfo]],
     *,
     local_urls: bool = False,
 ) -> None:
@@ -248,7 +249,7 @@ def _render_parallel_branches(
                 _render_frame_list(doc, branch, local_urls=local_urls)
 
 
-def _exception_banner(doc: Any, exc_info: dict[str, Any]) -> None:
+def _exception_banner(doc: Any, exc_info: ExceptionInfo) -> None:
     """Output exception type and message as a banner after the error frame."""
     exc_type = exc_info.get("type", "Exception")
     summary = exc_info.get("summary", "")
@@ -286,7 +287,7 @@ def _exception_banner(doc: Any, exc_info: dict[str, Any]) -> None:
                         doc(line)
 
 
-def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
+def _compact_code_line(doc: Any, frinfo: FrameInfo) -> None:
     """Render compact one-liner showing all marked code regions."""
     fragments = frinfo["fragments"]
     relevance = frinfo["relevance"]
@@ -356,7 +357,7 @@ def _compact_code_line(doc: Any, frinfo: dict[str, Any]) -> None:
     doc.span(symbol, class_="compact-symbol")
 
 
-def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
+def _traceback_detail_chrono(doc: Any, frinfo: FrameInfo) -> None:
     """Render frame detail in chronological mode."""
     fragments = frinfo["fragments"]
     relevance = frinfo["relevance"]
@@ -417,7 +418,7 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
 
 def _frame_label(
     doc: Any,
-    frinfo: dict[str, Any],
+    frinfo: FrameInfo,
     local_urls: bool = False,
     toggle_id: str | None = None,
 ) -> None:
@@ -477,7 +478,7 @@ def _frame_label(
             doc.span(class_="frame-function")
 
 
-def _render_fragment(doc: Any, fragment: dict[str, Any]) -> None:
+def _render_fragment(doc: Any, fragment: Fragment) -> None:
     """Render a single fragment with appropriate styling."""
     code = fragment["code"]
 

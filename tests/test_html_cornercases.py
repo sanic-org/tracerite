@@ -592,18 +592,17 @@ class TestHtmlCornercases:
         from html5tagger import E
 
         from tracerite.html import variable_inspector
-        from tracerite.inspector import VarInfo
 
         doc = E.div()
         variable_inspector(
             doc,
             [
-                VarInfo(
-                    name="d",
-                    typename="dict",
-                    value={"type": "keyvalue", "rows": [("a", "1"), ("b", "2")]},
-                    format_hint="inline",
-                ),
+                {
+                    "name": "d",
+                    "typename": "dict",
+                    "value": {"type": "keyvalue", "rows": [("a", "1"), ("b", "2")]},
+                    "format_hint": "inline",
+                },
             ],
         )
         html_str = str(doc)
@@ -615,22 +614,21 @@ class TestHtmlCornercases:
         from html5tagger import E
 
         from tracerite.html import variable_inspector
-        from tracerite.inspector import VarInfo
 
         doc = E.div()
         variable_inspector(
             doc,
             [
-                VarInfo(
-                    name="arr",
-                    typename="ndarray",
-                    value={
+                {
+                    "name": "arr",
+                    "typename": "ndarray",
+                    "value": {
                         "type": "array",
                         "rows": [["1", "2"], ["3", "4"]],
                         "suffix": "GB",
                     },
-                    format_hint="inline",
-                ),
+                    "format_hint": "inline",
+                },
             ],
         )
         html_str = str(doc)

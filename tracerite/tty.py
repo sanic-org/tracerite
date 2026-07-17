@@ -6,15 +6,12 @@ import sys
 import unicodedata
 import warnings
 from pathlib import Path
-from typing import Any, TextIO
+from typing import TYPE_CHECKING, Any, TextIO
 
-from .trace.core import (
-    EMPHASIS_BEG,
-    EMPHASIS_FIN,
-    chainmsg,
-    symbols,
-    symdesc,
-)
+from .trace.core import EMPHASIS_BEG, EMPHASIS_FIN, chainmsg, symbols, symdesc
+
+if TYPE_CHECKING:
+    from .trace.typing import ExceptionInfo, ExtractChainResult, Fragment, FrameInfo
 from .trace.finalize import (
     call_run_ranges,
     exception_info,
@@ -120,7 +117,7 @@ _LINE_PREFIX_WIDTH = _display_width(LINE_PREFIX)
 
 def tty_traceback(
     exc: BaseException | None = None,
-    chain: dict[str, Any] | None = None,
+    chain: ExtractChainResult | None = None,
     *,
     file: TextIO | None = None,
     msg: str | None = None,
@@ -241,7 +238,7 @@ def tty_traceback(
 
 
 def _find_all_inspector_frames(
-    frame_info_list: list[dict[str, Any]],
+    frame_info_list: list[FrameInfo],
 ) -> list[int]:
     """Find all non-call frames that have variables to show."""
     return [
@@ -282,7 +279,7 @@ def _find_last_marked_line(
 
 
 def _find_collapsible_call_runs(
-    frame_info_list: list[dict[str, Any]], min_run_length: int = 10
+    frame_info_list: list[FrameInfo], min_run_length: int = 10
 ) -> list[tuple[int, int]]:
     """Find consecutive runs of 'call' frames that should be collapsed."""
     runs = call_run_ranges(frame_info_list, min_run_length)
@@ -293,7 +290,7 @@ def _find_collapsible_call_runs(
 
 
 def _print_chronological(
-    frames: list[dict[str, Any]],
+    frames: list[FrameInfo],
     term_width: int,
     no_inspector: bool = False,
 ) -> tuple[str, int | None]:
@@ -503,7 +500,7 @@ def _wrap_code_line(colored: str, max_width: int) -> list[str]:
     return chunks
 
 
-def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
+def _build_exception_banner(exc_info: ExceptionInfo, term_width: int) -> str:
     """Build exception-banner content lines (the formatter adds the border)."""
     exc_type = exc_info.get("type", "Exception")
     summary = exc_info.get("summary", "")
@@ -561,7 +558,7 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
 
 
 def _build_subexception_summaries(
-    parallel_branches: list[list[dict[str, Any]]], term_width: int
+    parallel_branches: list[list[FrameInfo]], term_width: int
 ) -> str:
     """Build one-line summaries for each subexception branch."""
     output = ""
@@ -578,7 +575,7 @@ def _build_subexception_summaries(
     return output
 
 
-def _get_branch_summary(branch: list[dict[str, Any]], max_width: int) -> str:
+def _get_branch_summary(branch: list[FrameInfo], max_width: int) -> str:
     """Get a one-line summary for a subexception branch."""
     if not branch:
         return f"{EXC}(empty){RESET}"
@@ -645,7 +642,7 @@ def _get_branch_summary(branch: list[dict[str, Any]], max_width: int) -> str:
     return f"{loc_prefix}{EXC}{exc_type}:{RESET} {BOLD}{summary}{RESET}"
 
 
-def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
+def _get_frame_label(frinfo: FrameInfo) -> tuple[str, str]:
     """Get the label for a frame (path:lineno function)."""
     cursor_line = frinfo["cursor_line"]
     notebook_cell = frinfo["notebook_cell"]
@@ -679,7 +676,7 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     return location_part, function_part
 
 
-def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
+def _get_chrono_frame_info(frinfo: FrameInfo) -> FrameInfo:
     """Gather info needed to print a chronological frame."""
     location_part, function_part = _get_frame_label(frinfo)
     fragments = frinfo["fragments"]
@@ -705,7 +702,7 @@ def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_chrono_frame_lines(
-    info: dict[str, Any], location_width: int, function_width: int, term_width: int
+    info: FrameInfo, location_width: int, function_width: int, term_width: int
 ) -> list[tuple[str, int, bool]]:
     """Build output lines for a chronological frame."""
     location_part = info["location_part"]
@@ -862,7 +859,7 @@ def _build_chrono_frame_lines(
 
 def _find_call_line_ranges(
     output_lines: list[tuple[str, int, int, bool]],
-    frame_info_list: list[dict[str, Any]],
+    frame_info_list: list[FrameInfo],
 ) -> list[tuple[int, int]]:
     """Find line ranges for call frames that can be used for inspector expansion."""
     call_ranges = []
@@ -888,7 +885,7 @@ def _compute_inspector_positions(
     output_lines: list[tuple[str, int, int, bool]],
     inspector_frames: list[int],
     inspector_data: list[tuple[InspectorLines, int]],  # [(lines, error_line), ...]
-    frame_info_list: list[dict[str, Any]],
+    frame_info_list: list[FrameInfo],
 ) -> tuple[list[int], int]:
     """Compute vertical positions for all inspectors, avoiding overlap."""
     if not inspector_frames:  # pragma: no cover
@@ -1069,7 +1066,7 @@ def _merge_chrono_output(
     term_width: int,
     inspector_frame_indices: list[int],
     exception_banners: list[tuple[int, str]],
-    frame_info_list: list[dict[str, Any]],
+    frame_info_list: list[FrameInfo],
 ) -> tuple[str, int | None]:
     """Merge chronological output with multiple inspectors and exception banners."""
     if not inspector_frame_indices:  # pragma: no cover
@@ -1277,7 +1274,7 @@ def _merge_chrono_output(
     return output, last_banner_start
 
 
-def _format_fragment(fragment: dict[str, Any]) -> str:
+def _format_fragment(fragment: Fragment) -> str:
     """Format a fragment returning colored string."""
     code = fragment["code"].rstrip("\n\r")
     mark = fragment.get("mark")
@@ -1307,7 +1304,7 @@ def _format_fragment(fragment: dict[str, Any]) -> str:
     return "".join(colored_parts)
 
 
-def _format_fragment_call(fragment: dict[str, Any]) -> str:
+def _format_fragment_call(fragment: Fragment) -> str:
     """Format a fragment for call frames: default color, only em in yellow."""
     code = fragment["code"].rstrip("\n\r")
     em = fragment.get("em")

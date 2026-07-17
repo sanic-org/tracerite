@@ -7,7 +7,7 @@ patterns and source code to provide better highlighting ranges.
 
 import re
 
-from .core import STRING_PREFIX_PAIRS, STRING_PREFIXES, Range
+from .core import STRING_PREFIX_PAIRS, STRING_PREFIXES
 
 # Patterns for extracting information from SyntaxError messages
 MISMATCH_PATTERN = re.compile(
@@ -118,8 +118,8 @@ def extract_enhanced_positions(e, source_lines):
 
     Returns:
         Tuple of (mark_range, em_ranges) where:
-        mark_range: Range for the full highlight (e.g., from opening to closing bracket), or None
-        em_ranges: List of Range objects for emphasized positions (e.g., both mismatched brackets), or None
+        mark_range: Range dict for the full highlight (e.g., from opening to closing bracket), or None
+        em_ranges: List of Range dicts for emphasized positions (e.g., both mismatched brackets), or None
     """
     message = str(e)
 
@@ -172,12 +172,27 @@ def _handle_mismatch(e, source_lines, match):
             opening_col = 0
 
     # Mark range spans from opening bracket to closing bracket
-    mark_range = Range(opening_line, closing_line, opening_col, closing_col + 1)
+    mark_range = {
+        "lfirst": opening_line,
+        "lfinal": closing_line,
+        "cbeg": opening_col,
+        "cend": closing_col + 1,
+    }
 
     # Emphasis on both mismatched brackets
     em_ranges = [
-        Range(opening_line, opening_line, opening_col, opening_col + 1),
-        Range(closing_line, closing_line, closing_col, closing_col + 1),
+        {
+            "lfirst": opening_line,
+            "lfinal": opening_line,
+            "cbeg": opening_col,
+            "cend": opening_col + 1,
+        },
+        {
+            "lfirst": closing_line,
+            "lfinal": closing_line,
+            "cbeg": closing_col,
+            "cend": closing_col + 1,
+        },
     ]
 
     return mark_range, em_ranges
@@ -219,8 +234,20 @@ def _handle_unclosed(e, source_lines, match):
     end_line, end_col = _last_meaningful_line(source_lines)
 
     # Mark from opener to the end of the meaningful source
-    mark_range = Range(opening_line, end_line, opening_col, end_col)
-    em_ranges = [Range(opening_line, opening_line, opening_col, opening_col + 1)]
+    mark_range = {
+        "lfirst": opening_line,
+        "lfinal": end_line,
+        "cbeg": opening_col,
+        "cend": end_col,
+    }
+    em_ranges = [
+        {
+            "lfirst": opening_line,
+            "lfinal": opening_line,
+            "cbeg": opening_col,
+            "cend": opening_col + 1,
+        }
+    ]
 
     return mark_range, em_ranges
 
@@ -239,8 +266,20 @@ def _handle_incomplete(e, source_lines):
         return None, None
 
     # Mark from opener to end of meaningful content
-    mark_range = Range(opening_line, end_line, opening_col, end_col)
-    em_ranges = [Range(opening_line, opening_line, opening_col, opening_col + 1)]
+    mark_range = {
+        "lfirst": opening_line,
+        "lfinal": end_line,
+        "cbeg": opening_col,
+        "cend": end_col,
+    }
+    em_ranges = [
+        {
+            "lfirst": opening_line,
+            "lfinal": opening_line,
+            "cbeg": opening_col,
+            "cend": opening_col + 1,
+        }
+    ]
 
     return mark_range, em_ranges
 
@@ -365,8 +404,20 @@ def _handle_unterminated_string(e, source_lines):
     opener_len = _get_string_opener_length(opener_line, error_col)
 
     # Mark from the opening quote to the end of the detected line
-    mark_range = Range(error_line, end_line, error_col, end_col)
+    mark_range = {
+        "lfirst": error_line,
+        "lfinal": end_line,
+        "cbeg": error_col,
+        "cend": end_col,
+    }
     # Emphasize the full opener (prefix + quote)
-    em_ranges = [Range(error_line, error_line, error_col, error_col + opener_len)]
+    em_ranges = [
+        {
+            "lfirst": error_line,
+            "lfinal": error_line,
+            "cbeg": error_col,
+            "cend": error_col + opener_len,
+        }
+    ]
 
     return mark_range, em_ranges
