@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.hidden_module import internal_helper_function
-from tracerite.trace.core import Range, compute_cursor_position
+from tracerite.trace.core import compute_cursor_position
 from tracerite.trace.digest import format_location, slice_source_context
 from tracerite.trace.fragments import fallback_mark_range_for_line
 
@@ -461,8 +461,8 @@ hidden_frame()
 
                     # Verify the range contains the correct line number
                     if range_obj:
-                        assert range_obj.lfirst == expected_lineno, (
-                            f"range.lfirst should be {expected_lineno}, but got {range_obj.lfirst}"
+                        assert range_obj["lfirst"] == expected_lineno, (
+                            f"range['lfirst'] should be {expected_lineno}, but got {range_obj['lfirst']}"
                         )
 
                     # Verify start was properly initialized when OSError occurred
@@ -722,11 +722,12 @@ hidden_frame()
 
     def test_convert_range_to_positions_empty(self):
         """Test convert_range_to_positions with empty lines (line 508)."""
-        from tracerite.trace.core import Range
         from tracerite.trace.fragments import convert_range_to_positions
 
         # Empty lines - this should trigger line 508
-        result = convert_range_to_positions(Range(1, 1, 0, 5), "")
+        result = convert_range_to_positions(
+            {"lfirst": 1, "lfinal": 1, "cbeg": 0, "cend": 5}, ""
+        )
         assert result == set()
 
         # None range
@@ -734,7 +735,9 @@ hidden_frame()
         assert result == set()
 
         # Test with lines that don't have enough content for the range
-        result = convert_range_to_positions(Range(5, 5, 0, 10), "line1\nline2\n")
+        result = convert_range_to_positions(
+            {"lfirst": 5, "lfinal": 5, "cbeg": 0, "cend": 10}, "line1\nline2\n"
+        )
         # Should handle gracefully when range is beyond available lines
         assert isinstance(result, set)
 
@@ -908,7 +911,7 @@ class TestReraiseExistingException:
             result = extract_chain()
             assert result is not None
             # Should have both exceptions in the chain
-            assert len(result) >= 2
+            assert len(result["frames"]) >= 2
 
 
 class TestMissingCoverageBranches:
@@ -1364,7 +1367,7 @@ class TestComputeCursorPosition:
         em_ranges is passed as a single Range object rather than a list.
         """
         # Single Range, not wrapped in a list
-        em_range = Range(lfirst=5, lfinal=5, cbeg=10, cend=20)
+        em_range = {"lfirst": 5, "lfinal": 5, "cbeg": 10, "cend": 20}
         linenostart = 1
         common_indent = "    "  # 4 spaces
 
@@ -1388,7 +1391,7 @@ class TestComputeCursorPosition:
         """
         # Pass a tuple (truthy, but not a Range or list)
         # This exercises the elif False branch at line 56
-        mark_range = Range(lfirst=3, lfinal=3, cbeg=5, cend=15)
+        mark_range = {"lfirst": 3, "lfinal": 3, "cbeg": 5, "cend": 15}
         linenostart = 10
 
         line, col = compute_cursor_position(
@@ -1440,19 +1443,19 @@ class TestFallbackMarkRange:
         """Whitespace and end-of-line comments are excluded from the mark."""
         lines = "    x = 1  # comment\n"
         result = fallback_mark_range_for_line(lines, error_line_in_context=1)
-        assert result == Range(1, 1, 4, 9)
+        assert result == {"lfirst": 1, "lfinal": 1, "cbeg": 4, "cend": 9}
 
     def test_fallback_no_comment(self):
         """Trailing whitespace is trimmed when there is no comment."""
         lines = "    y = 2   \n"
         result = fallback_mark_range_for_line(lines, error_line_in_context=1)
-        assert result == Range(1, 1, 4, 9)
+        assert result == {"lfirst": 1, "lfinal": 1, "cbeg": 4, "cend": 9}
 
     def test_fallback_comment_only_line(self):
         """A line that is only a comment gets a minimal one-character mark."""
         lines = "    # just a comment\n"
         result = fallback_mark_range_for_line(lines, error_line_in_context=1)
-        assert result == Range(1, 1, 4, 5)
+        assert result == {"lfirst": 1, "lfinal": 1, "cbeg": 4, "cend": 5}
 
     def test_fallback_whitespace_only_line(self):
         """A line with no code produces no fallback mark."""
@@ -1464,7 +1467,7 @@ class TestFallbackMarkRange:
         """A '#' inside a string does not end the marked region."""
         lines = '    x = "a # b"  # comment\n'
         result = fallback_mark_range_for_line(lines, error_line_in_context=1)
-        assert result == Range(1, 1, 4, 15)
+        assert result == {"lfirst": 1, "lfinal": 1, "cbeg": 4, "cend": 15}
 
     def test_fallback_out_of_range(self):
         """An invalid line number produces no fallback mark."""

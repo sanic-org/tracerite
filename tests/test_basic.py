@@ -10,7 +10,7 @@ def test_extract_chain_with_simple_exception():
     except Exception as e:
         chain = extract_chain(e)
         assert chain is not None
-        assert len(chain) > 0
+        assert len(chain["frames"]) > 0
 
 
 def test_html_traceback_with_simple_exception():
@@ -34,7 +34,7 @@ def test_nested_exception():
     except Exception as e:
         chain = extract_chain(e)
         assert chain is not None
-        assert len(chain) >= 1  # Should have at least the outer exception
+        assert len(chain["frames"]) >= 1  # Should have at least the outer exception
 
         html = html_traceback(e)
         assert "inner error" in str(html)

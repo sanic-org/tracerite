@@ -132,8 +132,11 @@ class TestFastAPIDebugResponse:
             mock_request = mock.MagicMock()
             mock_request.headers.get.return_value = "text/html,application/xhtml+xml"
 
-            # Create a test exception
-            test_exc = ValueError("test error for fastapi")
+            # Create a test exception with a traceback
+            try:
+                raise ValueError("test error for fastapi")
+            except ValueError as e:
+                test_exc = e
 
             # Create middleware instance and call debug_response
             middleware = ServerErrorMiddleware(app=mock.MagicMock())

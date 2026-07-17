@@ -87,8 +87,11 @@ class TestTtyTraceback:
         tty_traceback(exc=exc, msg="log message", file=output)
 
         result = output.getvalue()
-        assert "ValueError" in result
-        assert "frameless error" in result
+        # The supplied log message replaces the chain header; the exception
+        # itself is not rendered as a fallback.
+        assert "log message" in result
+        assert "ValueError" not in result
+        assert "frameless error" not in result
         # Non-TTY output has ANSI stripped; compare the plain glyphs.
         assert ANSI_ESCAPE_RE.sub("", LINE_PREFIX_BOT) in result
         # Banner continuation lines should not keep the vertical border.
@@ -102,7 +105,6 @@ class TestTtyTraceback:
 
         result = output.getvalue()
         assert "ValueError" in result
-        assert "frameless error" in result
         assert result.startswith(ANSI_ESCAPE_RE.sub("", LINE_PREFIX_TOP))
 
     def test_output_contains_frame_location(self):
@@ -1009,11 +1011,15 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_simple_vars(self):
         """Test inspector with simple variables."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(name="x", typename="int", value="42", format_hint=None),
-            VarInfo(name="name", typename="str", value='"hello"', format_hint=None),
+            {"name": "x", "typename": "int", "value": "42", "format_hint": None},
+            {
+                "name": "name",
+                "typename": "str",
+                "value": '"hello"',
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1026,10 +1032,9 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_without_typename(self):
         """Test inspector with variables that have no type annotation."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(name="y", typename=None, value="100", format_hint=None),
+            {"name": "y", "typename": None, "value": "100", "format_hint": None},
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1041,15 +1046,14 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_keyvalue(self):
         """Test inspector with key-value dict representation."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="d",
-                typename="dict",
-                value={"type": "keyvalue", "rows": [("a", "1"), ("b", "2")]},
-                format_hint=None,
-            ),
+            {
+                "name": "d",
+                "typename": "dict",
+                "value": {"type": "keyvalue", "rows": [("a", "1"), ("b", "2")]},
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1059,15 +1063,14 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_array(self):
         """Test inspector with array representation."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="arr",
-                typename="list",
-                value={"type": "array", "rows": [[1, 2, 3]]},
-                format_hint=None,
-            ),
+            {
+                "name": "arr",
+                "typename": "list",
+                "value": {"type": "array", "rows": [[1, 2, 3]]},
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1077,13 +1080,15 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_truncation(self):
         """Long values are preserved by the builder; truncation is deferred."""
-        from tracerite.inspector import VarInfo
 
         long_value = "x" * 200
         variables = [
-            VarInfo(
-                name="long_var", typename="str", value=long_value, format_hint=None
-            ),
+            {
+                "name": "long_var",
+                "typename": "str",
+                "value": long_value,
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1100,10 +1105,9 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_skips_ellipsis_value(self):
         """Test inspector skips variables with ellipsis value (lines 1241, 1246)."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(name="x", typename="int", value="⋯", format_hint="inline"),
+            {"name": "x", "typename": "int", "value": "⋯", "format_hint": "inline"},
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1138,11 +1142,10 @@ class TestVariableInspector:
 
     def test_build_variable_inspector_preserves_content_ellipsis(self):
         """Ellipsis characters that are part of the value are not restyled."""
-        from tracerite.inspector import VarInfo
         from tracerite.tty import DIM
 
         variables = [
-            VarInfo(name="s", typename="str", value="abc …", format_hint="inline")
+            {"name": "s", "typename": "str", "value": "abc …", "format_hint": "inline"}
         ]
         result, _ = _build_variable_inspector(variables, term_width=200)
         colored, _, _ = result[0]
@@ -1151,11 +1154,10 @@ class TestVariableInspector:
 
     def test_truncate_inspector_line_inline_marker_shortens_right(self):
         """Inline values shorten the right side of the middle ellipsis first."""
-        from tracerite.inspector import VarInfo
 
         value = "head12345 … tail12345"
         variables = [
-            VarInfo(name="s", typename="str", value=value, format_hint="inline")
+            {"name": "s", "typename": "str", "value": value, "format_hint": "inline"}
         ]
         entries, _ = _build_variable_inspector(variables, term_width=200)
         colored, width, value_start = entries[0]
@@ -1177,11 +1179,10 @@ class TestVariableInspector:
 
     def test_truncate_inspector_line_inline_marker_shortens_left(self):
         """Once the right side is gone, shorten the left side and keep trailing ellipsis."""
-        from tracerite.inspector import VarInfo
 
         value = "head12345 … tail12345"
         variables = [
-            VarInfo(name="s", typename="str", value=value, format_hint="inline")
+            {"name": "s", "typename": "str", "value": value, "format_hint": "inline"}
         ]
         entries, _ = _build_variable_inspector(variables, term_width=200)
         colored, width, value_start = entries[0]
@@ -1226,12 +1227,14 @@ class TestVariableInspector:
 
     def test_truncate_inspector_line_inline_marker_empty_right(self):
         """A marker with no right side falls back to trailing ellipsis."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="s", typename="str", value="head12345 … ", format_hint="inline"
-            )
+            {
+                "name": "s",
+                "typename": "str",
+                "value": "head12345 … ",
+                "format_hint": "inline",
+            }
         ]
         entries, _ = _build_variable_inspector(variables, term_width=200)
         colored, width, value_start = entries[0]
@@ -1250,10 +1253,9 @@ class TestVariableInspector:
 
     def test_truncate_inspector_line_inline_marker_both_sides_empty(self):
         """A value that is only a marker collapses to a single ellipsis."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(name="s", typename="str", value=" … ", format_hint="inline")
+            {"name": "s", "typename": "str", "value": " … ", "format_hint": "inline"}
         ]
         entries, _ = _build_variable_inspector(variables, term_width=200)
         colored, width, value_start = entries[0]
@@ -1916,32 +1918,16 @@ class TestExcepthookFallback:
 class TestVariableInspectorEdgeCases:
     """Additional tests for variable inspector edge cases."""
 
-    def test_tuple_format_variables(self):
-        """Test inspector with old tuple format (name, typename, value)."""
-        # Old tuple format without VarInfo namedtuple
-        variables = [
-            ("x", "int", "42"),
-            ("y", None, "100"),
-        ]
-        result, min_width = _build_variable_inspector(variables, term_width=80)
-
-        assert len(result) == 2
-        # First var has typename
-        assert "42" in result[0][0]
-        # Second var has no typename
-        assert "100" in result[1][0]
-
     def test_array_with_empty_rows(self):
         """Test inspector with array that has empty rows."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="empty_arr",
-                typename="list",
-                value={"type": "array", "rows": []},
-                format_hint=None,
-            ),
+            {
+                "name": "empty_arr",
+                "typename": "list",
+                "value": {"type": "array", "rows": []},
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1950,15 +1936,14 @@ class TestVariableInspectorEdgeCases:
 
     def test_nested_list_format(self):
         """Test inspector with nested list (matrix) value."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="matrix",
-                typename="list",
-                value=[[1, 2, 3], [4, 5, 6]],
-                format_hint=None,
-            ),
+            {
+                "name": "matrix",
+                "typename": "list",
+                "value": [[1, 2, 3], [4, 5, 6]],
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1969,15 +1954,14 @@ class TestVariableInspectorEdgeCases:
 
     def test_simple_list_format(self):
         """Test inspector with simple list value (not nested)."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="simple_list",
-                typename="list",
-                value=[1, 2, 3],
-                format_hint=None,
-            ),
+            {
+                "name": "simple_list",
+                "typename": "list",
+                "value": [1, 2, 3],
+                "format_hint": None,
+            },
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -1987,15 +1971,9 @@ class TestVariableInspectorEdgeCases:
 
     def test_generic_value_format(self):
         """Test inspector with generic non-string, non-dict, non-list value."""
-        from tracerite.inspector import VarInfo
 
         variables = [
-            VarInfo(
-                name="num",
-                typename="float",
-                value=3.14159,
-                format_hint=None,
-            ),
+            {"name": "num", "typename": "float", "value": 3.14159, "format_hint": None},
         ]
         result, min_width = _build_variable_inspector(variables, term_width=80)
 
@@ -2192,13 +2170,13 @@ class TestTtyTracebackEdgeCases:
     def test_empty_chain(self):
         """Test tty_traceback with empty chain."""
         output = io.StringIO()
-        tty_traceback(chain=[], file=output)
+        tty_traceback(chain={"header": "", "frames": []}, file=output)
         result = output.getvalue()
         # Should still produce output with box drawing
         assert "╭" in result or "│" in result or "╰" in result
 
     def test_chain_without_frames(self):
-        """Test exception chain where exceptions have no frames."""
+        """Test that exc is ignored when chain has no frames."""
 
         class TestError(Exception):
             pass
@@ -2207,10 +2185,10 @@ class TestTtyTracebackEdgeCases:
         try:
             raise TestError("test message")
         except TestError as e:
-            tty_traceback(chain=[], exc=e, file=output)
+            tty_traceback(chain={"header": "", "frames": []}, exc=e, file=output)
         result = output.getvalue()
-        assert "TestError" in result
-        assert "test message" in result
+        assert "TestError" not in result
+        assert "test message" not in result
 
     def test_inspector_arrow_first_and_last(self):
         """Test inspector with single variable (arrow is first and last)."""
@@ -2382,7 +2360,7 @@ class TestTtyTracebackEdgeCases:
             "cursor_line": 10,
             "notebook_cell": False,
             "relevance": "call",
-            "range": type("Range", (), {"lfirst": 10})(),
+            "range": {"lfirst": 10},
         }
 
         location_part, function_part = _get_frame_label(frinfo)
@@ -2444,7 +2422,7 @@ class TestCodeLineWidthAdaptation:
                 {"line": 1, "fragments": [{"code": "x = " + "a" * 80}]},
                 {"line": 2, "fragments": [{"code": "y = 1"}]},
             ],
-            "frame_range": type("Range", (), {"lfirst": 2, "lfinal": 2})(),
+            "frame_range": {"lfirst": 2, "lfinal": 2},
             "relevance": "error",
             "exc_info": None,
             "marked_lines": [],
@@ -2475,7 +2453,7 @@ class TestCodeLineWidthAdaptation:
                     "fragments": [{"code": "x = "}, {"code": code, "mark": "solo"}],
                 }
             ],
-            "frame_range": type("Range", (), {"lfirst": 1, "lfinal": 1})(),
+            "frame_range": {"lfirst": 1, "lfinal": 1},
             "relevance": "error",
             "exc_info": None,
             "marked_lines": [
@@ -2512,7 +2490,7 @@ class TestCodeLineWidthAdaptation:
                     "fragments": [{"code": "x = "}, {"code": code, "mark": "solo"}],
                 }
             ],
-            "frame_range": type("Range", (), {"lfirst": 1, "lfinal": 1})(),
+            "frame_range": {"lfirst": 1, "lfinal": 1},
             "relevance": "error",
             "exc_info": None,
             "marked_lines": [
@@ -2550,7 +2528,7 @@ class TestCodeLineWidthAdaptation:
                     "fragments": [{"code": "second = " + "b" * 40, "mark": "solo"}],
                 },
             ],
-            "frame_range": type("Range", (), {"lfirst": 2, "lfinal": 2})(),
+            "frame_range": {"lfirst": 2, "lfinal": 2},
             "relevance": "error",
             "exc_info": None,
             "marked_lines": [{"line": 1}, {"line": 2}],
@@ -2720,14 +2698,18 @@ class TestMergeChronoOutputBranches:
 
     def test_inspector_truncation(self):
         """Test inspector line truncation when it exceeds available width (lines 1028-1053)."""
-        from tracerite.inspector import VarInfo
         from tracerite.tty import _build_variable_inspector, _merge_chrono_output
 
         output_lines = [
             ("x" * 40, 40, 0, True),  # long line sets inspector_col
         ]
         variables = [
-            VarInfo(name="var_name", typename="str", value="x" * 80, format_hint=None),
+            {
+                "name": "var_name",
+                "typename": "str",
+                "value": "x" * 80,
+                "format_hint": None,
+            },
         ]
         # Build with wide terminal so _build_variable_inspector doesn't truncate,
         # letting _merge_chrono_output hit its own truncation path.
@@ -2751,7 +2733,6 @@ class TestMergeChronoOutputBranches:
 
     def test_inspector_extra_line_truncation(self):
         """Continuation inspector lines past the frame are also truncated."""
-        from tracerite.inspector import VarInfo
         from tracerite.tty import _build_variable_inspector, _merge_chrono_output
 
         output_lines = [
@@ -2759,7 +2740,7 @@ class TestMergeChronoOutputBranches:
         ]
         value = "first line\n" + "x" * 100
         variables = [
-            VarInfo(name="var", typename="str", value=value, format_hint="block"),
+            {"name": "var", "typename": "str", "value": value, "format_hint": "block"},
         ]
         inspector_lines, min_width = _build_variable_inspector(
             variables, term_width=200
@@ -2783,19 +2764,18 @@ class TestMergeChronoOutputBranches:
 
     def test_inspector_skipped_when_narrow(self):
         """A multi-line inspector that does not fit is skipped cleanly."""
-        from tracerite.inspector import VarInfo
         from tracerite.tty import _build_variable_inspector, _merge_chrono_output
 
         output_lines = [
             ("short line", 10, 0, True),
         ]
         variables = [
-            VarInfo(
-                name="long_name",
-                typename="str",
-                value="line1\nline2\nline3",
-                format_hint="block",
-            ),
+            {
+                "name": "long_name",
+                "typename": "str",
+                "value": "line1\nline2\nline3",
+                "format_hint": "block",
+            },
         ]
         inspector_lines, min_width = _build_variable_inspector(
             variables, term_width=200
@@ -2868,7 +2848,7 @@ class TestGetFrameLabelBranches:
             "cursor_line": 10,
             "notebook_cell": False,
             "relevance": "call",
-            "range": type("Range", (), {"lfirst": 10})(),
+            "range": {"lfirst": 10},
         }
 
         location_part, function_part = _get_frame_label(frinfo)
@@ -2891,7 +2871,7 @@ class TestNotebookCellDisplay:
             "function_suffix": "",
             "cursor_line": 10,
             "relevance": "call",
-            "range": type("Range", (), {"lfirst": 10})(),
+            "range": {"lfirst": 10},
             "notebook_cell": True,
         }
 
@@ -2912,7 +2892,7 @@ class TestNotebookCellDisplay:
             "function_suffix": "",
             "cursor_line": 10,
             "relevance": "call",
-            "range": type("Range", (), {"lfirst": 10})(),
+            "range": {"lfirst": 10},
             "notebook_cell": True,
         }
 
@@ -2936,7 +2916,7 @@ class TestFunctionSuffixDisplay:
             "cursor_line": 10,
             "notebook_cell": False,
             "relevance": "except",
-            "range": type("Range", (), {"lfirst": 10})(),
+            "range": {"lfirst": 10},
         }
 
         location_part, function_part = _get_frame_label(frinfo)
@@ -2959,7 +2939,7 @@ class TestSubexceptionSummaries:
                     "function": "func1",
                     "cursor_line": 10,
                     "notebook_cell": False,
-                    "range": type("Range", (), {"lfirst": 10})(),
+                    "range": {"lfirst": 10},
                     "exception": {"type": "ValueError", "summary": "value error"},
                 }
             ],
@@ -2970,7 +2950,7 @@ class TestSubexceptionSummaries:
                     "function": "func2",
                     "cursor_line": 20,
                     "notebook_cell": False,
-                    "range": type("Range", (), {"lfirst": 20})(),
+                    "range": {"lfirst": 20},
                     "exception": {"type": "TypeError", "summary": "type error"},
                 }
             ],
@@ -2994,7 +2974,7 @@ class TestSubexceptionSummaries:
                 "filename": "/path/file.py",
                 "location": "file.py",
                 "function": "func",
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
             }
         ]
         result = _get_branch_summary(branch, 80)
@@ -3009,7 +2989,7 @@ class TestSubexceptionSummaries:
                 "function": "func",
                 "cursor_line": 10,
                 "notebook_cell": False,
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
                 "exception": {"type": "ValueError", "summary": "test error message"},
             }
         ]
@@ -3028,7 +3008,7 @@ class TestSubexceptionSummaries:
                 "function": "func",
                 "cursor_line": 10,
                 "notebook_cell": False,
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
                 "exception": {"type": "ValueError", "summary": long_message},
             }
         ]
@@ -3049,7 +3029,7 @@ class TestSubexceptionSummaries:
                 "function": "outer",
                 "cursor_line": 10,
                 "notebook_cell": False,
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
                 "exception": {"type": "ExceptionGroup", "summary": "nested"},
                 "parallel": [
                     [
@@ -3088,7 +3068,7 @@ class TestSubexceptionSummaries:
                 "location": "Cell [5]",
                 "function": "func",
                 "cursor_line": 10,
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
                 "notebook_cell": True,
                 "exception": {"type": "ValueError", "summary": "test"},
             }
@@ -3107,7 +3087,7 @@ class TestSubexceptionSummaries:
                 "function": "test_func",
                 "cursor_line": 10,
                 "notebook_cell": False,
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
                 "exception": {"type": "ValueError", "summary": "test"},
             }
         ]
@@ -3414,16 +3394,12 @@ class TestWrapText:
 class TestTTYCoverage:
     """Edge-case tests that previously lacked coverage."""
 
-    def test_banner_at_start_no_prefix_to_replace(self):
-        """A banner right after the top corner has no preceding border."""
+    def test_no_traceback_exc_only_renders_header(self):
+        """A frameless exception renders its header when no chain is provided."""
         output = io.StringIO()
-        tty_traceback(
-            chain=[],
-            exc=ValueError("x"),
-            file=output,
-            msg="",
-        )
-        assert "ValueError" in output.getvalue()
+        tty_traceback(exc=ValueError("x"), file=output)
+        result = output.getvalue()
+        assert "ValueError" in result
 
     def test_wrap_code_line_plain_fits(self):
         assert _wrap_code_line("hello", 10) == ["hello"]
@@ -3501,7 +3477,9 @@ class TestTTYCoverage:
 
     def test_no_banner_bottom_corner_falls_back_to_last_prefix(self):
         output = io.StringIO()
-        tty_traceback(chain=[], file=output, msg=f"{LINE_PREFIX} hello")
+        tty_traceback(
+            chain={"header": "", "frames": []}, file=output, msg=f"{LINE_PREFIX} hello"
+        )
         assert "╰" in output.getvalue()
 
 

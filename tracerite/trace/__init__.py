@@ -9,6 +9,8 @@ from .finalize import extract_chain
 
 __all__ = ["extract_chain"]
 
+# Static declaration for type checkers; the _TraceModule property below does
+# the actual forwarding to tracerite.trace.core at runtime.
 ipython: Any = core.ipython
 
 

@@ -179,8 +179,8 @@ class TestSyntaxErrorFrameExtraction:
 
                 assert frame is not None
                 assert frame["range"] is not None
-                assert frame["range"].lfirst == 1
-                assert frame["range"].lfinal == 2
+                assert frame["range"]["lfirst"] == 1
+                assert frame["range"]["lfinal"] == 2
 
                 # Both lines should be marked in the fragments
                 marked_lines = {
@@ -210,7 +210,7 @@ class TestSyntaxErrorFrameExtraction:
             except SyntaxError as e:
                 frame = extract_syntax_error_frame(e)
                 assert frame is not None
-                error_line_fragments = frame["fragments"][frame["range"].lfirst - 1][
+                error_line_fragments = frame["fragments"][frame["range"]["lfirst"] - 1][
                     "fragments"
                 ]
                 assert any(f.get("mark") for f in error_line_fragments)
@@ -289,7 +289,7 @@ class TestSyntaxErrorFrameExtraction:
             # With the bug, cursor_col was shifted right by the common indent
             # of the sliced snippet (4 spaces). It should stay at the original
             # end column instead.
-            assert frame["cursor_col"] == frame["range"].cend
+            assert frame["cursor_col"] == frame["range"]["cend"]
             vs_code_url = frame["urls"].get("VS Code", "")
             assert vs_code_url.endswith(
                 f":{frame['cursor_line']}:{frame['cursor_col']}"
@@ -460,8 +460,8 @@ class TestExtractChainSyntaxError:
         except SyntaxError:
             chain = extract_chain()
 
-            assert len(chain) >= 1
-            assert chain[-1]["exception"]["type"] == "SyntaxError"
+            assert len(chain["frames"]) >= 1
+            assert chain["frames"][-1]["exception"]["type"] == "SyntaxError"
 
     def test_extract_chain_chained_with_syntax_error(self):
         """Test extract_chain with SyntaxError in chain."""
@@ -473,8 +473,10 @@ class TestExtractChainSyntaxError:
         except ValueError:
             chain = extract_chain()
 
-            assert len(chain) >= 2
-            types = [f["exception"]["type"] for f in chain if f.get("exception")]
+            assert len(chain["frames"]) >= 2
+            types = [
+                f["exception"]["type"] for f in chain["frames"] if f.get("exception")
+            ]
             assert types == ["SyntaxError", "ValueError"]
 
 

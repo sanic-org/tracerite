@@ -6,13 +6,12 @@ import sys
 import pytest
 
 from tracerite.html import html_traceback
-from tracerite.trace.chain_analysis import build_chronological_frames
 from tracerite.trace.digest import extract_subexceptions, is_exception_group
 from tracerite.trace.finalize import (
-    build_chain_header,
     extract_chain,
     extract_chain_exceptions,
 )
+from tracerite.trace.order import build_chronological_frames
 from tracerite.tty import tty_traceback
 
 from .helpers import extract_exception
@@ -153,7 +152,7 @@ class TestExtractException:
     sys.version_info < (3, 11), reason="Exception groups require Python 3.11+"
 )
 class TestChainHeader:
-    """Tests for build_chain_header with ExceptionGroups."""
+    """Tests for the extract_chain header with ExceptionGroups."""
 
     def test_chain_header_shows_leaf_types(self):
         """Test that chain header shows leaf exception types separated by |."""
@@ -162,8 +161,7 @@ class TestChainHeader:
                 "test", [ValueError("a"), TypeError("b"), KeyError("c")]
             )
         except Exception as e:
-            chain = extract_chain(e)
-            header = build_chain_header(chain)
+            header = extract_chain(e)["header"]
 
         assert "ValueError" in header
         assert "TypeError" in header
@@ -178,12 +176,26 @@ class TestChainHeader:
             inner = ExceptionGroup("inner", [KeyError("k")])  # noqa: F821
             raise ExceptionGroup("outer", [ValueError("v"), inner])  # noqa: F821
         except Exception as e:
-            chain = extract_chain(e)
-            header = build_chain_header(chain)
+            header = extract_chain(e)["header"]
 
         # Should show leaf types from all levels
         assert "ValueError" in header
         assert "KeyError" in header
+
+    def test_chain_header_group_with_cause(self):
+        """Test chain header when an ExceptionGroup is chained from a cause."""
+        try:
+            try:
+                raise ValueError("inner")
+            except ValueError as ve:
+                raise ExceptionGroup("group", [KeyError("k")]) from ve  # noqa: F821
+        except Exception as e:
+            header = extract_chain(e)["header"]
+
+        # Leaf types are used for the group, and the cause chain is shown
+        assert "KeyError" in header
+        assert "from" in header
+        assert "ValueError" in header
 
 
 @pytest.mark.skipif(
@@ -369,7 +381,7 @@ class TestAsyncTaskGroup:
             asyncio.run(run_taskgroup())
         except ExceptionGroup as e:  # noqa: F821
             chain = extract_chain(e)
-            header = build_chain_header(chain)
+            header = chain["header"]
 
             assert "ValueError" in header
             assert "TypeError" in header
@@ -384,64 +396,6 @@ class TestAsyncTaskGroup:
 )
 class TestCoverageEdgeCases:
     """Tests for edge cases to achieve 100% coverage in trace.py."""
-
-    def test_chain_header_empty_leaf_types(self):
-        """Test build_chain_header when leaf_types is empty (lines 67->74, 70).
-
-        This happens when subexceptions exist but all sub_chains are empty.
-        """
-
-        # Minimal chronological frame with an empty leaf_types list
-        frames = [
-            {"exception": {"type": "ExceptionGroup", "from": "none", "leaf_types": []}}
-        ]
-        header = build_chain_header(frames)
-        # Should fall back to the exception type
-        assert "ExceptionGroup" in header
-
-    def test_chain_header_with_cause_and_empty_leafs(self):
-        """Test build_chain_header with chained exception and empty leaf_types (line 70)."""
-
-        # Two chronological frames: ValueError caused ExceptionGroup with empty leaf_types
-        frames = [
-            {"exception": {"type": "ValueError", "from": "none"}},
-            {
-                "exception": {
-                    "type": "ExceptionGroup",
-                    "from": "cause",
-                    "leaf_types": [],
-                }
-            },
-        ]
-        header = build_chain_header(frames)
-        # Should use "ExceptionGroup" as exc_type and show the chain
-        assert "ExceptionGroup" in header
-        assert "from" in header
-        assert "ValueError" in header
-
-    def test_chain_header_exception_group_with_leafs_and_cause(self):
-        """Test build_chain_header with ExceptionGroup (has leaf_types) in a chain (line 67->74).
-
-        When len(chain) > 1 and leaf_types is non-empty, we skip the return at line 68
-        and fall through to line 74.
-        """
-
-        # Two chronological frames: ValueError caused ExceptionGroup with leaf types
-        frames = [
-            {"exception": {"type": "ValueError", "from": "none"}},
-            {
-                "exception": {
-                    "type": "ExceptionGroup",
-                    "from": "cause",
-                    "leaf_types": ["KeyError"],
-                }
-            },
-        ]
-        header = build_chain_header(frames)
-        # Should show leaf type (KeyError) and chain
-        assert "KeyError" in header
-        assert "from" in header
-        assert "ValueError" in header
 
     def test_extract_subexceptions_empty_tuple(self):
         """Test extract_subexceptions with empty exceptions tuple (line 366)."""
@@ -534,39 +488,13 @@ class TestCoverageEdgeCases:
         assert chain[1]["type"] == "ValueError"
         assert chain[2]["type"] == "TypeError"
 
-    def test_chain_header_single_exception_group_empty_leafs(self):
-        """Test build_chain_header with single ExceptionGroup and empty leaf_types (line 67->74)."""
-
-        # Single frame with empty leaf_types -> falls back to exception type
-        frames = [
-            {"exception": {"type": "ExceptionGroup", "from": "none", "leaf_types": []}}
-        ]
-        header = build_chain_header(frames)
-        # Should return "Uncaught ExceptionGroup" since leaf_types is empty
-        assert "Uncaught" in header
-        assert "ExceptionGroup" in header
-
-    def test_build_chain_header_no_exceptions(self):
-        """Test build_chain_header with frames that have no exception banner."""
-        assert build_chain_header([{"idframe": 1}]) == ""
-
     def test_attach_leaf_types_empty_leaf_types(self):
         """Test attach_leaf_types returns early when leaf_types is empty."""
         from tracerite.trace.finalize import attach_leaf_types
 
         chain = [{"type": "ExceptionGroup", "subexceptions": [[], []]}]
-        attach_leaf_types(chain, [])
-        attach_leaf_types(chain, [{"idframe": 1}])
-
-    def test_attach_leaf_types_no_banner_frame(self):
-        """Test attach_leaf_types when no frame carries an exception banner."""
-        from tracerite.trace.finalize import attach_leaf_types
-
-        chain = [
-            {"type": "ExceptionGroup", "subexceptions": [[{"type": "ValueError"}]]}
-        ]
-        attach_leaf_types(chain, [])
-        attach_leaf_types(chain, [{"idframe": 1}])
+        attach_leaf_types(chain)
+        assert "leaf_types" not in chain[0]
 
     def test_extract_source_lines_notebook_no_except(self):
         """Test extract_source_lines for notebook cell without except block (line 478)."""

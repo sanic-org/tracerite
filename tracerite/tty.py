@@ -6,21 +6,38 @@ import sys
 import unicodedata
 import warnings
 from pathlib import Path
-from typing import Any, TextIO
+from typing import TYPE_CHECKING, Any, TextIO
 
-from .trace.core import (
-    EMPHASIS_BEG,
-    EMPHASIS_FIN,
-    chainmsg,
-    symbols,
-    symdesc,
-)
+from .trace.core import EMPHASIS_BEG, EMPHASIS_FIN, chainmsg, symbols, symdesc
+
+if TYPE_CHECKING:
+    from typing import TypedDict
+
+    from .trace.typing import (
+        Chain,
+        ExceptionInfo,
+        Fragment,
+        FragmentLine,
+        FrameInfo,
+        Range,
+    )
+
+    class _ChronoFrameInfo(TypedDict):
+        """Precomputed display info for one chronological frame."""
+
+        location_part: str
+        function_part: str
+        fragments: list[FragmentLine]
+        frame_range: Range | None
+        relevance: str
+        exc_info: ExceptionInfo | None
+        marked_lines: list[FragmentLine]
+        frinfo: FrameInfo
+
+
 from .trace.finalize import (
-    build_chain_header,
     call_run_ranges,
-    exception_info,
     extract_chain,
-    extract_chain_exceptions,
     function_display,
     normalize_variable,
 )
@@ -121,7 +138,7 @@ _LINE_PREFIX_WIDTH = _display_width(LINE_PREFIX)
 
 def tty_traceback(
     exc: BaseException | None = None,
-    chain: list[dict[str, Any]] | None = None,
+    chain: Chain | None = None,
     *,
     file: TextIO | None = None,
     msg: str | None = None,
@@ -137,7 +154,8 @@ def tty_traceback(
 
     Args:
         exc: The exception to format. If None, uses the current exception.
-        chain: Pre-extracted chronological frame list. If provided, exc is ignored.
+        chain: Pre-extracted data from `extract_chain` (dict with `header` and `frames`).
+            If provided, exc is ignored.
         file: Output file. Defaults to sys.stderr.
         msg: Header message. If None, builds from exception chain.
         tag: Optional tag to display after the message (e.g., "#TR1").
@@ -146,10 +164,11 @@ def tty_traceback(
     """
     if chain is None:
         chain = extract_chain(exc=exc, **extract_args)
+    frames = chain["frames"]
 
     # Build header message if not provided
-    if msg is None and chain:
-        msg = build_chain_header(chain)
+    if msg is None:
+        msg = chain["header"] or None
 
     if file is None:
         file = sys.stderr
@@ -187,35 +206,24 @@ def tty_traceback(
         if term_width < 40:
             term_width = 80
 
-    if not chain and exc is not None:
-        # Exception with no frames: build banners into chrono_output so
-        # last_banner_start stays relative to chrono_output, just like the
-        # normal path.
-        chrono_output = ""
-        last_banner_start = 0
-        for exc_dict in extract_chain_exceptions(exc):
-            last_banner_start = len(chrono_output)
-            chrono_output += _build_exception_banner(
-                exception_info(exc_dict), term_width
-            )
-    else:
-        chrono_output, last_banner_start = _print_chronological(
-            chain, term_width, no_inspector
-        )
+    chrono_output, last_banner_start = _print_chronological(
+        frames, term_width, no_inspector
+    )
     if last_banner_start is not None:
         last_banner_start += len(output)
     output += chrono_output
 
+    if not frames:
+        # No traceback: add a dim note where the exception banner would appear.
+        output += NO_SOURCE + "(no traceback)" + EOL
+
     # Strip trailing empty border.
-    eol_suffix = f"\n{LINE_PREFIX}"
-    if output.endswith(eol_suffix):
-        output = output[: -len(eol_suffix)]
+    output = output.removesuffix(f"\n{LINE_PREFIX}")
 
     # Curve the bottom border; for banners, continuation lines hang loose.
     if last_banner_start is not None:
         prefix_pos = last_banner_start - len(LINE_PREFIX)
-        if prefix_pos >= 0 and output[prefix_pos:last_banner_start] == LINE_PREFIX:
-            output = output[:prefix_pos] + LINE_PREFIX_BOT + output[last_banner_start:]
+        output = output[:prefix_pos] + LINE_PREFIX_BOT + output[last_banner_start:]
         first_line_end = output.find("\n", last_banner_start)
         if first_line_end != -1:
             output = output[:first_line_end] + output[first_line_end:].replace(
@@ -240,7 +248,7 @@ def tty_traceback(
 
 
 def _find_all_inspector_frames(
-    frame_info_list: list[dict[str, Any]],
+    frame_info_list: list[_ChronoFrameInfo],
 ) -> list[int]:
     """Find all non-call frames that have variables to show."""
     return [
@@ -281,7 +289,7 @@ def _find_last_marked_line(
 
 
 def _find_collapsible_call_runs(
-    frame_info_list: list[dict[str, Any]], min_run_length: int = 10
+    frame_info_list: list[_ChronoFrameInfo], min_run_length: int = 10
 ) -> list[tuple[int, int]]:
     """Find consecutive runs of 'call' frames that should be collapsed."""
     runs = call_run_ranges(frame_info_list, min_run_length)
@@ -292,14 +300,14 @@ def _find_collapsible_call_runs(
 
 
 def _print_chronological(
-    chain: list[dict[str, Any]],
+    frames: list[FrameInfo],
     term_width: int,
     no_inspector: bool = False,
 ) -> tuple[str, int | None]:
     """Print frames in chronological order; returns ``(output, last_banner_start)``."""
     output = ""
     last_banner_start = None
-    chrono_frames = chain
+    chrono_frames = frames
     if not chrono_frames:
         return output, last_banner_start
 
@@ -502,7 +510,7 @@ def _wrap_code_line(colored: str, max_width: int) -> list[str]:
     return chunks
 
 
-def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
+def _build_exception_banner(exc_info: ExceptionInfo, term_width: int) -> str:
     """Build exception-banner content lines (the formatter adds the border)."""
     exc_type = exc_info.get("type", "Exception")
     summary = exc_info.get("summary", "")
@@ -560,7 +568,7 @@ def _build_exception_banner(exc_info: dict[str, Any], term_width: int) -> str:
 
 
 def _build_subexception_summaries(
-    parallel_branches: list[list[dict[str, Any]]], term_width: int
+    parallel_branches: list[list[FrameInfo]], term_width: int
 ) -> str:
     """Build one-line summaries for each subexception branch."""
     output = ""
@@ -577,7 +585,7 @@ def _build_subexception_summaries(
     return output
 
 
-def _get_branch_summary(branch: list[dict[str, Any]], max_width: int) -> str:
+def _get_branch_summary(branch: list[FrameInfo], max_width: int) -> str:
     """Get a one-line summary for a subexception branch."""
     if not branch:
         return f"{EXC}(empty){RESET}"
@@ -644,7 +652,7 @@ def _get_branch_summary(branch: list[dict[str, Any]], max_width: int) -> str:
     return f"{loc_prefix}{EXC}{exc_type}:{RESET} {BOLD}{summary}{RESET}"
 
 
-def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
+def _get_frame_label(frinfo: FrameInfo) -> tuple[str, str]:
     """Get the label for a frame (path:lineno function)."""
     cursor_line = frinfo["cursor_line"]
     notebook_cell = frinfo["notebook_cell"]
@@ -678,7 +686,7 @@ def _get_frame_label(frinfo: dict[str, Any]) -> tuple[str, str]:
     return location_part, function_part
 
 
-def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
+def _get_chrono_frame_info(frinfo: FrameInfo) -> _ChronoFrameInfo:
     """Gather info needed to print a chronological frame."""
     location_part, function_part = _get_frame_label(frinfo)
     fragments = frinfo["fragments"]
@@ -704,7 +712,7 @@ def _get_chrono_frame_info(frinfo: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_chrono_frame_lines(
-    info: dict[str, Any], location_width: int, function_width: int, term_width: int
+    info: _ChronoFrameInfo, location_width: int, function_width: int, term_width: int
 ) -> list[tuple[str, int, bool]]:
     """Build output lines for a chronological frame."""
     location_part = info["location_part"]
@@ -816,7 +824,7 @@ def _build_chrono_frame_lines(
             code_colored = "".join(_format_fragment(f) for f in line_fragments)
             code_part = f"{CODE_INDENT}{code_colored}"
 
-            if frame_range and abs_line == frame_range.lfinal and symbol:
+            if frame_range and abs_line == frame_range["lfinal"] and symbol:
                 if (
                     _display_width(code_part) + 1 + _display_width(symbol_suffix)
                     <= content_width
@@ -861,7 +869,7 @@ def _build_chrono_frame_lines(
 
 def _find_call_line_ranges(
     output_lines: list[tuple[str, int, int, bool]],
-    frame_info_list: list[dict[str, Any]],
+    frame_info_list: list[_ChronoFrameInfo],
 ) -> list[tuple[int, int]]:
     """Find line ranges for call frames that can be used for inspector expansion."""
     call_ranges = []
@@ -887,7 +895,7 @@ def _compute_inspector_positions(
     output_lines: list[tuple[str, int, int, bool]],
     inspector_frames: list[int],
     inspector_data: list[tuple[InspectorLines, int]],  # [(lines, error_line), ...]
-    frame_info_list: list[dict[str, Any]],
+    frame_info_list: list[_ChronoFrameInfo],
 ) -> tuple[list[int], int]:
     """Compute vertical positions for all inspectors, avoiding overlap."""
     if not inspector_frames:  # pragma: no cover
@@ -1068,7 +1076,7 @@ def _merge_chrono_output(
     term_width: int,
     inspector_frame_indices: list[int],
     exception_banners: list[tuple[int, str]],
-    frame_info_list: list[dict[str, Any]],
+    frame_info_list: list[_ChronoFrameInfo],
 ) -> tuple[str, int | None]:
     """Merge chronological output with multiple inspectors and exception banners."""
     if not inspector_frame_indices:  # pragma: no cover
@@ -1276,7 +1284,7 @@ def _merge_chrono_output(
     return output, last_banner_start
 
 
-def _format_fragment(fragment: dict[str, Any]) -> str:
+def _format_fragment(fragment: Fragment) -> str:
     """Format a fragment returning colored string."""
     code = fragment["code"].rstrip("\n\r")
     mark = fragment.get("mark")
@@ -1306,7 +1314,7 @@ def _format_fragment(fragment: dict[str, Any]) -> str:
     return "".join(colored_parts)
 
 
-def _format_fragment_call(fragment: dict[str, Any]) -> str:
+def _format_fragment_call(fragment: Fragment) -> str:
     """Format a fragment for call frames: default color, only em in yellow."""
     code = fragment["code"].rstrip("\n\r")
     em = fragment.get("em")

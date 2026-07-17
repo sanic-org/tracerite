@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .typing import RawChain
+
 __all__ = ["collect_exception_objects", "collect_exception_chain"]
 
 
@@ -15,7 +20,7 @@ def collect_exception_objects(exc=None) -> list:
     return list(reversed(chain))
 
 
-def collect_exception_chain(exc=None, **kwargs) -> list[dict]:
+def collect_exception_chain(exc=None, **kwargs) -> RawChain:
     """Return raw exception objects in chronological order, oldest first.
 
     Each element is a small metadata dict with the live exception object and

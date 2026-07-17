@@ -6,19 +6,81 @@ import dataclasses
 import math
 import re
 import types
-from collections import namedtuple
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tracerite.logging import logger
+
+if TYPE_CHECKING:
+    from .trace.typing import VarInfo
 
 # Minimum length for a string value to be considered a match against the
 # exception message.  Short strings are too likely to collide with unrelated
 # variables by accident.
 _EXCEPTION_MESSAGE_MIN_MATCH_LEN = 12
 
-# Variable info with formatting metadata
-VarInfo = namedtuple("VarInfo", ["name", "typename", "value", "format_hint"])
+
+def extract_variables(
+    variables: dict[str, Any], sourcecode: str, exc_message: str | None = None
+) -> list[VarInfo]:
+    """Extract variable values that appear in sourcecode for display."""
+    identifiers = _extract_identifiers_ast(sourcecode)
+    if identifiers is None:
+        identifiers = _extract_identifiers_regex(sourcecode)
+
+    rows: list[VarInfo] = []
+    for name, value in variables.items():
+        if name in blacklist_names or isinstance(value, blacklist_types):
+            continue
+        try:
+            rows.extend(
+                _extract_variable_rows(
+                    name, value, identifiers, sourcecode, exc_message
+                )
+            )
+        except Exception:
+            logger.exception("Variable inspector failed (please report a bug)")
+    return rows
+
+
+def _extract_variable_rows(
+    name: str,
+    value: Any,
+    identifiers: set[str],
+    sourcecode: str,
+    exc_message: str | None,
+) -> list[VarInfo]:
+    """Return VarInfo rows for a single variable, expanding members if needed."""
+    if name not in identifiers:
+        return []
+
+    try:
+        strvalue = str(value)
+        reprvalue = repr(value)
+    except Exception:
+        return []
+
+    if not strvalue and reprvalue:
+        strvalue = reprvalue
+
+    typename = type(value).__name__
+    if _is_exception_message_variable(strvalue, typename, exc_message):
+        return []
+
+    if no_str_conv.fullmatch(strvalue):
+        member_rows = _extract_member_rows(name, value, identifiers, sourcecode)
+        if member_rows:
+            return member_rows
+        value = "⋯"
+
+    typename = _annotate_array_type(typename, value)
+    val_str, val_fmt = prettyvalue(value)
+    if typename == "NoneType":
+        typename = ""
+    return [
+        {"name": name, "typename": typename, "value": val_str, "format_hint": val_fmt}
+    ]
+
 
 blacklist_names = {"_", "In", "Out"}
 blacklist_types = (
@@ -168,66 +230,6 @@ def _extract_identifiers_regex(sourcecode: str) -> set[str]:
     }
 
 
-def extract_variables(
-    variables: dict[str, Any], sourcecode: str, exc_message: str | None = None
-) -> list[VarInfo]:
-    """Extract variable values that appear in sourcecode for display."""
-    identifiers = _extract_identifiers_ast(sourcecode)
-    if identifiers is None:
-        identifiers = _extract_identifiers_regex(sourcecode)
-
-    rows: list[VarInfo] = []
-    for name, value in variables.items():
-        if name in blacklist_names or isinstance(value, blacklist_types):
-            continue
-        try:
-            rows.extend(
-                _extract_variable_rows(
-                    name, value, identifiers, sourcecode, exc_message
-                )
-            )
-        except Exception:
-            logger.exception("Variable inspector failed (please report a bug)")
-    return rows
-
-
-def _extract_variable_rows(
-    name: str,
-    value: Any,
-    identifiers: set[str],
-    sourcecode: str,
-    exc_message: str | None,
-) -> list[VarInfo]:
-    """Return VarInfo rows for a single variable, expanding members if needed."""
-    if name not in identifiers:
-        return []
-
-    try:
-        strvalue = str(value)
-        reprvalue = repr(value)
-    except Exception:
-        return []
-
-    if not strvalue and reprvalue:
-        strvalue = reprvalue
-
-    typename = type(value).__name__
-    if _is_exception_message_variable(strvalue, typename, exc_message):
-        return []
-
-    if no_str_conv.fullmatch(strvalue):
-        member_rows = _extract_member_rows(name, value, identifiers, sourcecode)
-        if member_rows:
-            return member_rows
-        value = "⋯"
-
-    typename = _annotate_array_type(typename, value)
-    val_str, val_fmt = prettyvalue(value)
-    if typename == "NoneType":
-        typename = ""
-    return [VarInfo(name, typename, val_str, val_fmt)]
-
-
 def _is_exception_message_variable(
     strvalue: str, typename: str, exc_message: str | None
 ) -> bool:
@@ -258,12 +260,18 @@ def _extract_member_rows(
 
     typename = type(value).__name__
     return [
-        VarInfo(mname, f"{type(v).__name__} in {typename}", *prettyvalue(v))
+        {
+            "name": mname,
+            "typename": f"{type(v).__name__} in {typename}",
+            "value": val,
+            "format_hint": fmt,
+        }
         for n, v in members
         if (not sourcecode or (mname := f"{name}.{n}") in identifiers)
         and not isinstance(v, blacklist_types)
         and (member_str := _safe_str(v)) is not None
         and not no_str_conv.fullmatch(member_str)
+        for val, fmt in [prettyvalue(v)]
     ]
 
 

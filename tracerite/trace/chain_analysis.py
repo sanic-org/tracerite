@@ -2,28 +2,31 @@
 
 This module provides the pure try-except utilities used by the pipeline in
 ``tracerite.trace``.  The chronological-order construction itself lives in
-``trace.py`` so the whole pipeline is visible in one place.
+``order.py`` so the whole pipeline is visible in one place.
 """
 
 from __future__ import annotations
 
 import ast
 import linecache
+from typing import TYPE_CHECKING
 
 from tracerite.logging import logger
 
-from .core import ChainLink, TryExceptBlock
+from .core import (
+    block_contains_in_except,
+    block_contains_in_try,
+    block_offset_by,
+)
+
+if TYPE_CHECKING:
+    from .typing import TryExceptBlock
 
 __all__ = [
-    "TryExceptBlock",
-    "ChainLink",
     "parse_source_for_try_except",
     "parse_source_string_for_try_except",
     "find_try_block_for_except_line",
     "find_matching_try_for_inner_exception",
-    "analyze_exception_chain_links",
-    "enrich_chain_with_links",
-    "build_chronological_frames",
 ]
 
 
@@ -50,14 +53,14 @@ class TryExceptVisitor(ast.NodeVisitor):
             finally_end = self._get_last_line(node.finalbody)
 
         if except_start is not None:
-            block = TryExceptBlock(
-                try_start=node.lineno,
-                try_end=try_body_end,
-                except_start=except_start,
-                except_end=except_end,
-                finally_start=finally_start,
-                finally_end=finally_end,
-            )
+            block: TryExceptBlock = {
+                "try_start": node.lineno,
+                "try_end": try_body_end,
+                "except_start": except_start,
+                "except_end": except_end,
+                "finally_start": finally_start,
+                "finally_end": finally_end,
+            }
             self.try_except_blocks.append(block)
 
         self.generic_visit(node)
@@ -88,15 +91,6 @@ def parse_source_for_try_except(
     Returns:
         List of TryExceptBlock objects found in the source
     """
-    return _parse_source_for_try_except(filename, function_name, _cache=_cache)
-
-
-def _parse_source_for_try_except(
-    filename: str,
-    function_name: str | None = None,
-    *,
-    _cache: dict | None = None,
-) -> list[TryExceptBlock]:
     key = ("file", filename, function_name)
     if _cache is not None and key in _cache:
         return _cache[key]
@@ -155,7 +149,7 @@ def parse_source_string_for_try_except(
             blocks = visitor.try_except_blocks
             if start_line != 1:
                 offset = start_line - 1
-                blocks = [block.offset_by(offset) for block in blocks]
+                blocks = [block_offset_by(block, offset) for block in blocks]
 
             result = blocks
     except (SyntaxError, ValueError) as e:
@@ -171,8 +165,10 @@ def find_try_block_for_except_line(
     blocks: list[TryExceptBlock], except_lineno: int
 ) -> TryExceptBlock | None:
     """Find the try-except block that contains the given line in its except handler."""
-    matching_blocks = [b for b in blocks if b.contains_in_except(except_lineno)]
-    return max(matching_blocks, key=lambda b: b.try_start) if matching_blocks else None
+    matching_blocks = [b for b in blocks if block_contains_in_except(b, except_lineno)]
+    return (
+        max(matching_blocks, key=lambda b: b["try_start"]) if matching_blocks else None
+    )
 
 
 def find_matching_try_for_inner_exception(
@@ -180,70 +176,8 @@ def find_matching_try_for_inner_exception(
 ) -> TryExceptBlock | None:
     """Find the try block that links an inner and outer exception."""
     for block in blocks:
-        if block.contains_in_except(outer_except_lineno) and block.contains_in_try(
-            inner_first_lineno
-        ):
+        if block_contains_in_except(
+            block, outer_except_lineno
+        ) and block_contains_in_try(block, inner_first_lineno):
             return block
     return None
-
-
-# The chronological-order builders live in tracerite.trace.order. The names
-# below are kept here so existing imports from ``tracerite.chain_analysis``
-# continue to work.
-
-
-def analyze_exception_chain_links(chain: list[dict]) -> list:
-    """Analyze an exception chain to find try-except relationships."""
-    from .order import analyze_exception_chain_links
-
-    return analyze_exception_chain_links(chain)
-
-
-def enrich_chain_with_links(chain: list[dict]) -> list[dict]:
-    """Enrich exception chain with try-except link information."""
-    from .order import enrich_chain_with_links
-
-    return enrich_chain_with_links(chain)
-
-
-def build_chronological_frames(chain: list[dict]) -> list[dict]:
-    """Build a chronological list of frames showing the actual sequence of events."""
-    from .order import build_chronological_frames
-
-    return build_chronological_frames(chain)
-
-
-# Helpers that moved to tracerite.trace.order together with the pipeline code.
-# They are re-exported here for backward compatibility with existing tests.
-
-
-def get_frame_lineno(frame: dict):
-    from .order import get_frame_lineno
-
-    return get_frame_lineno(frame)
-
-
-def frame_in_except_handler(frame: dict) -> bool:
-    from .order import frame_in_except_handler
-
-    return frame_in_except_handler(frame)
-
-
-def find_chain_link(inner_exc: dict, outer_exc: dict):
-    from .order import find_chain_link
-
-    return find_chain_link(inner_exc, outer_exc)
-
-
-def filter_hidden_frames(chronological: list[dict]) -> list[dict]:
-    from .order import filter_hidden_frames
-
-    return filter_hidden_frames(chronological)
-
-
-def apply_base_exception_suppression(
-    chronological: list[dict], chain: list[dict]
-) -> list[dict]:
-    from .order import apply_base_exception_suppression
-
-    return apply_base_exception_suppression(chronological, chain)
