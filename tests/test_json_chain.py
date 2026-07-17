@@ -77,7 +77,7 @@ def _run_concurrent():
 """
 
 
-def _extract_from(scenario_func) -> list[dict]:
+def _extract_from(scenario_func):
     """Run a scenario, catch its exception, and return extract_chain output."""
     try:
         scenario_func()
