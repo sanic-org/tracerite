@@ -10,7 +10,7 @@ from .collect import collect_exception_chain
 from .core import libdir_match
 
 if TYPE_CHECKING:
-    from .typing import Chain, ExceptionInfo, ExtractChainResult, FrameInfo
+    from .typing import Chain, ExcChain, FrameInfo
 from .digest import (
     digest_exception_chain,
     is_exception_group,
@@ -22,16 +22,6 @@ from .order import (
 )
 
 
-def exception_info(exc: ExceptionInfo) -> ExceptionInfo:
-    """Return a JSON-compatible exception-info dict."""
-    return {
-        "type": exc.get("type"),
-        "message": exc.get("message"),
-        "summary": exc.get("summary"),
-        "from": exc.get("from"),
-    }
-
-
 def function_display(function: str | None, function_suffix: str) -> str | None:
     """Return the display string for a function name with an optional suffix."""
     if function:
@@ -40,16 +30,13 @@ def function_display(function: str | None, function_suffix: str) -> str | None:
 
 
 def normalize_variable(var_info: Any) -> tuple[str, str, Any, str]:
-    """Normalize a VarInfo dict or old tuple into (name, typename, value, fmt)."""
-    if isinstance(var_info, dict):
-        return (
-            var_info["name"],
-            var_info["typename"],
-            var_info["value"],
-            var_info["format_hint"],
-        )
-    name, typename, value = var_info
-    return name, typename, value, "inline"
+    """Unpack a VarInfo dict into (name, typename, value, fmt)."""
+    return (
+        var_info["name"],
+        var_info["typename"],
+        var_info["value"],
+        var_info["format_hint"],
+    )
 
 
 def call_run_ranges(
@@ -75,7 +62,7 @@ def call_run_ranges(
     return ranges
 
 
-def collect_leaf_exception_types(subexceptions: list[Chain]) -> list[str]:
+def collect_leaf_exception_types(subexceptions: list[ExcChain]) -> list[str]:
     """Recursively collect leaf exception type names from subexception chains."""
     return [
         leaf
@@ -90,47 +77,40 @@ def collect_leaf_exception_types(subexceptions: list[Chain]) -> list[str]:
     ]
 
 
-def attach_leaf_types(exc_chain: Chain, chrono_frames: list[FrameInfo]) -> None:
-    """Attach ExceptionGroup leaf types to the final exception banner in frames."""
-    if not exc_chain:
+def attach_leaf_types(excchn: ExcChain) -> None:
+    """Attach ExceptionGroup leaf types to the final exception in the chain."""
+    if not excchn:
         return
-    subexceptions = exc_chain[-1].get("subexceptions")
+    subexceptions = excchn[-1].get("subexceptions")
     if not subexceptions:
         return
     leaf_types = collect_leaf_exception_types(subexceptions)
     if not leaf_types:
         return
-    for frame in reversed(chrono_frames):
-        if frame.get("exception"):
-            frame["exception"]["leaf_types"] = leaf_types
-            break
+    excchn[-1]["leaf_types"] = leaf_types
 
 
-def build_chain_header(frames: list[FrameInfo]) -> str:
-    """Build a header message from a chronological frame list."""
-    if not frames:
+def build_chain_header(excchn: ExcChain) -> str:
+    """Build a header message from an exception chain, oldest first."""
+    if not excchn:
         return ""
 
-    main_chain = [f["exception"] for f in frames if f.get("exception")]
-    if not main_chain:
-        return ""
-
-    last_exc = main_chain[-1]
+    last_exc = excchn[-1]
     leaf_types = last_exc.get("leaf_types", [])
     if leaf_types:
         exc_type = " | ".join(leaf_types)
-        if len(main_chain) == 1:
+        if len(excchn) == 1:
             return f"⚠️  {exc_type}"
     else:
         exc_type = last_exc.get("type", "Exception")
 
-    if len(main_chain) == 1:
+    if len(excchn) == 1:
         return f"⚠️  Uncaught {exc_type}"
 
     parts = [f"⚠️  {exc_type}"]
-    for i in range(len(main_chain) - 2, -1, -1):
-        exc = main_chain[i]
-        next_exc = main_chain[i + 1]
+    for i in range(len(excchn) - 2, -1, -1):
+        exc = excchn[i]
+        next_exc = excchn[i + 1]
         from_type = next_exc.get("from", "none")
         joiner = "from" if from_type == "cause" else "while handling"
         parts.append(f"{joiner} {exc.get('type', 'Exception')}")
@@ -143,7 +123,7 @@ def build_chain_header(frames: list[FrameInfo]) -> str:
 # =============================================================================
 
 
-def extract_chain(exc=None, **kwargs) -> ExtractChainResult:
+def extract_chain(exc=None, **kwargs) -> Chain:
     """Extract chronological traceback data for the current exception.
 
     Returns a dict with ``header`` (the combined exception summary) and
@@ -152,25 +132,25 @@ def extract_chain(exc=None, **kwargs) -> ExtractChainResult:
     """
     exc = exc or sys.exc_info()[1]
     source_cache: dict = {}
-    chain = collect_exception_chain(exc, **kwargs)
-    chain = digest_exception_chain(chain, cache=source_cache)
-    set_chain_relevances(chain)
-    chronological = build_chronological_frames(chain, cache=source_cache)
-    chronological = finalize_chronological(chronological, chain)
+    excchn = collect_exception_chain(exc, **kwargs)
+    excchn = digest_exception_chain(excchn, cache=source_cache)
+    set_chain_relevances(excchn)
+    frames = build_chronological_frames(excchn, cache=source_cache)
+    frames = finalize_chronological(frames, excchn)
     return {
-        "header": build_chain_header(chronological),
-        "frames": chronological,
+        "header": build_chain_header(excchn),
+        "frames": frames,
     }
 
 
-def extract_chain_exceptions(exc=None, **kwargs) -> Chain:
+def extract_chain_exceptions(exc=None, **kwargs) -> ExcChain:
     """Extract raw exception info dicts, oldest first (internal)."""
     chain = digest_exception_chain(collect_exception_chain(exc, **kwargs))
     set_chain_relevances(chain)
     return chain
 
 
-def set_chain_relevances(chain: Chain) -> None:
+def set_chain_relevances(chain: ExcChain) -> None:
     """Set error/stop/warning relevances on each exception's raw frames."""
     for exc in chain:
         e = exc.pop("_exc")
@@ -180,12 +160,12 @@ def set_chain_relevances(chain: Chain) -> None:
 
 
 def finalize_chronological(
-    chronological: list[FrameInfo], chain: Chain
+    chronological: list[FrameInfo], chain: ExcChain
 ) -> list[FrameInfo]:
     """Apply all final-stage passes to the chronological frame list."""
     chronological = filter_hidden_frames(chronological)
     chronological = apply_base_exception_suppression(chronological, chain)
-    attach_leaf_types(chain, chronological)
+    attach_leaf_types(chain)
     fill_chronological_variables(chronological)
     _clear_internal_frame_keys(chronological)
     return chronological

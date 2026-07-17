@@ -14,8 +14,9 @@ from .helpers import extract_exception
 
 
 def _chrono(exc_info):
-    frames = build_chronological_frames([exc_info])
-    return {"header": build_chain_header(frames), "frames": frames}
+    chain = [exc_info]
+    frames = build_chronological_frames(chain)
+    return {"header": build_chain_header(chain), "frames": frames}
 
 
 class TestHtmlCornercases:
@@ -121,17 +122,16 @@ class TestHtmlCornercases:
             assert "more calls" in ellipsis.get_text()
 
     def test_exception_with_no_frames(self):
-        """Test HTML rendering when exception has no frames."""
+        """Test that exc is ignored when chain has no frames."""
         # Create an exception with no traceback
         exc = ValueError("no frames")
-        exc_info = extract_exception(exc)
-        exc_info["frames"] = []  # Clear frames
 
-        html = html_traceback(exc=exc, chain=_chrono(exc_info))
+        html = html_traceback(exc=exc, chain={"header": "", "frames": []})
         html_str = str(html)
 
-        # Should handle exceptions with no frames
-        assert "ValueError" in html_str
+        # Should not render the exception when chain is empty
+        assert "ValueError" not in html_str
+        assert "tracerite" in html_str
 
     def test_exception_message_not_starting_with_summary(self):
         """Test exception where message != summary but doesn't start with summary.
@@ -288,7 +288,14 @@ class TestHtmlCornercases:
                     ],  # None in first element indicates row skip
                     ["4", "5", None, "6"],
                 ]
-                frame["variables"] = [("matrix", "list", matrix_with_skips)]
+                frame["variables"] = [
+                    {
+                        "name": "matrix",
+                        "typename": "list",
+                        "value": matrix_with_skips,
+                        "format_hint": "inline",
+                    }
+                ]
 
             html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)

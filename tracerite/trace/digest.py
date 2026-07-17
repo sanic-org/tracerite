@@ -26,7 +26,7 @@ from .core import (
 )
 
 if TYPE_CHECKING:
-    from .typing import Chain, ExceptionInfo, FrameInfo, RawChain
+    from .typing import ExcChain, ExceptionInfo, FrameInfo, RawChain
 from .fragments import (
     build_frame_ranges,
     count_bracket_depth,
@@ -42,7 +42,7 @@ def digest_exception_chain(
     raw_chain: RawChain,
     *,
     cache: dict | None = None,
-) -> Chain:
+) -> ExcChain:
     """Convert the raw chain into digested exception info dicts."""
     return [
         digest_exception(item["exc"], cache=cache, **item["kwargs"])
@@ -144,7 +144,7 @@ def extract_subexceptions(
     skip_outmost=0,
     skip_until=None,
     cache: dict | None = None,
-) -> list[Chain] | None:
+) -> list[ExcChain] | None:
     """Return parallel raw exception chains for an ExceptionGroup, or None."""
     if not is_exception_group(e):
         return None
@@ -173,7 +173,7 @@ def extract_subexception_chain(
     skip_outmost=0,
     skip_until=None,
     cache: dict | None = None,
-) -> Chain:
+) -> ExcChain:
     """Extract the raw exception chain for one ExceptionGroup subexception."""
     chain = collect_exception_objects(exc)
     kwargs = {"skip_outmost": skip_outmost, "skip_until": skip_until}

@@ -20,7 +20,7 @@ from .core import (
 )
 
 if TYPE_CHECKING:
-    from .typing import Chain, ChainLink, ExceptionInfo, FrameInfo, TryExceptBlock
+    from .typing import ChainLink, ExcChain, ExceptionInfo, FrameInfo, TryExceptBlock
 
 __all__ = [
     "parse_source_for_try_except",
@@ -200,21 +200,21 @@ def find_matching_try_for_inner_exception(
 # continue to work.
 
 
-def analyze_exception_chain_links(chain: Chain) -> list[ChainLink | None]:
+def analyze_exception_chain_links(chain: ExcChain) -> list[ChainLink | None]:
     """Analyze an exception chain to find try-except relationships."""
     from .order import analyze_exception_chain_links
 
     return analyze_exception_chain_links(chain)
 
 
-def enrich_chain_with_links(chain: Chain) -> Chain:
+def enrich_chain_with_links(chain: ExcChain) -> ExcChain:
     """Enrich exception chain with try-except link information."""
     from .order import enrich_chain_with_links
 
     return enrich_chain_with_links(chain)
 
 
-def build_chronological_frames(chain: Chain) -> list[FrameInfo]:
+def build_chronological_frames(chain: ExcChain) -> list[FrameInfo]:
     """Build a chronological list of frames showing the actual sequence of events."""
     from .order import build_chronological_frames
 
@@ -252,7 +252,7 @@ def filter_hidden_frames(chronological: list[FrameInfo]) -> list[FrameInfo]:
 
 
 def apply_base_exception_suppression(
-    chronological: list[FrameInfo], chain: Chain
+    chronological: list[FrameInfo], chain: ExcChain
 ) -> list[FrameInfo]:
     from .order import apply_base_exception_suppression
 

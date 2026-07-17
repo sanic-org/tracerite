@@ -87,8 +87,11 @@ class TestTtyTraceback:
         tty_traceback(exc=exc, msg="log message", file=output)
 
         result = output.getvalue()
-        assert "ValueError" in result
-        assert "frameless error" in result
+        # The supplied log message replaces the chain header; the exception
+        # itself is not rendered as a fallback.
+        assert "log message" in result
+        assert "ValueError" not in result
+        assert "frameless error" not in result
         # Non-TTY output has ANSI stripped; compare the plain glyphs.
         assert ANSI_ESCAPE_RE.sub("", LINE_PREFIX_BOT) in result
         # Banner continuation lines should not keep the vertical border.
@@ -102,7 +105,6 @@ class TestTtyTraceback:
 
         result = output.getvalue()
         assert "ValueError" in result
-        assert "frameless error" in result
         assert result.startswith(ANSI_ESCAPE_RE.sub("", LINE_PREFIX_TOP))
 
     def test_output_contains_frame_location(self):
@@ -1916,21 +1918,6 @@ class TestExcepthookFallback:
 class TestVariableInspectorEdgeCases:
     """Additional tests for variable inspector edge cases."""
 
-    def test_tuple_format_variables(self):
-        """Test inspector with old tuple format (name, typename, value)."""
-        # Old tuple format without VarInfo namedtuple
-        variables = [
-            ("x", "int", "42"),
-            ("y", None, "100"),
-        ]
-        result, min_width = _build_variable_inspector(variables, term_width=80)
-
-        assert len(result) == 2
-        # First var has typename
-        assert "42" in result[0][0]
-        # Second var has no typename
-        assert "100" in result[1][0]
-
     def test_array_with_empty_rows(self):
         """Test inspector with array that has empty rows."""
 
@@ -2189,7 +2176,7 @@ class TestTtyTracebackEdgeCases:
         assert "╭" in result or "│" in result or "╰" in result
 
     def test_chain_without_frames(self):
-        """Test exception chain where exceptions have no frames."""
+        """Test that exc is ignored when chain has no frames."""
 
         class TestError(Exception):
             pass
@@ -2200,8 +2187,8 @@ class TestTtyTracebackEdgeCases:
         except TestError as e:
             tty_traceback(chain={"header": "", "frames": []}, exc=e, file=output)
         result = output.getvalue()
-        assert "TestError" in result
-        assert "test message" in result
+        assert "TestError" not in result
+        assert "test message" not in result
 
     def test_inspector_arrow_first_and_last(self):
         """Test inspector with single variable (arrow is first and last)."""
@@ -3407,16 +3394,12 @@ class TestWrapText:
 class TestTTYCoverage:
     """Edge-case tests that previously lacked coverage."""
 
-    def test_banner_at_start_no_prefix_to_replace(self):
-        """A banner right after the top corner has no preceding border."""
+    def test_no_traceback_exc_only_renders_header(self):
+        """A frameless exception renders its header when no chain is provided."""
         output = io.StringIO()
-        tty_traceback(
-            chain={"header": "", "frames": []},
-            exc=ValueError("x"),
-            file=output,
-            msg="",
-        )
-        assert "ValueError" in output.getvalue()
+        tty_traceback(exc=ValueError("x"), file=output)
+        result = output.getvalue()
+        assert "ValueError" in result
 
     def test_wrap_code_line_plain_fits(self):
         assert _wrap_code_line("hello", 10) == ["hello"]

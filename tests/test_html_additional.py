@@ -11,8 +11,9 @@ from .helpers import extract_exception
 
 
 def _chrono(exc_info):
-    frames = build_chronological_frames([exc_info])
-    return {"header": build_chain_header(frames), "frames": frames}
+    chain = [exc_info]
+    frames = build_chronological_frames(chain)
+    return {"header": build_chain_header(chain), "frames": frames}
 
 
 class TestHtmlAdditional:
@@ -117,24 +118,6 @@ class TestHtmlAdditional:
             raise ValueError("test")
         except ValueError as e:
             html = html_traceback(exc=e)
-            html_str = str(html)
-
-            assert "ValueError" in html_str
-
-    def test_variable_old_tuple_format(self):
-        """Test variable with old tuple format (backwards compatibility)."""
-        try:
-            raise ValueError("test")
-        except ValueError as e:
-            exc_info = extract_exception(e)
-
-            # Replace variables with old tuple format
-            if exc_info["frames"]:
-                exc_info["frames"][-1]["variables"] = [
-                    ("x", "int", "42"),  # Old 3-tuple format
-                ]
-
-            html = html_traceback(chain=_chrono(exc_info))
             html_str = str(html)
 
             assert "ValueError" in html_str
@@ -383,17 +366,24 @@ foo()
         assert html_str is not None
 
     def test_chain_without_frames(self):
-        """Test exception in chain without frames."""
+        """Test that exc is ignored when chain has no frames."""
         try:
             raise ValueError("test")
         except ValueError as e:
-            exc_info = extract_exception(e)
-            exc_info["frames"] = []
-
-            html = html_traceback(chain=_chrono(exc_info), exc=e)
+            html = html_traceback(chain={"header": "", "frames": []}, exc=e)
             html_str = str(html)
 
-            assert "ValueError" in html_str
+            assert "ValueError" not in html_str
+            assert "tracerite" in html_str
+
+    def test_exception_without_traceback(self):
+        """Test rendering a frameless exception passed as exc."""
+        html = html_traceback(exc=ValueError("no traceback"))
+        html_str = str(html)
+
+        assert "ValueError" in html_str
+        assert "no traceback" in html_str
+        assert "tracerite" in html_str
 
 
 class TestHtmlCodeFragments:

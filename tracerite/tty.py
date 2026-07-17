@@ -11,12 +11,10 @@ from typing import TYPE_CHECKING, Any, TextIO
 from .trace.core import EMPHASIS_BEG, EMPHASIS_FIN, chainmsg, symbols, symdesc
 
 if TYPE_CHECKING:
-    from .trace.typing import ExceptionInfo, ExtractChainResult, Fragment, FrameInfo
+    from .trace.typing import Chain, ExceptionInfo, Fragment, FrameInfo
 from .trace.finalize import (
     call_run_ranges,
-    exception_info,
     extract_chain,
-    extract_chain_exceptions,
     function_display,
     normalize_variable,
 )
@@ -117,7 +115,7 @@ _LINE_PREFIX_WIDTH = _display_width(LINE_PREFIX)
 
 def tty_traceback(
     exc: BaseException | None = None,
-    chain: ExtractChainResult | None = None,
+    chain: Chain | None = None,
     *,
     file: TextIO | None = None,
     msg: str | None = None,
@@ -146,7 +144,7 @@ def tty_traceback(
     frames = chain["frames"]
 
     # Build header message if not provided
-    if msg is None and frames:
+    if msg is None:
         msg = chain["header"] or None
 
     if file is None:
@@ -185,35 +183,24 @@ def tty_traceback(
         if term_width < 40:
             term_width = 80
 
-    if not frames and exc is not None:
-        # Exception with no frames: build banners into chrono_output so
-        # last_banner_start stays relative to chrono_output, just like the
-        # normal path.
-        chrono_output = ""
-        last_banner_start = 0
-        for exc_dict in extract_chain_exceptions(exc):
-            last_banner_start = len(chrono_output)
-            chrono_output += _build_exception_banner(
-                exception_info(exc_dict), term_width
-            )
-    else:
-        chrono_output, last_banner_start = _print_chronological(
-            frames, term_width, no_inspector
-        )
+    chrono_output, last_banner_start = _print_chronological(
+        frames, term_width, no_inspector
+    )
     if last_banner_start is not None:
         last_banner_start += len(output)
     output += chrono_output
 
+    if not frames:
+        # No traceback: add a dim note where the exception banner would appear.
+        output += NO_SOURCE + "(no traceback)" + EOL
+
     # Strip trailing empty border.
-    eol_suffix = f"\n{LINE_PREFIX}"
-    if output.endswith(eol_suffix):
-        output = output[: -len(eol_suffix)]
+    output = output.removesuffix(f"\n{LINE_PREFIX}")
 
     # Curve the bottom border; for banners, continuation lines hang loose.
     if last_banner_start is not None:
         prefix_pos = last_banner_start - len(LINE_PREFIX)
-        if prefix_pos >= 0 and output[prefix_pos:last_banner_start] == LINE_PREFIX:
-            output = output[:prefix_pos] + LINE_PREFIX_BOT + output[last_banner_start:]
+        output = output[:prefix_pos] + LINE_PREFIX_BOT + output[last_banner_start:]
         first_line_end = output.find("\n", last_banner_start)
         if first_line_end != -1:
             output = output[:first_line_end] + output[first_line_end:].replace(

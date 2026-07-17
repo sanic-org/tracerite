@@ -16,12 +16,10 @@ from .trace.core import (
 )
 
 if TYPE_CHECKING:
-    from .trace.typing import ExceptionInfo, ExtractChainResult, Fragment, FrameInfo
+    from .trace.typing import Chain, ExceptionInfo, Fragment, FrameInfo
 from .trace.finalize import (
     call_run_ranges,
-    exception_info,
     extract_chain,
-    extract_chain_exceptions,
     function_display,
     normalize_variable,
 )
@@ -64,7 +62,7 @@ def html_page(
     header: Any | None = None,
     footer: Any | None = None,
     msg: str | None | EllipsisType = ...,
-    chain: ExtractChainResult | None = None,
+    chain: Chain | None = None,
     autodark: bool = True,
     local_urls: bool = False,
     **extract_args: Any,
@@ -121,7 +119,7 @@ def _collapse_call_runs(frames: list[FrameInfo], min_run_length: int = 10) -> li
 
 def html_traceback(
     exc: BaseException | None = None,
-    chain: ExtractChainResult | None = None,
+    chain: Chain | None = None,
     *,
     msg: str | None | EllipsisType = ...,
     include_js_css: bool = True,
@@ -154,9 +152,8 @@ def html_traceback(
 
         if frames:
             _chronological_output(doc, frames, local_urls=local_urls)
-        elif exc is not None:
-            for exc_dict in extract_chain_exceptions(exc):
-                _exception_banner(doc, exception_info(exc_dict))
+        else:
+            doc.p("(no traceback)", class_="no-source")
 
         if include_js_css:
             doc._script(javascript)

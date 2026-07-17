@@ -10,11 +10,11 @@ from .chain_analysis import (
 from .core import PROMOTABLE_RELEVANCES, block_contains_in_except
 
 if TYPE_CHECKING:
-    from .typing import Chain, ChainLink, ExceptionInfo, FrameInfo, TryExceptBlock
+    from .typing import ChainLink, ExcChain, ExceptionInfo, FrameInfo, TryExceptBlock
 
 
 def analyze_exception_chain_links(
-    chain: Chain,
+    chain: ExcChain,
     *,
     cache: dict | None = None,
 ) -> list[ChainLink | None]:
@@ -126,10 +126,10 @@ def find_chain_link(
 
 
 def enrich_chain_with_links(
-    chain: Chain,
+    chain: ExcChain,
     *,
     cache: dict | None = None,
-) -> Chain:
+) -> ExcChain:
     """Enrich exception chain with try-except link information."""
     links = analyze_exception_chain_links(chain, cache=cache)
 
@@ -149,7 +149,7 @@ def enrich_chain_with_links(
 
 
 def build_chronological_frames(
-    chain: Chain,
+    chain: ExcChain,
     *,
     cache: dict | None = None,
 ) -> list[FrameInfo]:
@@ -211,7 +211,7 @@ def filter_hidden_frames(chronological: list[FrameInfo]) -> list[FrameInfo]:
 
 
 def apply_base_exception_suppression(
-    chronological: list[FrameInfo], chain: Chain
+    chronological: list[FrameInfo], chain: ExcChain
 ) -> list[FrameInfo]:
     """Suppress library frames after the last user code frame."""
     if not chronological or not chain:
@@ -283,7 +283,7 @@ def build_backbone_frames(
     exc_idx: int,
     frames: list[FrameInfo],
     links: list,
-    chain: Chain,
+    chain: ExcChain,
     *,
     cache: dict | None = None,
 ) -> None:
@@ -317,7 +317,7 @@ def build_linked_backbone(
     inner_exc_idx: int,
     inner_link: ChainLink,
     links: list,
-    chain: Chain,
+    chain: ExcChain,
     *,
     cache: dict | None = None,
 ) -> None:
@@ -355,7 +355,7 @@ def build_unlinked_backbone(
     exc_idx: int,
     frames: list[FrameInfo],
     links: list,
-    chain: Chain,
+    chain: ExcChain,
     *,
     cache: dict | None = None,
 ) -> None:

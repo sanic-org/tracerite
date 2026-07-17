@@ -9,10 +9,7 @@ import textwrap
 import pytest
 
 from tracerite import extract_chain
-from tracerite.trace.finalize import (
-    build_chain_header,
-    extract_chain_exceptions,
-)
+from tracerite.trace.finalize import extract_chain_exceptions
 
 from .errorcases import (
     binomial_operator,
@@ -1044,19 +1041,18 @@ class TestLibdirPattern:
         assert not libdir.fullmatch("/tmp/ipykernel_12345/1234567890.py")
 
 
-def test_build_chain_header_single_exception():
-    """Test build_chain_header with a single exception."""
+def test_extract_chain_header_single_exception():
+    """Test the extract_chain header with a single exception."""
     try:
         raise ValueError("test")
     except ValueError as e:
         chain = extract_chain(e)
 
-    header = build_chain_header(chain["frames"])
-    assert "Uncaught ValueError" in header
+    assert "Uncaught ValueError" in chain["header"]
 
 
-def test_build_chain_header_multiple_exceptions():
-    """Test build_chain_header with multiple exceptions."""
+def test_extract_chain_header_multiple_exceptions():
+    """Test the extract_chain header with multiple exceptions."""
     try:
         raise ValueError("inner")
     except ValueError:
@@ -1065,8 +1061,16 @@ def test_build_chain_header_multiple_exceptions():
         except RuntimeError as e:
             chain = extract_chain(e)
 
-    header = build_chain_header(chain["frames"])
+    header = chain["header"]
     assert "RuntimeError" in header  # Should use the last exception
+
+
+def test_extract_chain_frameless_exception():
+    """Test extract_chain for an exception that has never been raised."""
+    exc = ValueError("frameless")
+    chain = extract_chain(exc)
+    assert chain["frames"] == []
+    assert "ValueError" in chain["header"]
 
 
 def test_comprehension_error():
@@ -1113,10 +1117,19 @@ def test_find_except_start_invalid_file():
     assert result is None  # Should return None on exception
 
 
-def test_build_chain_header_empty_chain():
-    """Test build_chain_header with an empty chain returns empty string."""
-    header = build_chain_header([])
-    assert header == ""
+def test_extract_chain_no_active_exception():
+    """Test extract_chain with no active exception returns an empty result."""
+    chain = extract_chain()
+    assert chain["header"] == ""
+    assert chain["frames"] == []
+
+
+def test_trace_typing_module():
+    """Test the trace type-alias module is importable at runtime."""
+    from tracerite.trace import typing
+
+    assert typing.ExcChain == list[typing.ExceptionInfo]
+    assert typing.FrameInfo is not None
 
 
 def test_extract_source_lines_with_trailing_blank_lines():
