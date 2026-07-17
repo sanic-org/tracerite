@@ -100,9 +100,8 @@ It also installs TTY formatting for console output by default. Pass `patch_fasta
 ## `extract_chain`
 
 Extracts traceback information without rendering. Returns a chronological list of
-frame dicts (oldest call first, final error last), each containing source
-fragments, location, relevance, and local variables for the inspector on the
-chronologically final occurrence of each frame.
+frame dicts (oldest call first, final error last). This is the machine-readable
+format used by `html_traceback`, `html_page`, and `tty_traceback`.
 
 ```python
 from tracerite import extract_chain
@@ -115,6 +114,43 @@ except Exception:
         if frame.get("exception"):
             print(frame["exception"]["type"], frame["exception"]["message"])
 ```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `exc` | `Exception` | `None` | Exception to extract. If `None`, uses the current exception from `sys.exc_info()`. |
+| `skip_outmost` | `int` | `0` | Number of outermost frames to skip. |
+| `skip_until` | `str` | `None` | Skip frames until one matches this substring (e.g., `"<ipython-input-"`). |
+
+### Return format
+
+`extract_chain` returns a `list[dict]`. Each dict represents one chronological
+frame and usually contains:
+
+- `id` — unique trace ID.
+- `relevance` — `"call"`, `"error"`, `"stop"`, `"warning"`, or `"except"`.
+- `filename` / `original_filename` / `location` — source location.
+- `lineno` / `linenostart` / `lines` / `fragments` — source code context.
+- `range` — a dict `{"lfirst": ..., "lfinal": ..., "cbeg": ..., "cend": ...}`
+  marking the emphasis region within the `lines` window, or `None`.
+- `function` / `function_suffix` — function name, with `"⚡except"` for promoted frames.
+- `urls` — source links.
+- `variables` — list of dicts `{"name": ..., "typename": ..., "value": ..., "format_hint": ...}`,
+  populated only on the final occurrence of each unique frame (`idframe`).
+- `exception` — exception banner dict on the final frame of each exception:
+  ```python
+  {
+      "type": "ValueError",
+      "message": "something went wrong",
+      "summary": "something went wrong",
+      "from": "cause",          # or "context" / "none"
+      "exc_idx": 0,             # index in the raw exception chain
+      "leaf_types": ["KeyError"],  # only for ExceptionGroups
+  }
+  ```
+- `parallel` — for `ExceptionGroup` / `BaseExceptionGroup` (Python 3.11+), a list of
+  parallel branches, each a list of frame dicts.
 
 ## TTY / Terminal Output
 
@@ -202,12 +238,12 @@ from tracerite import extract_variables
 x, y = 10, 20
 variables = extract_variables(locals(), "x + y")
 for var in variables:
-    print(f"{var.name}: {var.value}")
+    print(f"{var['name']}: {var['value']}")
 # x: 10
 # y: 20
 ```
 
-Returns a list of `VarInfo` namedtuples with fields:
+Returns a list of dicts with keys:
 - `name` — Variable name (may include `.member` for object attributes)
 - `typename` — Type with array shape/dtype info when applicable
 - `value` — Formatted string or structured data for rendering

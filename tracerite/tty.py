@@ -816,7 +816,7 @@ def _build_chrono_frame_lines(
             code_colored = "".join(_format_fragment(f) for f in line_fragments)
             code_part = f"{CODE_INDENT}{code_colored}"
 
-            if frame_range and abs_line == frame_range.lfinal and symbol:
+            if frame_range and abs_line == frame_range["lfinal"] and symbol:
                 if (
                     _display_width(code_part) + 1 + _display_width(symbol_suffix)
                     <= content_width

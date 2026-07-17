@@ -15,7 +15,7 @@ class TestExtractVariables:
         rows = extract_variables(variables, sourcecode)
 
         # Should extract x and pi (used in source), but not name
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         assert "x" in names
         assert "pi" in names
         assert "name" not in names
@@ -31,7 +31,7 @@ class TestExtractVariables:
         sourcecode = "x + _"
         rows = extract_variables(variables, sourcecode)
 
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         assert "_" not in names
         assert "In" not in names
         assert "Out" not in names
@@ -52,7 +52,7 @@ class TestExtractVariables:
         sourcecode = "x + func()"
         rows = extract_variables(variables, sourcecode)
 
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         assert "x" in names
         assert "func" not in names
         assert "module" not in names
@@ -69,7 +69,7 @@ class TestExtractVariables:
         sourcecode = "short_list + long_list + list(tuple_data) + empty_list"
         rows = extract_variables(variables, sourcecode)
 
-        row_dict = {row[0]: row[2] for row in rows}
+        row_dict = {row["name"]: row["value"] for row in rows}
 
         # Short list should have elements listed
         assert "1, 2, 3" in row_dict["short_list"]
@@ -90,7 +90,7 @@ class TestExtractVariables:
         rows = extract_variables(variables, sourcecode)
 
         # Types are now blacklisted, so cls should not be in output
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         assert "cls" not in names
         assert "x" in names
 
@@ -107,7 +107,7 @@ class TestExtractVariables:
         sourcecode = "obj.value + obj.name + x"
         rows = extract_variables(variables, sourcecode)
 
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         # Should extract obj.value and obj.name since they're in sourcecode
         assert "obj.value" in names
         assert "obj.name" in names
@@ -123,7 +123,7 @@ class TestExtractVariables:
         sourcecode = "empty_str + normal_str + quoted_str"
         rows = extract_variables(variables, sourcecode)
 
-        row_dict = {row[0]: row[2] for row in rows}
+        row_dict = {row["name"]: row["value"] for row in rows}
         # Empty string behavior may vary
         assert "empty_str" in row_dict
         assert "hello" in row_dict["normal_str"]
@@ -134,7 +134,7 @@ class TestExtractVariables:
         sourcecode = "len(long_str)"
         rows = extract_variables(variables, sourcecode)
 
-        row_dict = {row[0]: row[2] for row in rows}
+        row_dict = {row["name"]: row["value"] for row in rows}
         # Long string should be truncated
         assert "…" in row_dict["long_str"] or "..." in row_dict["long_str"]
         assert len(row_dict["long_str"]) <= 210  # Truncated with ellipsis marker
@@ -153,7 +153,7 @@ class TestExtractVariables:
         sourcecode = "str(broken) + str(x)"
         rows = extract_variables(variables, sourcecode)
 
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         # broken should be skipped, x should remain
         assert "broken" not in names
         assert "x" in names
@@ -164,13 +164,13 @@ class TestExtractVariables:
         sourcecode = "raise ValueError(msg)\ny = x"
 
         rows = extract_variables(variables, sourcecode)
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         assert "msg" in names  # Without exc_message it is included
 
         rows_filtered = extract_variables(
             variables, sourcecode, exc_message="something went wrong"
         )
-        names_filtered = {row[0] for row in rows_filtered}
+        names_filtered = {row["name"] for row in rows_filtered}
         assert "msg" not in names_filtered
         assert "x" in names_filtered
 
@@ -180,7 +180,7 @@ class TestExtractVariables:
         sourcecode = "raise ValueError(msg)\ny = x"
 
         rows = extract_variables(variables, sourcecode, exc_message="short")
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         assert "msg" in names
         assert "x" in names
 
@@ -190,7 +190,7 @@ class TestExtractVariables:
         sourcecode = "raise ValueError(code)\ny = x"
 
         rows = extract_variables(variables, sourcecode, exc_message="123456789012")
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         assert "code" in names
         assert "x" in names
 
@@ -326,7 +326,7 @@ class TestArrayLikeHandling:
         rows = extract_variables(variables, sourcecode)
 
         # The member with broken str() should be skipped
-        member_names = [row[0] for row in rows]
+        member_names = [row["name"] for row in rows]
         assert "obj.broken_member" not in member_names
 
 

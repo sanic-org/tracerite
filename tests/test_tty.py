@@ -2382,7 +2382,7 @@ class TestTtyTracebackEdgeCases:
             "cursor_line": 10,
             "notebook_cell": False,
             "relevance": "call",
-            "range": type("Range", (), {"lfirst": 10})(),
+            "range": {"lfirst": 10},
         }
 
         location_part, function_part = _get_frame_label(frinfo)
@@ -2444,7 +2444,7 @@ class TestCodeLineWidthAdaptation:
                 {"line": 1, "fragments": [{"code": "x = " + "a" * 80}]},
                 {"line": 2, "fragments": [{"code": "y = 1"}]},
             ],
-            "frame_range": type("Range", (), {"lfirst": 2, "lfinal": 2})(),
+            "frame_range": {"lfirst": 2, "lfinal": 2},
             "relevance": "error",
             "exc_info": None,
             "marked_lines": [],
@@ -2475,7 +2475,7 @@ class TestCodeLineWidthAdaptation:
                     "fragments": [{"code": "x = "}, {"code": code, "mark": "solo"}],
                 }
             ],
-            "frame_range": type("Range", (), {"lfirst": 1, "lfinal": 1})(),
+            "frame_range": {"lfirst": 1, "lfinal": 1},
             "relevance": "error",
             "exc_info": None,
             "marked_lines": [
@@ -2512,7 +2512,7 @@ class TestCodeLineWidthAdaptation:
                     "fragments": [{"code": "x = "}, {"code": code, "mark": "solo"}],
                 }
             ],
-            "frame_range": type("Range", (), {"lfirst": 1, "lfinal": 1})(),
+            "frame_range": {"lfirst": 1, "lfinal": 1},
             "relevance": "error",
             "exc_info": None,
             "marked_lines": [
@@ -2550,7 +2550,7 @@ class TestCodeLineWidthAdaptation:
                     "fragments": [{"code": "second = " + "b" * 40, "mark": "solo"}],
                 },
             ],
-            "frame_range": type("Range", (), {"lfirst": 2, "lfinal": 2})(),
+            "frame_range": {"lfirst": 2, "lfinal": 2},
             "relevance": "error",
             "exc_info": None,
             "marked_lines": [{"line": 1}, {"line": 2}],
@@ -2868,7 +2868,7 @@ class TestGetFrameLabelBranches:
             "cursor_line": 10,
             "notebook_cell": False,
             "relevance": "call",
-            "range": type("Range", (), {"lfirst": 10})(),
+            "range": {"lfirst": 10},
         }
 
         location_part, function_part = _get_frame_label(frinfo)
@@ -2891,7 +2891,7 @@ class TestNotebookCellDisplay:
             "function_suffix": "",
             "cursor_line": 10,
             "relevance": "call",
-            "range": type("Range", (), {"lfirst": 10})(),
+            "range": {"lfirst": 10},
             "notebook_cell": True,
         }
 
@@ -2912,7 +2912,7 @@ class TestNotebookCellDisplay:
             "function_suffix": "",
             "cursor_line": 10,
             "relevance": "call",
-            "range": type("Range", (), {"lfirst": 10})(),
+            "range": {"lfirst": 10},
             "notebook_cell": True,
         }
 
@@ -2936,7 +2936,7 @@ class TestFunctionSuffixDisplay:
             "cursor_line": 10,
             "notebook_cell": False,
             "relevance": "except",
-            "range": type("Range", (), {"lfirst": 10})(),
+            "range": {"lfirst": 10},
         }
 
         location_part, function_part = _get_frame_label(frinfo)
@@ -2959,7 +2959,7 @@ class TestSubexceptionSummaries:
                     "function": "func1",
                     "cursor_line": 10,
                     "notebook_cell": False,
-                    "range": type("Range", (), {"lfirst": 10})(),
+                    "range": {"lfirst": 10},
                     "exception": {"type": "ValueError", "summary": "value error"},
                 }
             ],
@@ -2970,7 +2970,7 @@ class TestSubexceptionSummaries:
                     "function": "func2",
                     "cursor_line": 20,
                     "notebook_cell": False,
-                    "range": type("Range", (), {"lfirst": 20})(),
+                    "range": {"lfirst": 20},
                     "exception": {"type": "TypeError", "summary": "type error"},
                 }
             ],
@@ -2994,7 +2994,7 @@ class TestSubexceptionSummaries:
                 "filename": "/path/file.py",
                 "location": "file.py",
                 "function": "func",
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
             }
         ]
         result = _get_branch_summary(branch, 80)
@@ -3009,7 +3009,7 @@ class TestSubexceptionSummaries:
                 "function": "func",
                 "cursor_line": 10,
                 "notebook_cell": False,
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
                 "exception": {"type": "ValueError", "summary": "test error message"},
             }
         ]
@@ -3028,7 +3028,7 @@ class TestSubexceptionSummaries:
                 "function": "func",
                 "cursor_line": 10,
                 "notebook_cell": False,
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
                 "exception": {"type": "ValueError", "summary": long_message},
             }
         ]
@@ -3049,7 +3049,7 @@ class TestSubexceptionSummaries:
                 "function": "outer",
                 "cursor_line": 10,
                 "notebook_cell": False,
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
                 "exception": {"type": "ExceptionGroup", "summary": "nested"},
                 "parallel": [
                     [
@@ -3088,7 +3088,7 @@ class TestSubexceptionSummaries:
                 "location": "Cell [5]",
                 "function": "func",
                 "cursor_line": 10,
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
                 "notebook_cell": True,
                 "exception": {"type": "ValueError", "summary": "test"},
             }
@@ -3107,7 +3107,7 @@ class TestSubexceptionSummaries:
                 "function": "test_func",
                 "cursor_line": 10,
                 "notebook_cell": False,
-                "range": type("Range", (), {"lfirst": 10})(),
+                "range": {"lfirst": 10},
                 "exception": {"type": "ValueError", "summary": "test"},
             }
         ]

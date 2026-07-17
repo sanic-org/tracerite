@@ -150,8 +150,8 @@ def test_em_columns_not_empty():
 
         # Check that we have position information in the Range format
         assert frame.get("range") is not None
-        assert frame["range"].cbeg is not None
-        assert frame["range"].cend is not None
+        assert frame["range"]["cbeg"] is not None
+        assert frame["range"]["cend"] is not None
 
         # Count emphasized fragments
         em_count = 0
@@ -1327,7 +1327,7 @@ def test_exc_message_variable_suppressed_in_raising_frame():
     except ValueError as e:
         chain = extract_chain(e)
         frame = chain[-1]
-        var_names = {v.name for v in frame["variables"]}
+        var_names = {v["name"] for v in frame["variables"]}
         assert "msg" not in var_names
 
 
@@ -1352,7 +1352,7 @@ def test_exc_message_variable_suppressed_across_same_function_frames():
     except RuntimeError as e:
         chain = extract_chain(e)
         msg_names = {
-            v.name for frame in chain for v in frame["variables"] if v.name == "msg"
+            v["name"] for frame in chain for v in frame["variables"] if v["name"] == "msg"
         }
         assert "msg" not in msg_names
 
@@ -1377,7 +1377,7 @@ def test_recursive_frames_keep_distinct_inspectors():
         recurse_frames = [fr for fr in chain if fr.get("function") == "recurse"]
         assert len(recurse_frames) == 4
         for fr in recurse_frames:
-            names = {v.name for v in fr["variables"]}
+            names = {v["name"] for v in fr["variables"]}
             assert "n" in names, (
                 f"recursive frame at line {fr.get('lineno')} lost its inspector"
             )
@@ -1411,7 +1411,7 @@ def test_exc_message_suppressed_at_module_level():
             # Both module frames point at the same frame object.
             assert module_frames[0]["idframe"] == module_frames[1]["idframe"]
             msg_names = {
-                v.name for fr in chain for v in fr["variables"] if v.name == "msg"
+                v["name"] for fr in chain for v in fr["variables"] if v["name"] == "msg"
             }
             assert "msg" not in msg_names
         finally:

@@ -126,7 +126,7 @@ class TestInspectorCornercases:
         rows = extract_variables(variables, sourcecode)
 
         # Only obj.used should be extracted
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         assert "obj.used" in names
         assert "obj.unused" not in names
 
@@ -151,7 +151,7 @@ class TestInspectorCornercases:
         sourcecode = "obj.x + obj.y"  # Both members in sourcecode
         rows = extract_variables(variables, sourcecode)
 
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
         # Members should be extracted
         assert "obj.x" in names
         assert "obj.y" in names
@@ -165,7 +165,7 @@ class TestInspectorCornercases:
         sourcecode = "scalar"
         rows = extract_variables(variables, sourcecode)
 
-        row_dict = {row[0]: (row[1], row[2]) for row in rows}
+        row_dict = {row["name"]: (row["typename"], row["value"]) for row in rows}
         # Should extract without shape info for scalars
         assert "scalar" in row_dict
 
@@ -190,7 +190,7 @@ class TestInspectorCornercases:
         sourcecode = "tensor"
         rows = extract_variables(variables, sourcecode)
 
-        row_dict = {row[0]: row[1] for row in rows}
+        row_dict = {row["name"]: row["typename"] for row in rows}
         # Should handle missing device gracefully
         assert "tensor" in row_dict
         typename = row_dict["tensor"]
@@ -218,7 +218,7 @@ class TestInspectorCornercases:
         rows = extract_variables({"obj": obj}, "obj.value + obj.method")
 
         # Should extract the object's non-blacklisted members
-        row_dict = {row[0]: (row[1], row[2]) for row in rows}
+        row_dict = {row["name"]: (row["typename"], row["value"]) for row in rows}
 
         # value member should be extracted
         assert "obj.value" in row_dict
@@ -327,7 +327,7 @@ class TestInspectorCornercases:
         sourcecode = "obj.value + obj.func"
 
         rows = extract_variables(variables, sourcecode)
-        names = {row[0] for row in rows}
+        names = {row["name"] for row in rows}
 
         # Due to the bug in line 45, obj.func will NOT be filtered out
         assert "obj.value" in names
@@ -362,7 +362,7 @@ class TestInspectorCornercases:
         sourcecode = "tensor"
 
         rows = extract_variables(variables, sourcecode)
-        row_dict = {row[0]: row[1] for row in rows}
+        row_dict = {row["name"]: row["typename"] for row in rows}
         assert "@meta" in row_dict["tensor"]
 
     def test_numpy_scalar_no_extra_dtype(self):

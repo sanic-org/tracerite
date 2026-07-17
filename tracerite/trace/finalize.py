@@ -37,13 +37,13 @@ def function_display(function: str | None, function_suffix: str) -> str | None:
 
 
 def normalize_variable(var_info: Any) -> tuple[str, str, Any, str]:
-    """Normalize a VarInfo namedtuple or old tuple into (name, typename, value, fmt)."""
-    if hasattr(var_info, "name"):
+    """Normalize a VarInfo dict or old tuple into (name, typename, value, fmt)."""
+    if isinstance(var_info, dict):
         return (
-            var_info.name,
-            var_info.typename,
-            var_info.value,
-            var_info.format_hint,
+            var_info["name"],
+            var_info["typename"],
+            var_info["value"],
+            var_info["format_hint"],
         )
     name, typename, value = var_info
     return name, typename, value, "inline"

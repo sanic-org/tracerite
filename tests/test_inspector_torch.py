@@ -38,7 +38,7 @@ class TestPyTorchTensors:
         sourcecode = "my_tensor"
         rows = extract_variables(variables, sourcecode)
 
-        row_dict = {row[0]: (row[1], row[2]) for row in rows}
+        row_dict = {row["name"]: (row["typename"], row["value"]) for row in rows}
         assert "my_tensor" in row_dict
         typename, value = row_dict["my_tensor"]
         # Should contain dtype and shape information
@@ -52,7 +52,7 @@ class TestPyTorchTensors:
         sourcecode = "cpu_tensor"
         rows = extract_variables(variables, sourcecode)
 
-        row_dict = {row[0]: row[1] for row in rows}
+        row_dict = {row["name"]: row["typename"] for row in rows}
         typename = row_dict["cpu_tensor"]
         # CPU device should not be shown
         assert "@" not in typename or "@cpu" not in typename
@@ -67,7 +67,7 @@ class TestPyTorchTensors:
         sourcecode = "float_tensor + int_tensor + bool_tensor"
         rows = extract_variables(tensors, sourcecode)
 
-        row_dict = {row[0]: row[1] for row in rows}
+        row_dict = {row["name"]: row["typename"] for row in rows}
         assert "float32" in row_dict["float_tensor"]
         assert "int64" in row_dict["int_tensor"]
         assert "bool" in row_dict["bool_tensor"]

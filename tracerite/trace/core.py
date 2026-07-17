@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import re
-from collections import namedtuple
 from dataclasses import dataclass
 from typing import Any
 
-# Position range: lines are 1-based inclusive, columns are 0-based exclusive
-Range = namedtuple("Range", ["lfirst", "lfinal", "cbeg", "cend"])
+
+def Range(
+    lfirst: int, lfinal: int | None = None, cbeg: int | None = None, cend: int | None = None
+) -> dict[str, int | None]:
+    """Create a position range dict. Lines are 1-based inclusive, columns 0-based exclusive."""
+    return {"lfirst": lfirst, "lfinal": lfinal, "cbeg": cbeg, "cend": cend}
 
 
 @dataclass(slots=True)
@@ -64,8 +67,8 @@ class ChainLink:
 
 
 def compute_cursor_position(
-    mark_range: Range | None,
-    em_ranges: Range | list[Range] | None,
+    mark_range: dict[str, int] | None,
+    em_ranges: dict[str, int] | list[dict[str, int]] | None,
     linenostart: int,
     common_indent: str = "",
 ) -> tuple[int, int]:
@@ -74,7 +77,7 @@ def compute_cursor_position(
     if em_ranges:
         if isinstance(em_ranges, list) and em_ranges:
             target = em_ranges[-1]
-        elif isinstance(em_ranges, Range):
+        elif isinstance(em_ranges, dict):
             target = em_ranges
     if target is None:
         target = mark_range
@@ -83,8 +86,8 @@ def compute_cursor_position(
         return (linenostart, 0)
 
     return (
-        linenostart + target.lfinal - 1,
-        target.cend + len(common_indent),
+        linenostart + target["lfinal"] - 1,
+        target["cend"] + len(common_indent),
     )
 
 

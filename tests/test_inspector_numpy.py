@@ -46,7 +46,7 @@ class TestNumpyArrays:
         sourcecode = "my_array"
         rows = extract_variables(variables, sourcecode)
 
-        row_dict = {row[0]: (row[1], row[2]) for row in rows}
+        row_dict = {row["name"]: (row["typename"], row["value"]) for row in rows}
         assert "my_array" in row_dict
         typename, value = row_dict["my_array"]
         # Should contain dtype and shape information
@@ -63,7 +63,7 @@ class TestNumpyArrays:
         sourcecode = "float_arr + int_arr + bool_arr"
         rows = extract_variables(arrays, sourcecode)
 
-        row_dict = {row[0]: row[1] for row in rows}
+        row_dict = {row["name"]: row["typename"] for row in rows}
         assert "float64" in row_dict["float_arr"]
         assert "int64" in row_dict["int_arr"]
         assert "bool" in row_dict["bool_arr"]

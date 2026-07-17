@@ -235,8 +235,8 @@ class TestExtractEnhancedPositions:
         mark_range, em_ranges = extract_enhanced_positions(e, source_lines)
 
         assert mark_range is not None
-        assert mark_range.lfirst == 1
-        assert mark_range.lfinal == 2
+        assert mark_range["lfirst"] == 1
+        assert mark_range["lfinal"] == 2
         assert em_ranges is not None
 
     def test_unterminated_triple_fstring_pattern(self):
@@ -369,7 +369,7 @@ class TestHandleMismatch:
 
         # Should still produce ranges with opening_col = 0 fallback
         assert mark_range is not None
-        assert mark_range.cbeg == 0  # Fallback to column 0
+        assert mark_range["cbeg"] == 0  # Fallback to column 0
 
 
 class TestHandleUnclosed:
@@ -392,9 +392,9 @@ class TestHandleUnclosed:
         )
 
         assert mark_range is not None
-        assert mark_range.lfirst == 1
-        assert mark_range.lfinal == 3
-        assert mark_range.cbeg == 4
+        assert mark_range["lfirst"] == 1
+        assert mark_range["lfinal"] == 3
+        assert mark_range["cbeg"] == 4
         assert em_ranges is not None
 
     def test_unclosed_fallbacks(self):
@@ -414,8 +414,8 @@ class TestHandleUnclosed:
             e, ["no brackets\n", "here\n"], UNCLOSED_PATTERN.search(message)
         )
         assert mark_range is not None
-        assert mark_range.lfirst == 2
-        assert mark_range.lfinal == 2
+        assert mark_range["lfirst"] == 2
+        assert mark_range["lfinal"] == 2
 
         # Reported position past source: cap to last source line.
         e.lineno = 5
@@ -423,7 +423,7 @@ class TestHandleUnclosed:
             e, ["# comment\n", "\n"], UNCLOSED_PATTERN.search(message)
         )
         assert mark_range is not None
-        assert mark_range.lfirst == len(["# comment\n", "\n"])
+        assert mark_range["lfirst"] == len(["# comment\n", "\n"])
 
 
 class TestHandleIncomplete:
@@ -645,8 +645,8 @@ class TestHandleUnterminatedString:
         # Single-quoted string
         mark_range, em_ranges = _handle_unterminated_string(e, ['x = "unterminated\n'])
         assert mark_range is not None
-        assert mark_range.lfirst == 1
-        assert mark_range.cbeg == 4
+        assert mark_range["lfirst"] == 1
+        assert mark_range["cbeg"] == 4
         assert em_ranges is not None
 
         # Triple-quoted string
@@ -654,14 +654,14 @@ class TestHandleUnterminatedString:
             e, ['x = """unterminated\n']
         )
         assert mark_range is not None
-        assert em_ranges[0].cend - em_ranges[0].cbeg >= 3
+        assert em_ranges[0]["cend"] - em_ranges[0]["cbeg"] >= 3
 
         # f-string prefix
         mark_range, em_ranges = _handle_unterminated_string(
             e, ['x = f"""unterminated\n']
         )
         assert mark_range is not None
-        assert em_ranges[0].cend - em_ranges[0].cbeg >= 4
+        assert em_ranges[0]["cend"] - em_ranges[0]["cbeg"] >= 4
 
     def test_detected_at_line_extends_range(self):
         """Test 'detected at line' extends the mark to the detected line."""
@@ -679,12 +679,12 @@ class TestHandleUnterminatedString:
         mark_range, em_ranges = _handle_unterminated_string(e, source_lines)
 
         assert mark_range is not None
-        assert mark_range.lfirst == 1
-        assert mark_range.lfinal == 2
-        assert mark_range.cbeg == 4
-        assert mark_range.cend == len("string we forgot to close")
-        assert em_ranges[0].cbeg == 4
-        assert em_ranges[0].cend == 7  # """
+        assert mark_range["lfirst"] == 1
+        assert mark_range["lfinal"] == 2
+        assert mark_range["cbeg"] == 4
+        assert mark_range["cend"] == len("string we forgot to close")
+        assert em_ranges[0]["cbeg"] == 4
+        assert em_ranges[0]["cend"] == 7  # """
 
     def test_detected_line_beyond_source(self):
         """Test detected-at line beyond source is capped to last source line."""
@@ -702,7 +702,7 @@ class TestHandleUnterminatedString:
         mark_range, em_ranges = _handle_unterminated_string(e, source_lines)
 
         assert mark_range is not None
-        assert mark_range.lfinal == len(source_lines)
+        assert mark_range["lfinal"] == len(source_lines)
 
     def test_edge_cases(self):
         """Test empty source, invalid line number, and zero offset."""
@@ -759,7 +759,7 @@ class TestHandleMismatchBranches:
         # Should produce ranges, with opening_col finding the bracket inside the string
         assert mark_range is not None
         # The cbeg should be 1 (where the '(' is found by .find())
-        assert mark_range.cbeg == 1
+        assert mark_range["cbeg"] == 1
 
 
 class TestHandleIncompleteBranches:

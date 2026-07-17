@@ -387,7 +387,7 @@ def _traceback_detail_chrono(doc: Any, frinfo: dict[str, Any]) -> None:
             # Show the symbol next to the final line of the frame range
             show_symbol = False
             frame_range = frinfo["range"]
-            if frame_range and abs_line == frame_range.lfinal:
+            if frame_range and abs_line == frame_range["lfinal"]:
                 show_symbol = True
 
             with doc.span(class_="codeline", data_lineno=abs_line):

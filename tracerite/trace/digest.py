@@ -513,8 +513,8 @@ def extract_text_from_range(lines: str, mark_range) -> str | None:
     lines_list = lines.splitlines(keepends=True)
 
     # Convert to 0-based line indices
-    start_line_idx = mark_range.lfirst - 1
-    end_line_idx = mark_range.lfinal - 1
+    start_line_idx = mark_range["lfirst"] - 1
+    end_line_idx = mark_range["lfinal"] - 1
 
     # Bounds check
     if start_line_idx < 0 or end_line_idx >= len(lines_list):
@@ -526,13 +526,13 @@ def extract_text_from_range(lines: str, mark_range) -> str | None:
 
         if line_idx == start_line_idx == end_line_idx:
             # Single line case
-            extracted_parts.append(line[mark_range.cbeg : mark_range.cend])
+            extracted_parts.append(line[mark_range["cbeg"] : mark_range["cend"]])
         elif line_idx == start_line_idx:
             # First line of multi-line
-            extracted_parts.append(line[mark_range.cbeg :])
+            extracted_parts.append(line[mark_range["cbeg"] :])
         elif line_idx == end_line_idx:
             # Last line of multi-line
-            extracted_parts.append(line[: mark_range.cend])
+            extracted_parts.append(line[: mark_range["cend"]])
         else:
             # Middle lines of multi-line
             extracted_parts.append(line)
@@ -680,10 +680,10 @@ def extract_syntax_error_frame(e):
 
     enhanced_mark, enhanced_em = extract_enhanced_positions(e, lines_list)
     if enhanced_mark:
-        lineno = enhanced_mark.lfirst
-        end_lineno = enhanced_mark.lfinal
-        start_col = enhanced_mark.cbeg
-        end_col = enhanced_mark.cend
+        lineno = enhanced_mark["lfirst"]
+        end_lineno = enhanced_mark["lfinal"]
+        start_col = enhanced_mark["cbeg"]
+        end_col = enhanced_mark["cend"]
 
     lines, lines_list, start, error_line_in_context, end_line = (
         slice_syntax_error_window(
@@ -847,18 +847,18 @@ def _build_syntax_mark_ranges(
     """Build mark/emphasis ranges for a SyntaxError frame."""
     if enhanced_mark:
         mark_range = Range(
-            enhanced_mark.lfirst - start + 1,
-            enhanced_mark.lfinal - start + 1,
-            enhanced_mark.cbeg,
-            enhanced_mark.cend,
+            enhanced_mark["lfirst"] - start + 1,
+            enhanced_mark["lfinal"] - start + 1,
+            enhanced_mark["cbeg"],
+            enhanced_mark["cend"],
         )
         em_ranges = (
             [
                 Range(
-                    em.lfirst - start + 1,
-                    em.lfinal - start + 1,
-                    em.cbeg,
-                    em.cend,
+                    em["lfirst"] - start + 1,
+                    em["lfinal"] - start + 1,
+                    em["cbeg"],
+                    em["cend"],
                 )
                 for em in enhanced_em
             ]
@@ -996,8 +996,8 @@ def extract_single_frame(
         lines,
         error_line_in_context,
         end_line,
-        mark_range.cbeg if mark_range else None,
-        mark_range.cend if mark_range else None,
+        mark_range["cbeg"] if mark_range else None,
+        mark_range["cend"] if mark_range else None,
         start,
     )
     fragments = parse_lines_to_fragments(lines, mark_range, em_range)

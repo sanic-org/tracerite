@@ -138,8 +138,8 @@ def build_frame_ranges(
                 frame_range = Range(
                     lineno,
                     pos_end_lineno or lineno,
-                    fallback.cbeg + total_indent,
-                    fallback.cend + total_indent,
+                    fallback["cbeg"] + total_indent,
+                    fallback["cend"] + total_indent,
                 )
                 return frame_range, fallback
         return None, None
@@ -194,8 +194,8 @@ def convert_range_to_positions(range_obj, lines):
         return positions
 
     # Convert to 0-based line indices for processing
-    start_line_idx = range_obj.lfirst - 1
-    end_line_idx = range_obj.lfinal - 1
+    start_line_idx = range_obj["lfirst"] - 1
+    end_line_idx = range_obj["lfinal"] - 1
 
     # Calculate absolute positions
     char_pos = 0
@@ -206,16 +206,16 @@ def convert_range_to_positions(range_obj, lines):
             if line_idx == start_line_idx == end_line_idx:
                 # Single line case
                 for col in range(
-                    max(0, range_obj.cbeg), min(len(line_content), range_obj.cend)
+                    max(0, range_obj["cbeg"]), min(len(line_content), range_obj["cend"])
                 ):
                     positions.add(char_pos + col)
             elif line_idx == start_line_idx:
                 # First line of multi-line
-                for col in range(max(0, range_obj.cbeg), len(line_content)):
+                for col in range(max(0, range_obj["cbeg"]), len(line_content)):
                     positions.add(char_pos + col)
             elif line_idx == end_line_idx:
                 # Last line of multi-line
-                for col in range(0, min(len(line_content), range_obj.cend)):
+                for col in range(0, min(len(line_content), range_obj["cend"])):
                     positions.add(char_pos + col)
             else:
                 # Middle lines of multi-line

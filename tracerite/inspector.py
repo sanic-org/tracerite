@@ -6,7 +6,6 @@ import dataclasses
 import math
 import re
 import types
-from collections import namedtuple
 from collections.abc import Callable
 from typing import Any
 
@@ -17,8 +16,11 @@ from tracerite.logging import logger
 # variables by accident.
 _EXCEPTION_MESSAGE_MIN_MATCH_LEN = 12
 
-# Variable info with formatting metadata
-VarInfo = namedtuple("VarInfo", ["name", "typename", "value", "format_hint"])
+
+def VarInfo(name: str, typename: str, value: Any, format_hint: str) -> dict[str, Any]:
+    """Create a variable-info dict with formatting metadata."""
+    return {"name": name, "typename": typename, "value": value, "format_hint": format_hint}
+
 
 blacklist_names = {"_", "In", "Out"}
 blacklist_types = (

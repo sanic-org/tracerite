@@ -461,8 +461,8 @@ hidden_frame()
 
                     # Verify the range contains the correct line number
                     if range_obj:
-                        assert range_obj.lfirst == expected_lineno, (
-                            f"range.lfirst should be {expected_lineno}, but got {range_obj.lfirst}"
+                        assert range_obj["lfirst"] == expected_lineno, (
+                            f"range['lfirst'] should be {expected_lineno}, but got {range_obj['lfirst']}"
                         )
 
                     # Verify start was properly initialized when OSError occurred

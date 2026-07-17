@@ -66,37 +66,9 @@ Comes with TraceRite built in. HTML reports are available in debug mode, and con
 ![ExceptionGroup in HTML and terminal](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/group-comparison.webp)
 *Python 3.11+ concurrent execution errors with `except*` handling are shown clearly in both HTML and terminal output.*
 
-## Usage
+## Documentation
 
-### `html_traceback(exc)`
-
-Renders an exception as interactive HTML that can be included on a page. Pass an exception object, or call with no arguments inside an `except` block to use the current exception.
-
-### `html_page(exc)`
-
-Renders a complete HTML5 document with a TraceRite traceback, ready to serve from a web framework error handler. See `tracerite.fastapi.patch_fastapi()` for FastAPI integration.
-
-### `extract_chain(exc)`
-
-Extracts exception information as a JSON compatible list of dictionaries—useful for logging, custom formatting, or machine processing.
-
-### `prettyvalue(value)`
-
-Formats any value with smart truncation, array shape display, and SI-scaled numerics. Useful beyond exceptions for debugging tools or custom logging.
-
-### `extract_variables(locals, source)`
-
-Extracts and formats variables mentioned in a line of source code.
-
-### `load()` / `unload()`
-
-Load or remove TraceRite as the default exception handler for terminal applications. Handles both `sys.excepthook` and `threading.excepthook`.
-
-### `tty_traceback(exc)`
-
-Renders an exception as colorful terminal output with ANSI escape codes. Pass an exception object, or call with no arguments inside an `except` block. `file=io.StringIO()` may be used for plain text output. The output is well readable by all major LLMs, not only by humans.
-
-See the [API documentation](https://github.com/sanic-org/tracerite/blob/main/docs/API.md) for details, or [Development guide](https://github.com/sanic-org/tracerite/blob/main/docs/Development.md) for contributors.
+For the public API — including HTML rendering, terminal output, and the machine-readable chain format returned by `extract_chain` — see the [API documentation](https://github.com/sanic-org/tracerite/blob/main/docs/API.md). For contributors, see the [Development guide](https://github.com/sanic-org/tracerite/blob/main/docs/Development.md).
 
 ## License
 

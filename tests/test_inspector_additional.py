@@ -422,7 +422,7 @@ class TestExtractVariablesAdditional:
         rows = extract_variables(variables, sourcecode)
 
         row = rows[0]
-        assert row.typename == ""  # NoneType should be empty string
+        assert row["typename"] == ""  # NoneType should be empty string
 
     def test_object_with_no_str_but_no_extractable_members(self):
         """Test object with poor __str__ and no extractable members."""
@@ -437,7 +437,7 @@ class TestExtractVariablesAdditional:
 
         # Should show ellipsis for object without extractable members
         if rows:
-            assert rows[0].value == "⋯" or len(rows) == 0
+            assert rows[0]["value"] == "⋯" or len(rows) == 0
 
     def test_object_with_failing_safe_vars(self):
         """Test object where safe_vars() fails with exception."""
@@ -456,7 +456,7 @@ class TestExtractVariablesAdditional:
         rows = extract_variables(variables, sourcecode)
         # Object should show ellipsis since members can't be extracted
         if rows:
-            assert rows[0].value == "⋯"
+            assert rows[0]["value"] == "⋯"
 
     def test_dotted_identifier_matching(self):
         """Test matching of dotted identifiers like obj.attr."""
@@ -472,7 +472,7 @@ class TestExtractVariablesAdditional:
         # Note: obj itself has poor __str__, so obj.value should be extracted
         rows = extract_variables(variables, sourcecode)
 
-        names = {row.name for row in rows}
+        names = {row["name"] for row in rows}
         assert "obj.value" in names
 
     def test_member_with_poor_str(self):
@@ -495,7 +495,7 @@ class TestExtractVariablesAdditional:
         rows = extract_variables(variables, sourcecode)
 
         # obj.inner should be skipped because it has poor __str__
-        names = {row.name for row in rows}
+        names = {row["name"] for row in rows}
         assert "obj.inner" not in names
 
 
@@ -560,13 +560,13 @@ class TestVarInfo:
     def test_varinfo_creation(self):
         """Test VarInfo creation."""
         info = VarInfo("x", "int", "42", "inline")
-        assert info.name == "x"
-        assert info.typename == "int"
-        assert info.value == "42"
-        assert info.format_hint == "inline"
+        assert info["name"] == "x"
+        assert info["typename"] == "int"
+        assert info["value"] == "42"
+        assert info["format_hint"] == "inline"
 
-    def test_varinfo_tuple_unpacking(self):
-        """Test VarInfo can be unpacked as tuple."""
+    def test_varinfo_values_unpacking(self):
+        """Test VarInfo values can be unpacked."""
         info = VarInfo("x", "int", "42", "inline")
-        name, typename, value, fmt = info
+        name, typename, value, fmt = info.values()
         assert name == "x"

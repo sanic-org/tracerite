@@ -27,7 +27,7 @@ def get_frame_lineno(frame: dict) -> int | None:
     """Extract the most precise line number from a frame dict."""
     frame_range = frame.get("range")
     if frame_range:
-        return frame_range[0]
+        return frame_range["lfirst"]
     if frame.get("lineno"):
         return frame.get("lineno")
     return frame.get("linenostart")
