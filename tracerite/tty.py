@@ -16,7 +16,6 @@ from .trace.core import (
     symdesc,
 )
 from .trace.finalize import (
-    build_chain_header,
     call_run_ranges,
     exception_info,
     extract_chain,
@@ -121,7 +120,7 @@ _LINE_PREFIX_WIDTH = _display_width(LINE_PREFIX)
 
 def tty_traceback(
     exc: BaseException | None = None,
-    chain: list[dict[str, Any]] | None = None,
+    chain: dict[str, Any] | None = None,
     *,
     file: TextIO | None = None,
     msg: str | None = None,
@@ -137,7 +136,8 @@ def tty_traceback(
 
     Args:
         exc: The exception to format. If None, uses the current exception.
-        chain: Pre-extracted chronological frame list. If provided, exc is ignored.
+        chain: Pre-extracted data from `extract_chain` (dict with `header` and `frames`).
+            If provided, exc is ignored.
         file: Output file. Defaults to sys.stderr.
         msg: Header message. If None, builds from exception chain.
         tag: Optional tag to display after the message (e.g., "#TR1").
@@ -146,10 +146,11 @@ def tty_traceback(
     """
     if chain is None:
         chain = extract_chain(exc=exc, **extract_args)
+    frames = chain["frames"]
 
     # Build header message if not provided
-    if msg is None and chain:
-        msg = build_chain_header(chain)
+    if msg is None and frames:
+        msg = chain["header"] or None
 
     if file is None:
         file = sys.stderr
@@ -187,7 +188,7 @@ def tty_traceback(
         if term_width < 40:
             term_width = 80
 
-    if not chain and exc is not None:
+    if not frames and exc is not None:
         # Exception with no frames: build banners into chrono_output so
         # last_banner_start stays relative to chrono_output, just like the
         # normal path.
@@ -200,7 +201,7 @@ def tty_traceback(
             )
     else:
         chrono_output, last_banner_start = _print_chronological(
-            chain, term_width, no_inspector
+            frames, term_width, no_inspector
         )
     if last_banner_start is not None:
         last_banner_start += len(output)
@@ -292,14 +293,14 @@ def _find_collapsible_call_runs(
 
 
 def _print_chronological(
-    chain: list[dict[str, Any]],
+    frames: list[dict[str, Any]],
     term_width: int,
     no_inspector: bool = False,
 ) -> tuple[str, int | None]:
     """Print frames in chronological order; returns ``(output, last_banner_start)``."""
     output = ""
     last_banner_start = None
-    chrono_frames = chain
+    chrono_frames = frames
     if not chrono_frames:
         return output, last_banner_start
 

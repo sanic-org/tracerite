@@ -6,15 +6,16 @@ import pytest
 from bs4 import BeautifulSoup
 
 from tracerite.html import html_traceback, javascript, style
-from tracerite.trace import extract_chain
 from tracerite.trace.chain_analysis import build_chronological_frames
 from tracerite.trace.core import symbols
+from tracerite.trace.finalize import build_chain_header, extract_chain
 
 from .helpers import extract_exception
 
 
 def _chrono(exc_info):
-    return build_chronological_frames([exc_info])
+    frames = build_chronological_frames([exc_info])
+    return {"header": build_chain_header(frames), "frames": frames}
 
 
 class TestHtmlCornercases:

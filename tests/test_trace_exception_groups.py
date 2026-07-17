@@ -163,7 +163,7 @@ class TestChainHeader:
             )
         except Exception as e:
             chain = extract_chain(e)
-            header = build_chain_header(chain)
+            header = build_chain_header(chain["frames"])
 
         assert "ValueError" in header
         assert "TypeError" in header
@@ -179,7 +179,7 @@ class TestChainHeader:
             raise ExceptionGroup("outer", [ValueError("v"), inner])  # noqa: F821
         except Exception as e:
             chain = extract_chain(e)
-            header = build_chain_header(chain)
+            header = build_chain_header(chain["frames"])
 
         # Should show leaf types from all levels
         assert "ValueError" in header
@@ -369,7 +369,7 @@ class TestAsyncTaskGroup:
             asyncio.run(run_taskgroup())
         except ExceptionGroup as e:  # noqa: F821
             chain = extract_chain(e)
-            header = build_chain_header(chain)
+            header = build_chain_header(chain["frames"])
 
             assert "ValueError" in header
             assert "TypeError" in header

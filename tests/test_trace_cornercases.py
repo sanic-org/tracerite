@@ -908,7 +908,7 @@ class TestReraiseExistingException:
             result = extract_chain()
             assert result is not None
             # Should have both exceptions in the chain
-            assert len(result) >= 2
+            assert len(result["frames"]) >= 2
 
 
 class TestMissingCoverageBranches:

@@ -140,8 +140,13 @@ def build_chain_header(frames: list[dict]) -> str:
 # =============================================================================
 
 
-def extract_chain(exc=None, **kwargs) -> list:
-    """Extract chronological traceback frames for the current exception."""
+def extract_chain(exc=None, **kwargs) -> dict[str, Any]:
+    """Extract chronological traceback data for the current exception.
+
+    Returns a dict with ``header`` (the combined exception summary) and
+    ``frames`` (the chronological frame list, oldest call first, final error
+    last).
+    """
     exc = exc or sys.exc_info()[1]
     source_cache: dict = {}
     chain = collect_exception_chain(exc, **kwargs)
@@ -149,7 +154,10 @@ def extract_chain(exc=None, **kwargs) -> list:
     set_chain_relevances(chain)
     chronological = build_chronological_frames(chain, cache=source_cache)
     chronological = finalize_chronological(chronological, chain)
-    return chronological
+    return {
+        "header": build_chain_header(chronological),
+        "frames": chronological,
+    }
 
 
 def extract_chain_exceptions(exc=None, **kwargs) -> list:

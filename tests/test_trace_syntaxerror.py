@@ -460,8 +460,8 @@ class TestExtractChainSyntaxError:
         except SyntaxError:
             chain = extract_chain()
 
-            assert len(chain) >= 1
-            assert chain[-1]["exception"]["type"] == "SyntaxError"
+            assert len(chain["frames"]) >= 1
+            assert chain["frames"][-1]["exception"]["type"] == "SyntaxError"
 
     def test_extract_chain_chained_with_syntax_error(self):
         """Test extract_chain with SyntaxError in chain."""
@@ -473,8 +473,8 @@ class TestExtractChainSyntaxError:
         except ValueError:
             chain = extract_chain()
 
-            assert len(chain) >= 2
-            types = [f["exception"]["type"] for f in chain if f.get("exception")]
+            assert len(chain["frames"]) >= 2
+            types = [f["exception"]["type"] for f in chain["frames"] if f.get("exception")]
             assert types == ["SyntaxError", "ValueError"]
 
 

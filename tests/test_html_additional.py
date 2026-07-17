@@ -6,12 +6,14 @@ from tracerite.html import html_traceback, javascript, style
 from tracerite.inspector import VarInfo
 from tracerite.trace import extract_chain
 from tracerite.trace.chain_analysis import build_chronological_frames
+from tracerite.trace.finalize import build_chain_header
 
 from .helpers import extract_exception
 
 
 def _chrono(exc_info):
-    return build_chronological_frames([exc_info])
+    frames = build_chronological_frames([exc_info])
+    return {"header": build_chain_header(frames), "frames": frames}
 
 
 class TestHtmlAdditional:
@@ -366,7 +368,7 @@ foo()
 
     def test_empty_chain(self):
         """Test html_traceback with empty chain."""
-        html = html_traceback(chain=[])
+        html = html_traceback(chain={"header": "", "frames": []})
         html_str = str(html)
         # Should render something even with empty chain
         assert html_str is not None
@@ -379,7 +381,7 @@ foo()
             exc_info = extract_exception(e)
             exc_info["frames"] = []
 
-            html = html_traceback(chain=_chrono(exc_info))
+            html = html_traceback(chain=_chrono(exc_info), exc=e)
             html_str = str(html)
 
             assert "ValueError" in html_str

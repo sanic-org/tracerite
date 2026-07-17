@@ -2192,7 +2192,7 @@ class TestTtyTracebackEdgeCases:
     def test_empty_chain(self):
         """Test tty_traceback with empty chain."""
         output = io.StringIO()
-        tty_traceback(chain=[], file=output)
+        tty_traceback(chain={"header": "", "frames": []}, file=output)
         result = output.getvalue()
         # Should still produce output with box drawing
         assert "╭" in result or "│" in result or "╰" in result
@@ -2207,7 +2207,7 @@ class TestTtyTracebackEdgeCases:
         try:
             raise TestError("test message")
         except TestError as e:
-            tty_traceback(chain=[], exc=e, file=output)
+            tty_traceback(chain={"header": "", "frames": []}, exc=e, file=output)
         result = output.getvalue()
         assert "TestError" in result
         assert "test message" in result
@@ -3418,7 +3418,7 @@ class TestTTYCoverage:
         """A banner right after the top corner has no preceding border."""
         output = io.StringIO()
         tty_traceback(
-            chain=[],
+            chain={"header": "", "frames": []},
             exc=ValueError("x"),
             file=output,
             msg="",
@@ -3501,7 +3501,7 @@ class TestTTYCoverage:
 
     def test_no_banner_bottom_corner_falls_back_to_last_prefix(self):
         output = io.StringIO()
-        tty_traceback(chain=[], file=output, msg=f"{LINE_PREFIX} hello")
+        tty_traceback(chain={"header": "", "frames": []}, file=output, msg=f"{LINE_PREFIX} hello")
         assert "╰" in output.getvalue()
 
 

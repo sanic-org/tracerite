@@ -558,7 +558,7 @@ class TestExtractChain:
     """Test extract_chain function for exception chaining."""
 
     def _exception_types(self, chain):
-        return [f["exception"]["type"] for f in chain if f.get("exception")]
+        return [f["exception"]["type"] for f in chain["frames"] if f.get("exception")]
 
     def test_extract_single_exception(self):
         """Test extracting a single exception without chaining."""
@@ -567,9 +567,9 @@ class TestExtractChain:
         except ValueError as e:
             chain = extract_chain(exc=e)
 
-        assert len(chain) >= 1
-        assert chain[-1]["exception"]["type"] == "ValueError"
-        assert "test error" in chain[-1]["exception"]["message"]
+        assert len(chain["frames"]) >= 1
+        assert chain["frames"][-1]["exception"]["type"] == "ValueError"
+        assert "test error" in chain["frames"][-1]["exception"]["message"]
 
     def test_extract_chained_exceptions(self):
         """Test extracting chained exceptions with __cause__."""
@@ -584,7 +584,7 @@ class TestExtractChain:
         # Frames are in chronological order (original exception first)
         types = self._exception_types(chain)
         assert types == ["ValueError", "TypeError"]
-        assert "wrapped error" in chain[-1]["exception"]["message"]
+        assert "wrapped error" in chain["frames"][-1]["exception"]["message"]
 
     def test_extract_context_exceptions(self):
         """Test extracting exceptions with implicit context (__context__)."""
@@ -623,8 +623,8 @@ class TestExtractChain:
         except RuntimeError:
             chain = extract_chain()  # No exc argument
 
-        assert len(chain) >= 1
-        assert chain[-1]["exception"]["type"] == "RuntimeError"
+        assert len(chain["frames"]) >= 1
+        assert chain["frames"][-1]["exception"]["type"] == "RuntimeError"
 
 
 class TestExtractException:
@@ -1051,7 +1051,7 @@ def test_build_chain_header_single_exception():
     except ValueError as e:
         chain = extract_chain(e)
 
-    header = build_chain_header(chain)
+    header = build_chain_header(chain["frames"])
     assert "Uncaught ValueError" in header
 
 
@@ -1065,7 +1065,7 @@ def test_build_chain_header_multiple_exceptions():
         except RuntimeError as e:
             chain = extract_chain(e)
 
-    header = build_chain_header(chain)
+    header = build_chain_header(chain["frames"])
     assert "RuntimeError" in header  # Should use the last exception
 
 
@@ -1326,7 +1326,7 @@ def test_exc_message_variable_suppressed_in_raising_frame():
         _raise_with_msg()
     except ValueError as e:
         chain = extract_chain(e)
-        frame = chain[-1]
+        frame = chain["frames"][-1]
         var_names = {v["name"] for v in frame["variables"]}
         assert "msg" not in var_names
 
@@ -1352,7 +1352,7 @@ def test_exc_message_variable_suppressed_across_same_function_frames():
     except RuntimeError as e:
         chain = extract_chain(e)
         msg_names = {
-            v["name"] for frame in chain for v in frame["variables"] if v["name"] == "msg"
+            v["name"] for frame in chain["frames"] for v in frame["variables"] if v["name"] == "msg"
         }
         assert "msg" not in msg_names
 
@@ -1374,7 +1374,7 @@ def test_recursive_frames_keep_distinct_inspectors():
         recurse(3)
     except ValueError as e:
         chain = extract_chain(e)
-        recurse_frames = [fr for fr in chain if fr.get("function") == "recurse"]
+        recurse_frames = [fr for fr in chain["frames"] if fr.get("function") == "recurse"]
         assert len(recurse_frames) == 4
         for fr in recurse_frames:
             names = {v["name"] for v in fr["variables"]}
@@ -1404,14 +1404,14 @@ def test_exc_message_suppressed_at_module_level():
             importlib.import_module(modname)
         except RuntimeError as e:
             chain = extract_chain(e)
-            module_frames = [fr for fr in chain if fr.get("function") is None]
+            module_frames = [fr for fr in chain["frames"] if fr.get("function") is None]
             assert len(module_frames) == 2
             # The stored value is the integer id of the frame object.
             assert all(isinstance(fr["idframe"], int) for fr in module_frames)
             # Both module frames point at the same frame object.
             assert module_frames[0]["idframe"] == module_frames[1]["idframe"]
             msg_names = {
-                v["name"] for fr in chain for v in fr["variables"] if v["name"] == "msg"
+                v["name"] for fr in chain["frames"] for v in fr["variables"] if v["name"] == "msg"
             }
             assert "msg" not in msg_names
         finally:

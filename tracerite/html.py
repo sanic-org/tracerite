@@ -15,7 +15,6 @@ from .trace.core import (
     symdesc,
 )
 from .trace.finalize import (
-    build_chain_header,
     call_run_ranges,
     exception_info,
     extract_chain,
@@ -60,27 +59,18 @@ def html_page(
     header: Any | None = None,
     footer: Any | None = None,
     msg: str | None | EllipsisType = ...,
-    chain: list[dict[str, Any]] | None = None,
+    chain: dict[str, Any] | None = None,
     autodark: bool = True,
     local_urls: bool = False,
     **extract_args: Any,
 ) -> HTML:
-    """Render a full HTML5 document containing a TraceRite traceback.
-
-    Returns an html5tagger `HTML` string. The underlying `Page` template
-    includes TraceRite's CSS and JavaScript, an optional site-wide header and
-    footer, a heading/ingress block inside `<main>`, and the traceback itself.
-
-    The default heading inside `<main>` is built from the `Header` template,
-    which exposes `Heading` and `Ingress` slots. The `Header` and `Footer`
-    slots of `Page` are empty by default so callers can inject site-wide
-    header/footer content.
-    """
+    """Render a full HTML5 document containing a TraceRite traceback."""
     chain = extract_chain(exc=exc, **extract_args) if chain is None else chain
+    frames = chain["frames"]
     page_title = (
         title
         if title is not None
-        else (chain[-1].get("exception", {}).get("type") if chain else "TraceRite")
+        else (frames[-1].get("exception", {}).get("type") if frames else "TraceRite")
     )
     page_heading = heading if heading is not None else page_title
     page_ingress = (
@@ -128,7 +118,7 @@ def _collapse_call_runs(
 
 def html_traceback(
     exc: BaseException | None = None,
-    chain: list[dict[str, Any]] | None = None,
+    chain: dict[str, Any] | None = None,
     *,
     msg: str | None | EllipsisType = ...,
     include_js_css: bool = True,
@@ -145,6 +135,7 @@ def html_traceback(
     provides them.
     """
     chain = chain or extract_chain(exc=exc, **extract_args)
+    frames = chain["frames"]
     with E.div[".tracerite"](
         classes={"autodark": autodark},
         data_cleanup_mode="replace" if clear else None,
@@ -154,12 +145,12 @@ def html_traceback(
 
         # Add chain header (use default if msg is ..., skip if msg is None/empty)
         if msg is ...:
-            msg = build_chain_header(chain) if chain else None
+            msg = chain["header"] or None
         if msg:
             doc.h2(msg)
 
-        if chain:
-            _chronological_output(doc, chain, local_urls=local_urls)
+        if frames:
+            _chronological_output(doc, frames, local_urls=local_urls)
         elif exc is not None:
             for exc_dict in extract_chain_exceptions(exc):
                 _exception_banner(doc, exception_info(exc_dict))
@@ -171,12 +162,12 @@ def html_traceback(
 
 def _chronological_output(
     doc: Any,
-    chain: list[dict[str, Any]],
+    frames: list[dict[str, Any]],
     *,
     local_urls: bool = False,
 ) -> None:
     """Output frames in chronological order with exception info after error frames."""
-    _render_frame_list(doc, chain, local_urls=local_urls)
+    _render_frame_list(doc, frames, local_urls=local_urls)
 
 
 def _render_frame_list(
