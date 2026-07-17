@@ -23,8 +23,9 @@ from .trace.finalize import (
     normalize_variable,
 )
 
-style = files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
-html_style = style
+html_style = (
+    files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
+)
 javascript = (
     files(cast(str, __package__)).joinpath("script.js").read_text(encoding="UTF-8")
 )
@@ -40,7 +41,7 @@ p { margin: 0 0 0.5em 0 }
 # fmt: off
 Page = Template(
     Document(E.Title, lang="en")
-    .style(style, id="tracerite-style")
+    .style(html_style, id="tracerite-style")
     .style(PAGE_STYLE)
     .Header
     .main(E.Heading.Content)
@@ -142,7 +143,7 @@ def html_traceback(
         data_cleanup_mode="replace" if clear else None,
     ) as doc:
         if include_js_css:
-            doc._style(style)
+            doc._style(html_style)
 
         # Add chain header (use default if msg is ..., skip if msg is None/empty)
         if msg is ...:

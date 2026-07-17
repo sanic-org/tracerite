@@ -5,7 +5,7 @@ import sys
 import pytest
 from bs4 import BeautifulSoup
 
-from tracerite.html import html_traceback, javascript, style
+from tracerite.html import html_style, html_traceback, javascript
 from tracerite.trace.chain_analysis import build_chronological_frames
 from tracerite.trace.core import symbols
 from tracerite.trace.finalize import build_chain_header, extract_chain
@@ -559,7 +559,7 @@ class TestHtmlCornercases:
             assert "ValueError" in html_str
             # Should not include the JavaScript or CSS
             assert javascript not in html_str
-            assert style not in html_str
+            assert html_style not in html_str
 
     @pytest.mark.skipif(
         sys.version_info < (3, 11), reason="Requires co_positions() from Python 3.11+"
