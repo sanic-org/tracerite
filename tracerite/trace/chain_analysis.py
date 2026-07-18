@@ -1,8 +1,8 @@
-"""AST-based analysis for exception-chain try-except block matching.
+"""AST-based analysis for exception-chain try-except and with-block matching.
 
-This module provides the pure try-except utilities used by the pipeline in
-``tracerite.trace``.  The chronological-order construction itself lives in
-``order.py`` so the whole pipeline is visible in one place.
+This module provides the pure try-except and with-statement utilities used by
+the pipeline in ``tracerite.trace``.  The chronological-order construction
+itself lives in ``order.py`` so the whole pipeline is visible in one place.
 """
 
 from __future__ import annotations
@@ -20,13 +20,15 @@ from .core import (
 )
 
 if TYPE_CHECKING:
-    from .typing import TryExceptBlock
+    from .typing import TryExceptBlock, WithBlock
 
 __all__ = [
     "parse_source_for_try_except",
     "parse_source_string_for_try_except",
     "find_try_block_for_except_line",
     "find_matching_try_for_inner_exception",
+    "parse_source_for_with_blocks",
+    "find_with_block_for_header_line",
 ]
 
 
@@ -181,3 +183,84 @@ def find_matching_try_for_inner_exception(
         ) and block_contains_in_try(block, inner_first_lineno):
             return block
     return None
+
+
+class WithBlockVisitor(ast.NodeVisitor):
+    """AST visitor that collects all with/async-with statements with their line ranges."""
+
+    def __init__(self):
+        self.with_blocks: list[WithBlock] = []
+
+    def visit_With(self, node: ast.With):
+        self._record(node)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith):
+        self._record(node)
+
+    def _record(self, node):
+        """Record a with statement's header and body line ranges."""
+        if not node.body:  # pragma: no cover
+            return
+        block: WithBlock = {
+            "header_start": node.lineno,
+            "body_start": node.body[0].lineno,
+            "block_end": node.end_lineno or node.body[-1].lineno,
+        }
+        self.with_blocks.append(block)
+        self.generic_visit(node)
+
+
+def parse_source_for_with_blocks(
+    filename: str,
+    *,
+    _cache: dict | None = None,
+) -> list[WithBlock]:
+    """Parse source file and extract with/async-with blocks.
+
+    Args:
+        filename: Path to the source file
+        _cache: Optional append-only cache mapping source keys to parsed blocks.
+            Intended for single-call use only; not persisted across calls.
+
+    Returns:
+        List of WithBlock objects found in the source
+    """
+    key = ("with_blocks", filename)
+    if _cache is not None and key in _cache:
+        return _cache[key]
+
+    try:
+        lines = linecache.getlines(filename)
+        if not lines:
+            result: list[WithBlock] = []
+        else:
+            source = "".join(lines)
+            tree = ast.parse(source, filename=filename)
+
+            visitor = WithBlockVisitor()
+            visitor.visit(tree)
+
+            result = visitor.with_blocks
+    except (SyntaxError, OSError, ValueError) as e:
+        logger.debug(f"Failed to parse {filename} for with-block analysis: {e}")
+        result = []
+
+    if _cache is not None:
+        _cache[key] = result
+    return result
+
+
+def find_with_block_for_header_line(
+    blocks: list[WithBlock], lineno: int
+) -> WithBlock | None:
+    """Find the innermost with block whose statement header covers the given line.
+
+    Only matches lines within the header itself (up to but excluding the first
+    body line), so a frame stopped inside the block body never matches.
+    """
+    matching = [b for b in blocks if b["header_start"] <= lineno < b["body_start"]]
+    if not matching:
+        return None
+    return min(
+        matching, key=lambda b: (b["block_end"] - b["header_start"], -b["header_start"])
+    )

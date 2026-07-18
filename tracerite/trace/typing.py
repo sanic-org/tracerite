@@ -32,6 +32,14 @@ class TryExceptBlock(TypedDict):
     finally_end: int | None
 
 
+class WithBlock(TypedDict):
+    """Line ranges of a with/async-with statement in a source file."""
+
+    header_start: int  # First line of the with statement header
+    body_start: int  # First line of the block body
+    block_end: int  # Last line of the block body
+
+
 class ChainLink(TypedDict, total=False):
     """Try-except link between two chained exceptions."""
 
@@ -108,6 +116,7 @@ class FrameInfo(TypedDict, total=False):
     _frame_obj: Any  # temp: digest -> finalize
     _variable_source: str | None  # temp: digest -> finalize
     _except_start: int | None  # temp: digest -> order -> finalize
+    _with_stage: str | None  # temp: digest -> finalize ("enter"/"exit" failure)
 
 
 ExcChain: TypeAlias = list["ExceptionInfo"]

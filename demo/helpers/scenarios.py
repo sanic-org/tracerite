@@ -135,6 +135,30 @@ def concurrent() -> None:
         raise RuntimeError("Application crashed inside asyncio.run()") from e
 
 
+def withexpr() -> None:
+    """With block not entered: the initialising expression fails."""
+    with open("nonexistent/config.json") as config_file:
+        config = config_file.read()
+        host = config["host"]
+        port = config["port"]
+
+
+def withenter() -> None:
+    """With __enter__ failure: statement marked, the block never runs."""
+    with acme.EnterRaises() as resource:
+        acquire_step_one = 1
+        acquire_step_two = 2
+        acquire_step_three = 3
+
+
+def withexit() -> None:
+    """With __exit__ failure: block ran, so its full context is shown."""
+    with acme.ExitRaises() as resource:
+        release_step_one = 1
+        release_step_two = 2
+        release_step_three = 3
+
+
 # FastAPI/Sanic run inside an event loop, so they call the async implementation
 # directly instead of the sync wrapper that uses asyncio.run().
 concurrent._async_impl = acme.run_concurrent_tasks

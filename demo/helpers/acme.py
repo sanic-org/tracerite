@@ -100,3 +100,28 @@ async def run_concurrent_tasks() -> None:
     except* json.JSONDecodeError:
         # Consume the JSON decode error; the remaining sub-exceptions propagate.
         pass
+
+
+# ---------------------------------------------------------------------------
+# With statement enter/exit failures
+# ---------------------------------------------------------------------------
+
+
+class EnterRaises:
+    """Context manager whose __enter__ fails before the block runs."""
+
+    def __enter__(self):
+        raise RuntimeError("Could not acquire the resource")
+
+    def __exit__(self, *exc):
+        return False
+
+
+class ExitRaises:
+    """Context manager whose __exit__ fails after the block has run."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        raise RuntimeError("Could not release the resource")

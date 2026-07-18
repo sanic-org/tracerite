@@ -176,6 +176,7 @@ def _clear_internal_frame_keys(frames: list[FrameInfo]) -> None:
     """Remove internal-only keys from frame dicts before public emission."""
     for frame in frames:
         frame.pop("_except_start", None)
+        frame.pop("_with_stage", None)
         for branch in frame.get("parallel", []):
             _clear_internal_frame_keys(branch)
 
@@ -190,6 +191,16 @@ def set_relevances(frames: list[FrameInfo], e: BaseException) -> None:
     is_regular_exception = isinstance(e, Exception) and not is_exception_group(e)
     frames[-1]["relevance"] = "error" if is_regular_exception else "stop"
 
+    if is_regular_exception:
+        # Frames stopped on a with statement whose enter/exit handling failed
+        # get stop relevance: execution surfaced at the with statement even
+        # though the exception came from the enter/exit call.  The trace
+        # still continues to the actual raise site below.  ExceptionGroups
+        # and BaseExceptions handle this via suppression in order.py.
+        for frame in frames:
+            if frame.get("_with_stage"):
+                frame["relevance"] = "stop"
+
     # Check if the last frame (error frame) is in user code
     last_filename = (
         frames[-1].get("original_filename") or frames[-1].get("filename") or ""
@@ -200,8 +211,10 @@ def set_relevances(frames: list[FrameInfo], e: BaseException) -> None:
     for frame in reversed(frames[:-1]):  # Exclude the last frame  # pragma: no cover
         filename = frame.get("original_filename") or frame.get("filename") or ""
         if libdir_match(Path(filename).as_posix()) is None:
-            # This is user code - mark as warning (bug origin)
-            frame["relevance"] = "warning"
+            # This is user code - mark as warning (bug origin), but do not
+            # downgrade a with statement stop frame.
+            if frame["relevance"] != "stop":
+                frame["relevance"] = "warning"
             break
 
 
