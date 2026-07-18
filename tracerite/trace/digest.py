@@ -3,6 +3,7 @@ from __future__ import annotations
 import dis
 import inspect
 import linecache
+import re
 import tokenize
 from collections import deque
 from contextlib import suppress
@@ -17,7 +18,7 @@ from .chain_analysis import (
     find_try_block_for_except_line,
     find_with_block_for_header_line,
     parse_source_for_try_except,
-    parse_source_for_with_blocks,
+    parse_source_string_for_with_blocks,
 )
 from .collect import collect_exception_objects
 from .core import (
@@ -291,6 +292,11 @@ MAX_WITH_BLOCK_CONTEXT_LINES = 20
 # Function names called by (async) with statements when entering/exiting.
 WITH_ENTER_FUNCTIONS = frozenset(("__enter__", "__aenter__"))
 WITH_EXIT_FUNCTIONS = frozenset(("__exit__", "__aexit__"))
+WITH_ENTER_EXIT_FUNCTIONS = WITH_ENTER_FUNCTIONS | WITH_EXIT_FUNCTIONS
+
+# Every with/async-with statement contains this keyword; used as a cheap
+# pre-filter so source is only parsed when a with block can be present.
+WITH_KEYWORD = re.compile(r"\bwith\b").search
 
 
 def detect_with_block_error(
@@ -308,8 +314,16 @@ def detect_with_block_error(
     The stage is told apart by the next frame in the traceback (the enter or
     exit function being called), falling back to the instruction offset for
     C-level exit functions that leave no Python frame (e.g. lock release).
+
+    Only the frame's own source block is parsed (not the whole file), as the
+    with statement is always within it.
     """
-    blocks = parse_source_for_with_blocks(frame.f_code.co_filename, _cache=cache)
+    full_source, full_source_start = get_full_source(frame, cache=cache)
+    if not full_source or not WITH_KEYWORD(full_source):
+        return None, None
+    blocks = parse_source_string_for_with_blocks(
+        full_source, full_source_start, _cache=cache
+    )
     block = find_with_block_for_header_line(blocks, lineno)
     if block is None:
         return None, None
@@ -1084,12 +1098,18 @@ def extract_single_frame(
     pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
     notebook_cell = is_notebook_cell(filename)
 
-    with_stage, with_block = detect_with_block_error(
-        frame, lineno, lasti, next_func, cache=cache
-    )
+    # With-block detection needs source parsing, so it is gated on the only
+    # situations where it can match: the frame calls an enter/exit function
+    # next, or it is the last frame (a C-level exit leaves no frame below).
+    # Every other frame is a regular call or a context expression failure.
+    with_stage, with_block = (None, None)
+    if next_func in WITH_ENTER_EXIT_FUNCTIONS or is_last_frame:
+        with_stage, with_block = detect_with_block_error(
+            frame, lineno, lasti, next_func, cache=cache
+        )
     with_block_end = (
         min(with_block["block_end"], lineno + MAX_WITH_BLOCK_CONTEXT_LINES)
-        if with_stage == "exit"
+        if with_stage == "exit" and with_block is not None
         else None
     )
 
@@ -1146,7 +1166,7 @@ def extract_single_frame(
         lines,
     )
 
-    if with_stage is not None:
+    if with_stage is not None and with_block is not None:
         # The error came from the with statement's enter/exit handling, not
         # from the context expression that Python marks: mark the entire
         # statement instead and drop the misleading call caret emphasis.

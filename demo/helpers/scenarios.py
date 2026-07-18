@@ -146,14 +146,16 @@ def withexpr() -> None:
 
 def withenter() -> None:
     """With __enter__ failure: statement marked, the block never runs."""
+    foo = bar = baz = lambda: None
     with acme.EnterRaises() as resource:
-        foo
-        bar
-        baz
+        foo()
+        bar()
+        baz()  # Not shown
 
 def withexit() -> None:
     """With __exit__ failure: block ran, so its full context is shown."""
+    foo = bar = baz = lambda: None
     with acme.ExitRaises() as resource:
-        foo
-        bar
-        baz  # Until end
+        foo()
+        bar()
+        baz()  # To the end

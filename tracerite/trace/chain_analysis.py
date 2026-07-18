@@ -17,6 +17,7 @@ from .core import (
     block_contains_in_except,
     block_contains_in_try,
     block_offset_by,
+    with_block_offset_by,
 )
 
 if TYPE_CHECKING:
@@ -28,6 +29,7 @@ __all__ = [
     "find_try_block_for_except_line",
     "find_matching_try_for_inner_exception",
     "parse_source_for_with_blocks",
+    "parse_source_string_for_with_blocks",
     "find_with_block_for_header_line",
 ]
 
@@ -253,6 +255,73 @@ def parse_source_for_with_blocks(
             result = visitor.with_blocks
     except (SyntaxError, OSError, ValueError) as e:
         logger.debug(f"Failed to parse {filename} for with-block analysis: {e}")
+        result = []
+
+    if _cache is not None:
+        _cache[key] = result
+    return result
+
+
+def dedent_source(source: str) -> tuple[str, int]:
+    """Remove the first line's indent from all lines that share it.
+
+    inspect.getsourcelines keeps the original indentation for nested
+    functions, which does not parse as a standalone module.  Column offsets
+    of parsed nodes must be shifted back by the returned amount.
+    """
+    first_line = next((line for line in source.splitlines() if line.strip()), "")
+    indent = len(first_line) - len(first_line.lstrip(" \t"))
+    if not indent:
+        return source, 0
+    prefix = first_line[:indent]
+    dedented = "".join(
+        line[indent:] if line.startswith(prefix) else line
+        for line in source.splitlines(keepends=True)
+    )
+    return dedented, indent
+
+
+def parse_source_string_for_with_blocks(
+    source: str,
+    start_line: int = 1,
+    *,
+    _cache: dict | None = None,
+) -> list[WithBlock]:
+    """Parse source string and extract with/async-with blocks.
+
+    Args:
+        source: The source code as a string
+        start_line: The line number where this source starts (for offset adjustment)
+        _cache: Optional append-only cache mapping source keys to parsed blocks.
+            Intended for single-call use only; not persisted across calls.
+
+    Returns:
+        List of WithBlock objects found in the source
+    """
+    key = ("with_blocks_string", source, start_line)
+    if _cache is not None and key in _cache:
+        return _cache[key]
+
+    try:
+        if not source:
+            result: list[WithBlock] = []
+        else:
+            dedented, col_offset = dedent_source(source)
+            tree = ast.parse(dedented)
+
+            visitor = WithBlockVisitor()
+            visitor.visit(tree)
+
+            blocks = visitor.with_blocks
+            if start_line != 1 or col_offset:
+                offset = start_line - 1
+                blocks = [
+                    with_block_offset_by(block, offset, col_offset) for block in blocks
+                ]
+
+            result = blocks
+    except (SyntaxError, ValueError) as e:
+        logger.debug(f"Failed to parse source string for with-block analysis: {e}")
         result = []
 
     if _cache is not None:

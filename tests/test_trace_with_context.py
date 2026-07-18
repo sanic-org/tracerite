@@ -19,7 +19,6 @@ marker assignments are the source material under test.
 
 import sys
 import textwrap
-from types import SimpleNamespace
 
 import pytest
 
@@ -342,15 +341,18 @@ class TestWithBlockParsing:
 
     def test_detect_with_block_error_without_lasti(self):
         """C-level fallback without an instruction offset yields no stage."""
+        frame = None
 
         def with_block_holder():
+            nonlocal frame
+            frame = sys._getframe()
             with WithPassthrough():
                 pass
 
-        code = with_block_holder.__code__
-        fake_frame = SimpleNamespace(f_code=code)
+        with_block_holder()
+        code = frame.f_code
         stage, block = detect_with_block_error(
-            fake_frame, code.co_firstlineno + 1, None, None
+            frame, code.co_firstlineno + 3, None, None
         )
         assert stage is None
         assert block is None

@@ -6,7 +6,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .typing import Range, TryExceptBlock
+    from .typing import Range, TryExceptBlock, WithBlock
 
 
 def block_contains_in_try(block: TryExceptBlock, lineno: int) -> bool:
@@ -42,6 +42,27 @@ def block_offset_by(block: TryExceptBlock, offset: int) -> TryExceptBlock:
         "except_end": add(block.get("except_end")),
         "finally_start": add(block.get("finally_start")),
         "finally_end": add(block.get("finally_end")),
+    }
+
+
+def with_block_offset_by(
+    block: WithBlock, offset: int, col_offset: int = 0
+) -> WithBlock:
+    """Return a new with block with all line numbers shifted by *offset*."""
+    return {
+        "header_start": block["header_start"] + offset,
+        "body_start": block["body_start"] + offset,
+        "block_end": block["block_end"] + offset,
+        "items": [
+            {
+                **item,
+                "lfirst": item["lfirst"] + offset,
+                "lfinal": item["lfinal"] + offset,
+                "cbeg": item["cbeg"] + col_offset,
+                "cend": item["cend"] + col_offset,
+            }
+            for item in block["items"]
+        ],
     }
 
 
