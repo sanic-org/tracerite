@@ -980,17 +980,21 @@ def extract_single_frame(
     pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
     notebook_cell = is_notebook_cell(filename)
 
-    full_source, full_source_start = get_full_source(frame, cache=cache)
-    with_stage, with_block = withblock.detect_with_block_error(
-        frame,
-        lineno,
-        frame.f_lasti,
-        next_func,
-        full_source,
-        full_source_start,
-        is_last_frame=is_last_frame,
-        cache=cache,
-    )
+    # With-block detection needs the frame's source, so it runs (and fetches
+    # it) only in the gated cases; other frames fetch source only when kept.
+    with_stage, with_block = (None, None)
+    if next_func in withblock.WITH_ENTER_EXIT_FUNCTIONS or is_last_frame:
+        full_source, full_source_start = get_full_source(frame, cache=cache)
+        with_stage, with_block = withblock.detect_with_block_error(
+            frame,
+            lineno,
+            frame.f_lasti,
+            next_func,
+            full_source,
+            full_source_start,
+            is_last_frame=is_last_frame,
+            cache=cache,
+        )
     with_block_end = withblock.block_context_end(with_stage, with_block, lineno)
 
     lines, start, original_common_indent, except_start = extract_source_lines(
@@ -1008,6 +1012,7 @@ def extract_single_frame(
     if not lines and not is_last_frame:
         if hidden:
             # Still include hidden frames with minimal info for chain analysis
+            full_source, full_source_start = get_full_source(frame, cache=cache)
             return {
                 "id": make_trace_id(),
                 "relevance": "call",
@@ -1019,6 +1024,8 @@ def extract_single_frame(
                 "full_source_start": full_source_start,
             }
         return None
+
+    full_source, full_source_start = get_full_source(frame, cache=cache)
 
     lines, start = trim_source_to_comprehension(lines, lineno, start)
     lines_list = lines.splitlines(keepends=True)
