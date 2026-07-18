@@ -483,3 +483,8 @@ def with_multi_item_exit_fails():
         multi_exit_marker_one = 1
         multi_exit_marker_two = 2
         multi_exit_marker_three = 3
+
+
+def with_multi_item_exit_raises_on_error():
+    with WithPassthrough() as a, ExitRaisesOnError() as b:
+        multi_chained_marker = 1 / 0

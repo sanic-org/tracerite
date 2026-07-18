@@ -34,15 +34,18 @@ from tests.errorcases import (
     with_long_block,
     with_multi_item_enter_fails,
     with_multi_item_exit_fails,
+    with_multi_item_exit_raises_on_error,
     with_multi_item_first_enter_fails,
     with_multiline_enter_fails,
     with_multiline_header,
 )
-from tracerite.trace.chain_analysis import (
-    find_with_block_for_header_line,
-    parse_source_string_for_with_blocks,
+from tracerite.trace.digest import get_full_source
+from tracerite.trace.withblock import (
+    build_with_statement_ranges,
+    detect_with_block_error,
+    find_with_block,
+    find_with_item_expression,
 )
-from tracerite.trace.digest import detect_with_block_error
 
 from .helpers import extract_exception
 
@@ -320,6 +323,21 @@ class TestWithMultipleItems:
             assert not _has_emphasis(frame)
         assert "multi_exit_marker_three = 3" in frame["lines"]
 
+    def test_multi_item_exit_raises_on_error(self):
+        """Exit raising while handling a body error, with several items."""
+        try:
+            with_multi_item_exit_raises_on_error()
+        except RuntimeError as e:
+            info = extract_exception(e)
+
+        frame = _frame_for(info, "with_multi_item_exit_raises_on_error")
+        assert frame["_with_stage"] == "exit"
+        assert "multi_chained_marker = 1 / 0" in frame["lines"]
+        if sys.version_info >= (3, 12):
+            assert _emphasized_text(frame) == "ExitRaisesOnError()"
+        else:
+            assert not _has_emphasis(frame)
+
 
 class TestTaskGroupContext:
     """TaskGroup failures show all tasks created inside the block."""
@@ -371,7 +389,7 @@ class TestTaskGroupContext:
 class TestWithBlockParsing:
     """Unit tests for the AST with-block analysis helpers."""
 
-    def test_parse_and_find_with_blocks(self):
+    def test_find_with_block(self):
         src = textwrap.dedent(
             """\
             with a():
@@ -383,31 +401,75 @@ class TestWithBlockParsing:
                     await y
             """
         )
-        blocks = parse_source_string_for_with_blocks(src)
-        assert len(blocks) == 3
-
-        outer = find_with_block_for_header_line(blocks, 1)
-        assert outer["header_start"] == 1
-        inner = find_with_block_for_header_line(blocks, 2)
-        assert inner["header_start"] == 2
+        assert find_with_block(src, 1, 1)["header_start"] == 1
+        # Innermost block wins
+        assert find_with_block(src, 1, 2)["header_start"] == 2
         # A line inside the block body never matches
-        assert find_with_block_for_header_line(blocks, 3) is None
+        assert find_with_block(src, 1, 3) is None
         # async with headers are found as well
-        assert find_with_block_for_header_line(blocks, 6)["body_start"] == 7
+        assert find_with_block(src, 1, 6)["body_start"] == 7
 
     def test_oneliner_with_never_matches(self):
-        blocks = parse_source_string_for_with_blocks("with a(): pass\n")
-        assert find_with_block_for_header_line(blocks, 1) is None
+        assert find_with_block("with a(): pass\n", 1, 1) is None
 
-    def test_parse_empty_source_returns_empty(self):
-        assert parse_source_string_for_with_blocks("") == []
+    def test_invalid_or_empty_source_returns_none(self):
+        assert find_with_block("", 1, 1) is None
+        assert find_with_block("def broken(:\n", 1, 1) is None
+
+    def test_nested_function_source_is_dedented(self):
+        src = "    def f():\n        with a():\n            x = 1\n"
+        block = find_with_block(src, 10, 11)
+        assert block["header_start"] == 11
+        assert block["items"][0]["cbeg"] == 13
+
+    def test_find_with_item_expression_single_item(self):
+        block = find_with_block("with a() as x:\n    pass\n", 1, 1)
+        assert find_with_item_expression(block, 1, None, None) == block["items"][0]
+
+    def test_find_with_item_expression_multi_item(self):
+        src = "with (\n    a(),\n    b(),\n):\n    x = 1\n"
+        block = find_with_block(src, 1, 2)
+        # lineno identifies a single item
+        assert find_with_item_expression(block, 3, None, None) == block["items"][1]
+        # header line matches no item
+        assert find_with_item_expression(block, 1, None, None) is None
+
+    def test_find_with_item_expression_ambiguous_returns_none(self):
+        block = find_with_block("with a(), b():\n    x = 1\n", 1, 1)
+        # Both items share the line and no failing instruction is given
+        assert find_with_item_expression(block, 1, None, None) is None
+
+    def test_build_with_statement_ranges_without_colon_in_window(self):
+        src = "with (\n    a(),\n    b(),\n):\n    x = 1\n"
+        block = find_with_block(src, 1, 2)
+        # The window does not reach the colon line: clamp to the last line
+        frame_range, mark_range, em_range = build_with_statement_ranges(
+            block, 1, None, None, start=1, total_indent=0, lines="with (\n    a(),\n"
+        )
+        assert mark_range == {"lfirst": 1, "lfinal": 2, "cbeg": 0, "cend": 8}
+        assert frame_range["lfinal"] == 2
+        assert em_range is None
+
+    def test_build_with_statement_ranges_trims_trailing_comment(self):
+        block = find_with_block("with a():  # note\n    x = 1\n", 1, 1)
+        _, mark_range, _ = build_with_statement_ranges(
+            block, 1, None, None, start=1, total_indent=0, lines="with a():  # note\n"
+        )
+        assert mark_range == {"lfirst": 1, "lfinal": 1, "cbeg": 0, "cend": 9}
 
     def test_detect_with_block_error_no_with(self):
-        """Frames not on a with statement header yield no stage."""
-        frame = sys._getframe()
-        stage, block = detect_with_block_error(frame, 1, None, "__enter__")
-        assert stage is None
-        assert block is None
+        """Source without a with statement yields no stage."""
+        assert detect_with_block_error(None, 1, None, "__enter__", "x = 1\n", 1) == (
+            None,
+            None,
+        )
+
+    def test_detect_with_block_error_ungated(self):
+        """Frames failing the gate are not even parsed (performance)."""
+        assert detect_with_block_error(None, 1, None, "func", "with a():\n", 1) == (
+            None,
+            None,
+        )
 
     def test_detect_with_block_error_without_lasti(self):
         """C-level fallback without an instruction offset yields no stage."""
@@ -421,8 +483,15 @@ class TestWithBlockParsing:
 
         with_block_holder()
         code = frame.f_code
+        source, source_start = get_full_source(frame)
         stage, block = detect_with_block_error(
-            frame, code.co_firstlineno + 3, None, None
+            frame,
+            code.co_firstlineno + 3,
+            None,
+            None,
+            source,
+            source_start,
+            is_last_frame=True,
         )
         assert stage is None
         assert block is None

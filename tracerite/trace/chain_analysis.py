@@ -1,8 +1,8 @@
-"""AST-based analysis for exception-chain try-except and with-block matching.
+"""AST-based analysis for exception-chain try-except block matching.
 
-This module provides the pure try-except and with-statement utilities used by
-the pipeline in ``tracerite.trace``.  The chronological-order construction
-itself lives in ``order.py`` so the whole pipeline is visible in one place.
+This module provides the pure try-except utilities used by the pipeline in
+``tracerite.trace``.  The chronological-order construction itself lives in
+``order.py`` so the whole pipeline is visible in one place.
 """
 
 from __future__ import annotations
@@ -17,19 +17,16 @@ from .core import (
     block_contains_in_except,
     block_contains_in_try,
     block_offset_by,
-    with_block_offset_by,
 )
 
 if TYPE_CHECKING:
-    from .typing import TryExceptBlock, WithBlock
+    from .typing import TryExceptBlock
 
 __all__ = [
     "parse_source_for_try_except",
     "parse_source_string_for_try_except",
     "find_try_block_for_except_line",
     "find_matching_try_for_inner_exception",
-    "parse_source_string_for_with_blocks",
-    "find_with_block_for_header_line",
 ]
 
 
@@ -184,121 +181,3 @@ def find_matching_try_for_inner_exception(
         ) and block_contains_in_try(block, inner_first_lineno):
             return block
     return None
-
-
-class WithBlockVisitor(ast.NodeVisitor):
-    """AST visitor that collects all with/async-with statements with their line ranges."""
-
-    def __init__(self):
-        self.with_blocks: list[WithBlock] = []
-
-    def visit_With(self, node: ast.With):
-        self._record(node)
-
-    def visit_AsyncWith(self, node: ast.AsyncWith):
-        self._record(node)
-
-    def _record(self, node):
-        """Record a with statement's header and body line ranges."""
-        if not node.body:  # pragma: no cover
-            return
-        block: WithBlock = {
-            "header_start": node.lineno,
-            "body_start": node.body[0].lineno,
-            "block_end": node.end_lineno or node.body[-1].lineno,
-            "items": [
-                {
-                    "lfirst": item.context_expr.lineno,
-                    "lfinal": item.context_expr.end_lineno or item.context_expr.lineno,
-                    "cbeg": item.context_expr.col_offset,
-                    "cend": item.context_expr.end_col_offset
-                    or item.context_expr.col_offset + 1,
-                }
-                for item in node.items
-            ],
-        }
-        self.with_blocks.append(block)
-        self.generic_visit(node)
-
-
-def dedent_source(source: str) -> tuple[str, int]:
-    """Remove the first line's indent from all lines that share it.
-
-    inspect.getsourcelines keeps the original indentation for nested
-    functions, which does not parse as a standalone module.  Column offsets
-    of parsed nodes must be shifted back by the returned amount.
-    """
-    first_line = next((line for line in source.splitlines() if line.strip()), "")
-    indent = len(first_line) - len(first_line.lstrip(" \t"))
-    if not indent:
-        return source, 0
-    prefix = first_line[:indent]
-    dedented = "".join(
-        line[indent:] if line.startswith(prefix) else line
-        for line in source.splitlines(keepends=True)
-    )
-    return dedented, indent
-
-
-def parse_source_string_for_with_blocks(
-    source: str,
-    start_line: int = 1,
-    *,
-    _cache: dict | None = None,
-) -> list[WithBlock]:
-    """Parse source string and extract with/async-with blocks.
-
-    Args:
-        source: The source code as a string
-        start_line: The line number where this source starts (for offset adjustment)
-        _cache: Optional append-only cache mapping source keys to parsed blocks.
-            Intended for single-call use only; not persisted across calls.
-
-    Returns:
-        List of WithBlock objects found in the source
-    """
-    key = ("with_blocks_string", source, start_line)
-    if _cache is not None and key in _cache:
-        return _cache[key]
-
-    try:
-        if not source:
-            result: list[WithBlock] = []
-        else:
-            dedented, col_offset = dedent_source(source)
-            tree = ast.parse(dedented)
-
-            visitor = WithBlockVisitor()
-            visitor.visit(tree)
-
-            blocks = visitor.with_blocks
-            if start_line != 1 or col_offset:
-                offset = start_line - 1
-                blocks = [
-                    with_block_offset_by(block, offset, col_offset) for block in blocks
-                ]
-
-            result = blocks
-    except (SyntaxError, ValueError) as e:
-        logger.debug(f"Failed to parse source string for with-block analysis: {e}")
-        result = []
-
-    if _cache is not None:
-        _cache[key] = result
-    return result
-
-
-def find_with_block_for_header_line(
-    blocks: list[WithBlock], lineno: int
-) -> WithBlock | None:
-    """Find the innermost with block whose statement header covers the given line.
-
-    Only matches lines within the header itself (up to but excluding the first
-    body line), so a frame stopped inside the block body never matches.
-    """
-    matching = [b for b in blocks if b["header_start"] <= lineno < b["body_start"]]
-    if not matching:
-        return None
-    return min(
-        matching, key=lambda b: (b["block_end"] - b["header_start"], -b["header_start"])
-    )

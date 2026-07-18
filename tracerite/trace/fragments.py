@@ -166,62 +166,6 @@ def build_frame_ranges(
     return frame_range, mark_range
 
 
-def find_statement_end_line(lines_list, first_idx):
-    """Return the 0-based index of the line where a compound statement header ends.
-
-    Scans for the line whose code part ends with a colon at zero bracket
-    depth, or None if not found within the available lines.
-    """
-    scanner = CodeScanner()
-    for idx in range(first_idx, len(lines_list)):
-        line, _ = split_line_content(lines_list[idx])
-        scanner.process(line)
-        comment_start = find_comment_start(line)
-        code = line[:comment_start] if comment_start is not None else line
-        if scanner.in_code_context and code.rstrip().endswith(":"):
-            return idx
-    return None
-
-
-def build_with_statement_ranges(header_start, body_start, start, total_indent, lines):
-    """Build frame/mark ranges covering an entire with statement header.
-
-    Used instead of Python's expression-level range when a with block's enter
-    or exit handling failed: the whole statement is marked, not just the
-    context expression that the caret positions point at.
-    """
-    lines_list = lines.splitlines(keepends=True)
-    first_idx = max(0, header_start - start)
-    last_idx = find_statement_end_line(lines_list, first_idx)
-    if last_idx is None:
-        # Header end not visible in the window; clamp to the line before the body
-        last_idx = min(len(lines_list) - 1, body_start - 1 - start)
-
-    first_line, _ = split_line_content(lines_list[first_idx])
-    cbeg = len(first_line) - len(first_line.lstrip())
-    last_line, _ = split_line_content(lines_list[last_idx])
-    comment_start = find_comment_start(last_line)
-    if comment_start is not None:
-        last_line = last_line[:comment_start]
-    cend = len(last_line.rstrip())
-    if first_idx == last_idx and cend <= cbeg:
-        cend = cbeg + 1
-
-    frame_range = {
-        "lfirst": start + first_idx,
-        "lfinal": start + last_idx,
-        "cbeg": cbeg + total_indent,
-        "cend": cend + total_indent,
-    }
-    mark_range = {
-        "lfirst": first_idx + 1,
-        "lfinal": last_idx + 1,
-        "cbeg": cbeg,
-        "cend": cend,
-    }
-    return frame_range, mark_range
-
-
 def make_trace_id() -> str:
     """Generate a short unique identifier for a traceback frame."""
     return f"tb-{token_urlsafe(12)}"
