@@ -176,6 +176,10 @@ def create_composite():
         padding=10,
     )
 
+    canvas.save(OUTPUT_FILE, "WEBP", quality=90)
+    print(f"\nCreated {OUTPUT_FILE}")
+    print(f"  Output: {canvas.width}x{canvas.height}")
+
 
 def create_with_handling():
     """Create the with-handling composite (enter failure left, exit failure right).
