@@ -3390,6 +3390,20 @@ class TestWrapText:
         """Whitespace-only input is returned unchanged."""
         assert _wrap_text("   ", 10) == ["   "]
 
+    def test_display_width_zero_width_characters(self):
+        """Variation selectors and combining marks count as zero columns."""
+        assert _display_width("⚠️") == 1  # U+26A0 + U+FE0F
+        assert _display_width("🛑") == 2  # U+1F6D1 wide
+        assert _display_width("➤") == 1  # U+27A4 neutral
+        assert _display_width("e\u0301") == 1  # e + combining acute
+
+    def test_symbols_have_uniform_display_width(self):
+        """Suffix-rendered symbols all occupy 2 columns after padding."""
+        from tracerite.trace.core import symbols
+
+        for relevance in ("warning", "except", "error", "stop"):
+            assert _display_width(symbols[relevance]) == 2
+
 
 class TestTTYCoverage:
     """Edge-case tests that previously lacked coverage."""

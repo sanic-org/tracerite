@@ -1102,6 +1102,6 @@ def extract_single_frame(
     if with_stage is not None:
         # Symbol description rendered after the stop emoji, telling apart
         # with block enter and exit failures.
-        result["symbol_desc"] = f"{with_stage.capitalize()}ing with block"
+        result["symbol_desc"] = f"{with_stage.capitalize()}ing"
 
     return result

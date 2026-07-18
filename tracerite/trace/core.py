@@ -98,8 +98,10 @@ symdesc = {
     "stop": "",
 }
 
-# Symbols for each frame relevance type
-symbols = {"call": "➤", "warning": "⚠️", "error": "💣", "stop": "🛑", "except": "⚠️"}
+# Symbols for each frame relevance type.  Narrow (1ch wide) emoji are padded
+# with a trailing space to the 2ch width of the others, so that format
+# strings can use a single space after any symbol.
+symbols = {"call": "➤", "warning": "⚠️ ", "error": "💣", "stop": "🛑", "except": "⚠️ "}
 
 # Fixed membership sets used throughout the pipeline
 TRIPLE_QUOTES = frozenset(('"""', "'''"))

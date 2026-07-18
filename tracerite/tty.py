@@ -130,7 +130,14 @@ _TOKEN_RE = re.compile(r"\x1b\[[0-9;:]*[A-Za-z]|.", re.DOTALL)
 def _display_width(s: str) -> int:
     """Calculate the display width of a string in terminal columns."""
     plain = ANSI_ESCAPE_RE.sub("", s)
-    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in plain)
+    return sum(
+        2
+        if unicodedata.east_asian_width(c) in "WF"
+        else 0
+        if unicodedata.category(c) in ("Mn", "Me", "Cf")
+        else 1
+        for c in plain
+    )
 
 
 _LINE_PREFIX_WIDTH = _display_width(LINE_PREFIX)
@@ -739,7 +746,7 @@ def _build_chrono_frame_lines(
     single_marked = len(info["marked_lines"]) == 1
 
     raw_lines: list[tuple[str, bool, bool]] = []
-    symbol_suffix = f"{symbol_colored}  {SYMBOLDESC}{desc}{RESET}" if symbol else ""
+    symbol_suffix = f"{symbol_colored} {SYMBOLDESC}{desc}{RESET}" if symbol else ""
 
     if not fragments:
         # Show "(no source code)" with the symbol emoji like a code line would have

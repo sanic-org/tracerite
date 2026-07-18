@@ -110,7 +110,7 @@ class TestWithExitFailure:
         frame = _frame_for(info, "with_exit_raises")
         assert _marked_text(frame) == "with ExitRaises() as cm:"
         assert _emphasized_text(frame) == "ExitRaises()"
-        assert frame["symbol_desc"] == "Exiting with block"
+        assert frame["symbol_desc"] == "Exiting"
 
     def test_exit_failure_relevance_and_trace_continue(self):
         """With frame is stop, and the trace continues to the __exit__ error."""
@@ -205,7 +205,7 @@ class TestWithEnterFailure:
         frame = _frame_for(info, "with_enter_raises")
         assert _marked_text(frame) == "with EnterRaises() as cm:"
         assert _emphasized_text(frame) == "EnterRaises()"
-        assert frame["symbol_desc"] == "Entering with block"
+        assert frame["symbol_desc"] == "Entering"
 
     def test_enter_failure_relevance_and_trace_continue(self):
         """With frame is stop, and the trace continues to the __enter__ error."""
