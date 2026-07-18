@@ -97,7 +97,7 @@ async def run_concurrent_tasks() -> None:
             tg.create_task(failsoon())
             tg.create_task(jsoncrash())
             tg.create_task(zerocrash())
-    except* json.JSONDecodeError:
+    except json.JSONDecodeError:
         # Consume the JSON decode error; the remaining sub-exceptions propagate.
         pass
 
