@@ -106,22 +106,18 @@ async def run_concurrent_tasks() -> None:
 # With statement enter/exit failures
 # ---------------------------------------------------------------------------
 
-
-class EnterRaises:
-    """Context manager whose __enter__ fails before the block runs."""
-
+class NoOp:
     def __enter__(self):
-        raise RuntimeError("Could not acquire the resource")
+        return self
 
     def __exit__(self, *exc):
         return False
 
-
-class ExitRaises:
-    """Context manager whose __exit__ fails after the block has run."""
-
+class EnterRaises(NoOp):
     def __enter__(self):
-        return self
+        raise RuntimeError("Could not acquire the resource")
 
+
+class ExitRaises(NoOp):
     def __exit__(self, *exc):
         raise RuntimeError("Could not release the resource")

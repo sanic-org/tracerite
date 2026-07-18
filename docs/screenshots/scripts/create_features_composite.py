@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Create a composite of remaining screenshots: syntax, compact-tty, numpy.
-
-The output is fixed to the same crisp width used by the other README composites.
-"""
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "pillow>=12.3.0",
+# ]
+# ///
+"""Create README composites: the features grid and the with-handling comparison."""
 
 from pathlib import Path
 
@@ -173,10 +176,48 @@ def create_composite():
         padding=10,
     )
 
-    canvas.save(OUTPUT_FILE, "WEBP", quality=90)
-    print(f"\nCreated {OUTPUT_FILE}")
-    print(f"  Output: {canvas.width}x{canvas.height}")
+
+def create_with_handling():
+    """Create the with-handling composite (enter failure left, exit failure right).
+
+    Both source images are already stored as WEBP in the screenshots directory.
+    Each half is sized to the wider source, separated by black padding, and the
+    combined canvas is scaled to the same width as the other README composites.
+    """
+    output_file = SCREENSHOTS_DIR / "with-handling.webp"
+
+    enter_src = Image.open(SCREENSHOTS_DIR / "with-entering.webp")
+    exit_src = Image.open(SCREENSHOTS_DIR / "with-exiting.webp")
+
+    print(f"\n  with-entering source: {enter_src.width}x{enter_src.height}")
+    print(f"  with-exiting source: {exit_src.width}x{exit_src.height}")
+
+    # Keep each source image at its original size. The left/new image is the
+    # widest, so each half is sized to match it.
+    half_width = max(enter_src.width, exit_src.width)
+    gap = 40  # black padding between the two halves
+
+    combined_width = half_width + gap + half_width
+    combined_height = max(enter_src.height, exit_src.height)
+
+    combined = Image.new("RGBA", (combined_width, combined_height), (0, 0, 0, 255))
+    combined.paste(enter_src, (0, 0))
+    combined.paste(exit_src, (half_width + gap, 0))
+
+    # Scale the combined canvas to the same width as the other composites.
+    final_width = FIXED_WIDTH
+    final_height = round(combined_height * (final_width / combined_width))
+    final = combined.resize((final_width, final_height), Image.Resampling.LANCZOS)
+
+    final.save(output_file, "WEBP", quality=90)
+    print(f"\nCreated {output_file}")
+    print(f"  Output: {final.width}x{final.height}")
+
+
+def main() -> None:
+    create_composite()
+    create_with_handling()
 
 
 if __name__ == "__main__":
-    create_composite()
+    main()

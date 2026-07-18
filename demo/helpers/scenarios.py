@@ -147,7 +147,7 @@ def withexpr() -> None:
 def withenter() -> None:
     """With __enter__ failure: statement marked, the block never runs."""
     foo = bar = baz = lambda: None
-    with acme.EnterRaises() as resource:
+    with acme.NoOp() as noop, acme.EnterRaises() as resource:
         foo()
         bar()
         baz()  # Not shown
@@ -155,7 +155,7 @@ def withenter() -> None:
 def withexit() -> None:
     """With __exit__ failure: block ran, so its full context is shown."""
     foo = bar = baz = lambda: None
-    with acme.ExitRaises() as resource:
+    with acme.ExitRaises() as resource, acme.NoOp() as noop:
         foo()
         bar()
         baz()  # To the end
