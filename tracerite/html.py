@@ -359,7 +359,7 @@ def _traceback_detail_chrono(doc: Any, frinfo: FrameInfo) -> None:
     fragments = frinfo["fragments"]
     relevance = frinfo["relevance"]
     symbol = symbols.get(relevance, "")
-    desc = symdesc.get(relevance, "")
+    desc = frinfo.get("symbol_desc") or symdesc.get(relevance, "")
     symbol_text = f"{symbol} {desc}" if desc else symbol
 
     if not fragments:

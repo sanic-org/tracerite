@@ -38,7 +38,7 @@ async def inspector(request):
         Foo(),
         Bar(),
         divisor=0,
-        multiplier=5,
+        multiplier=-5,
     )
 
 @app.get("/numpy")
@@ -137,6 +137,30 @@ async def longmsg(request):
 async def concurrent(request):
     """Async tasks failing in parallel, except* handling."""
     await acme.run_concurrent_tasks()
+
+@app.get("/withexpr")
+async def withexpr(request):
+    """With block not entered: the initialising expression fails."""
+    with open("nonexistent/config.json") as f:
+        config = f.read()
+
+@app.get("/withenter")
+async def withenter(request):
+    """With __enter__ failure: statement marked, the block never runs."""
+    foo = bar = baz = lambda: None
+    with acme.NoOp() as noop, acme.EnterRaises() as resource:
+        foo()
+        bar()
+        baz()
+
+@app.get("/withexit")
+async def withexit(request):
+    """With __exit__ failure: block ran, so its full context is shown."""
+    foo = bar = baz = lambda: None
+    with acme.ExitRaises() as resource, acme.NoOp() as noop:
+        foo()
+        bar()
+        baz()
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 from tracerite.logging import logger
 
-from . import trace_cpy
+from . import trace_cpy, withblock
 from .chain_analysis import (
     find_try_block_for_except_line,
     parse_source_for_try_except,
@@ -287,6 +287,7 @@ def extract_source_lines(
     *,
     notebook_cell=False,
     except_block=False,
+    with_block_end=None,
     cache: dict | None = None,
 ):
     try:
@@ -298,7 +299,13 @@ def extract_source_lines(
         )
 
         lines, start = slice_source_context(
-            lines, start, lineno, end_lineno, notebook_cell, except_start
+            lines,
+            start,
+            lineno,
+            end_lineno,
+            notebook_cell,
+            except_start,
+            with_block_end,
         )
 
         error_idx, end_idx = _error_indices(lineno, end_lineno, start)
@@ -334,7 +341,9 @@ def _get_source_from_frame(frame, *, cache: dict | None = None):
     return lines, start
 
 
-def slice_source_context(lines, start, lineno, end_lineno, notebook_cell, except_start):
+def slice_source_context(
+    lines, start, lineno, end_lineno, notebook_cell, except_start, with_block_end=None
+):
     """Slice source lines to the desired context window around the error."""
     if notebook_cell:
         if except_start is not None and except_start >= start:
@@ -345,6 +354,11 @@ def slice_source_context(lines, start, lineno, end_lineno, notebook_cell, except
     else:
         lines_before = 10
         lines_after = (end_lineno - lineno + 2) if end_lineno else 2
+    if with_block_end is not None:
+        # The error occurred when exiting an already-entered with block:
+        # show the block body that ran (e.g. all tasks created in a TaskGroup
+        # block), limited to the block itself (capped by the caller).
+        lines_after = with_block_end - lineno
 
     slice_start = max(0, lineno - start - lines_before)
     slice_end = max(0, lineno - start + lines_after + 1)
@@ -908,7 +922,7 @@ def digest_frames(
     position_map = build_position_map(raw_tb)
 
     frames = []
-    for frame, filename, lineno, function, codeline, _ in tb:
+    for frame_idx, (frame, filename, lineno, function, codeline, _) in enumerate(tb):
         hide = frame.f_globals.get("__tracebackhide__") or frame.f_locals.get(
             "__tracebackhide__"
         )
@@ -923,6 +937,10 @@ def digest_frames(
 
         frame_positions = position_map.get(frame)
         pos = frame_positions.popleft() if frame_positions else [None] * 4
+        # The frame called next, if any (used to detect with-block enter/exit)
+        next_func = (
+            tb[frame_idx + 1][0].f_code.co_name if frame_idx + 1 < len(tb) else None
+        )
 
         is_last_frame = frame is tb[-1][0]
         frame_info = extract_single_frame(
@@ -934,6 +952,7 @@ def digest_frames(
             pos,
             hidden,
             is_last_frame,
+            next_func=next_func,
             except_block=except_block,
             cache=cache,
         )
@@ -953,6 +972,7 @@ def extract_single_frame(
     hidden,
     is_last_frame,
     *,
+    next_func=None,
     except_block=False,
     cache: dict | None = None,
 ) -> FrameInfo | None:
@@ -960,12 +980,32 @@ def extract_single_frame(
     pos_end_lineno, start_col, end_col = pos[1], pos[2], pos[3]
     notebook_cell = is_notebook_cell(filename)
 
+    # With-block detection needs the frame's source, so it runs (and fetches
+    # it) only in the gated cases; other frames fetch source only when kept.
+    with_stage, with_block = (None, None)
+    if next_func in withblock.WITH_ENTER_EXIT_FUNCTIONS or is_last_frame:
+        full_source, full_source_start = get_full_source(frame, cache=cache)
+        with_stage, with_block = withblock.detect_with_block_error(
+            frame,
+            lineno,
+            frame.f_lasti,
+            next_func,
+            full_source,
+            full_source_start,
+            is_last_frame=is_last_frame,
+            cache=cache,
+        )
+    with_block_end = withblock.block_context_end(with_stage, with_block, lineno)
+
     lines, start, original_common_indent, except_start = extract_source_lines(
         frame,
         lineno,
-        pos_end_lineno,
+        # Enter failure never gets block context (the block never ran), even
+        # when Python's positions span the whole block (3.11).
+        None if with_stage == "enter" else pos_end_lineno,
         notebook_cell=notebook_cell,
         except_block=except_block,
+        with_block_end=with_block_end,
         cache=cache,
     )
 
@@ -999,25 +1039,32 @@ def extract_single_frame(
     error_line_in_context = lineno - start + 1
     end_line = pos_end_lineno - start + 1 if pos_end_lineno else None
 
-    frame_range, mark_range = build_frame_ranges(
-        lineno,
-        pos_end_lineno,
-        error_line_in_context,
-        end_line,
-        start_col,
-        end_col,
-        total_indent,
-        lines,
-    )
-
-    em_range = extract_emphasis_columns(
-        lines,
-        error_line_in_context,
-        end_line,
-        mark_range["cbeg"] if mark_range else None,
-        mark_range["cend"] if mark_range else None,
-        start,
-    )
+    if with_block is not None:
+        # The error came from the with statement's enter/exit handling, not
+        # from the context expression that Python marks: mark the entire
+        # statement instead and drop the misleading call caret emphasis.
+        frame_range, mark_range, em_range = withblock.build_with_statement_ranges(
+            with_block, lineno, frame.f_code, frame.f_lasti, start, total_indent, lines
+        )
+    else:
+        frame_range, mark_range = build_frame_ranges(
+            lineno,
+            pos_end_lineno,
+            error_line_in_context,
+            end_line,
+            start_col,
+            end_col,
+            total_indent,
+            lines,
+        )
+        em_range = extract_emphasis_columns(
+            lines,
+            error_line_in_context,
+            end_line,
+            mark_range["cbeg"] if mark_range else None,
+            mark_range["cend"] if mark_range else None,
+            start,
+        )
     fragments = parse_lines_to_fragments(lines, mark_range, em_range)
 
     cursor_line, cursor_col = compute_cursor_position(
@@ -1057,6 +1104,11 @@ def extract_single_frame(
         "full_source": full_source,
         "full_source_start": full_source_start,
         "_except_start": except_start,
+        "_with_stage": with_stage,
     }
+    if with_stage is not None:
+        # Symbol description rendered after the stop emoji, telling apart
+        # with block enter and exit failures.
+        result["symbol_desc"] = f"{with_stage.capitalize()}ing"
 
     return result

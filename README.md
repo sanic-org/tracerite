@@ -53,8 +53,17 @@ Comes with TraceRite built in. HTML reports are available in debug mode, and con
 
 ## Clarity in complex situations
 
+### What you see is always in the order it was executed
+
 ![Exception chain comparison](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/chain-comparison.webp)
 *TraceRite renders complex exception chains in chronological order (left). The Python 3.15 built in traceback needs illustrative arrows to follow execution (right).*
+
+### Context manager enter/exit
+
+When a `with` or `async with` fails, the built in handling of Python 3.11 marks the whole block, and 3.12.9+ marks the initializing expression like it was the culprit (e.g. function call marked incorrectly). We bypass that logic and differentiate between (1) the expression failing, (2) entering and (3) exiting the block.
+
+![Context manager failure](https://raw.githubusercontent.com/sanic-org/tracerite/main/docs/screenshots/with-handling.webp)
+*In cases 2 (left) and 3 (right) we mark the whole with statement but not the block, and emphasize the expression responsible (helpful when there are more than one). In case 3 we include the executed block body in context shown (up to 20 lines).*
 
 ## Features
 

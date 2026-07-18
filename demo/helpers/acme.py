@@ -100,3 +100,24 @@ async def run_concurrent_tasks() -> None:
     except* json.JSONDecodeError:
         # Consume the JSON decode error; the remaining sub-exceptions propagate.
         pass
+
+
+# ---------------------------------------------------------------------------
+# With statement enter/exit failures
+# ---------------------------------------------------------------------------
+
+class NoOp:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+class EnterRaises(NoOp):
+    def __enter__(self):
+        raise RuntimeError("Could not acquire the resource")
+
+
+class ExitRaises(NoOp):
+    def __exit__(self, *exc):
+        raise RuntimeError("Could not release the resource")

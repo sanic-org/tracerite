@@ -1507,6 +1507,7 @@ class TestFallbackMarkRange:
             *,
             notebook_cell=False,
             except_block=False,
+            with_block_end=None,
             cache=None,
         ):
             # Start source after the error line so error_line_in_context becomes 0

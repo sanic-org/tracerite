@@ -206,6 +206,7 @@ def coverage(session):
         "-s",
         "lint",
         "cov-clean",
+        "test-3.11",
         "test-3.14",
         "cov-combine",
         external=True,

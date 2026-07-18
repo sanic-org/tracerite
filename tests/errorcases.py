@@ -321,3 +321,181 @@ def deeply_nested_chain_with_calls():
             _handle_and_divide_by_zero()
     except ZeroDivisionError:
         raise  # Re-raise so caller can catch it
+
+
+# ---------------------------------------------------------------------------
+# With-block enter/exit failures (context extension and statement marking)
+# ---------------------------------------------------------------------------
+
+
+class ExitRaises:
+    """Context manager whose __exit__ always raises."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        raise RuntimeError("exit cleanup failed")
+
+
+class EnterRaises:
+    """Context manager whose __enter__ always raises."""
+
+    def __enter__(self):
+        raise RuntimeError("enter failed")
+
+    def __exit__(self, *exc):
+        return False
+
+
+class WithPassthrough:
+    """Context manager that lets body exceptions propagate."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class ExitRaisesOnError:
+    """Context manager that raises a new error while handling a body error."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, *rest):
+        if exc_type:
+            raise RuntimeError("exit raised while handling")
+        return False
+
+
+def with_exit_raises():
+    with ExitRaises() as cm:
+        exit_marker_one = 1
+        exit_marker_two = 2
+        exit_marker_three = 3
+
+
+def with_enter_raises():
+    with EnterRaises() as cm:
+        enter_marker_one = 1
+        enter_marker_two = 2
+        enter_marker_three = 3
+
+
+def with_expression_raises():
+    with open("/nonexistent/path/file.txt") as f:
+        expr_marker_one = 1
+        expr_marker_two = 2
+        expr_marker_three = 3
+
+
+def with_body_raises():
+    with WithPassthrough():
+        body_marker = 1 / 0
+
+
+def with_exit_raises_on_error():
+    with ExitRaisesOnError() as cm:
+        chained_marker_one = 1
+        chained_marker_two = 2
+        chained_marker_three = 3
+        1 / 0
+
+
+def with_c_level_exit_raises():
+    import threading
+
+    lock = threading.Lock()
+    with lock:
+        c_marker_one = 1
+        c_marker_two = 2
+        c_marker_three = 3
+        lock.release()  # Succeeds; the second release in __exit__ raises
+
+
+def with_multiline_header():
+    with (
+        WithPassthrough() as a,
+        ExitRaises() as b,
+    ):
+        multi_marker_one = 1
+        multi_marker_two = 2
+        multi_marker_three = 3
+
+
+def with_long_block():
+    with ExitRaises():
+        long_line_01 = 1
+        long_line_02 = 2
+        long_line_03 = 3
+        long_line_04 = 4
+        long_line_05 = 5
+        long_line_06 = 6
+        long_line_07 = 7
+        long_line_08 = 8
+        long_line_09 = 9
+        long_line_10 = 10
+        long_line_11 = 11
+        long_line_12 = 12
+        long_line_13 = 13
+        long_line_14 = 14
+        long_line_15 = 15
+        long_line_16 = 16
+        long_line_17 = 17
+        long_line_18 = 18
+        long_line_19 = 19
+        long_line_20 = 20
+        long_line_21 = 21
+        long_line_22 = 22
+        long_line_23 = 23
+        long_line_24 = 24
+        long_line_25 = 25
+
+
+def with_multi_item_enter_fails():
+    with WithPassthrough() as a, EnterRaises() as b:
+        multi_enter_marker_one = 1
+        multi_enter_marker_two = 2
+        multi_enter_marker_three = 3
+
+
+def with_multi_item_first_enter_fails():
+    with EnterRaises() as a, WithPassthrough() as b:
+        first_enter_marker_one = 1
+        first_enter_marker_two = 2
+        first_enter_marker_three = 3
+
+
+def with_multiline_enter_fails():
+    with (
+        WithPassthrough() as a,
+        EnterRaises() as b,
+    ):
+        ml_enter_marker_one = 1
+        ml_enter_marker_two = 2
+        ml_enter_marker_three = 3
+
+
+def with_multi_item_exit_fails():
+    with WithPassthrough() as a, ExitRaises() as b:
+        multi_exit_marker_one = 1
+        multi_exit_marker_two = 2
+        multi_exit_marker_three = 3
+
+
+def with_multi_item_exit_raises_on_error():
+    with WithPassthrough() as a, ExitRaisesOnError() as b:
+        multi_chained_marker = 1 / 0
+
+
+def make_exit_raises(a, b, c):
+    """Factory with three args returning an ExitRaises context manager."""
+    return ExitRaises()
+
+
+def with_multi_item_arg3_exit_fails():
+    with WithPassthrough() as a, make_exit_raises(1, 2, 3) as b:
+        arg3_marker_one = 1
+        arg3_marker_two = 2
