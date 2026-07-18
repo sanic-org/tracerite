@@ -38,6 +38,7 @@ class WithBlock(TypedDict):
     header_start: int  # First line of the with statement header
     body_start: int  # First line of the block body
     block_end: int  # Last line of the block body
+    items: list[Range]  # Source spans of the context expressions
 
 
 class ChainLink(TypedDict, total=False):

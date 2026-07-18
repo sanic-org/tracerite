@@ -29,7 +29,7 @@ from .core import (
 )
 
 if TYPE_CHECKING:
-    from .typing import ExcChain, ExceptionInfo, FrameInfo, RawChain
+    from .typing import ExcChain, ExceptionInfo, FrameInfo, Range, RawChain
 from .fragments import (
     build_frame_ranges,
     build_with_statement_ranges,
@@ -338,6 +338,34 @@ def _first_offset_at_or_after_line(code, lineno: int) -> int | None:
     return min(offsets, default=None)
 
 
+def _line_of_offset(code, offset: int) -> int | None:
+    """Return the source line of the instruction at the given offset."""
+    for ins in dis.get_instructions(code):
+        if ins.offset == offset:
+            pos = getattr(ins, "positions", None)
+            return pos.lineno if pos else None
+    return None
+
+
+def find_with_item_expression(block, lineno, code, lasti):
+    """Find the context expression range of the with item that failed.
+
+    Prefers the item whose expression span contains the frame's line.  When
+    the line points at the header start (Python 3.11 marks the whole block),
+    the failing instruction's own line is used to locate the item instead.
+    """
+    items = block["items"]
+    for item in items:
+        if item["lfirst"] <= lineno <= item["lfinal"]:
+            return item
+    item_line = _line_of_offset(code, lasti) if lasti is not None else None
+    if item_line is not None:
+        for item in items:
+            if item["lfirst"] <= item_line <= item["lfinal"]:
+                return item
+    return items[0] if items else None
+
+
 def extract_source_lines(
     frame,
     lineno,
@@ -414,9 +442,9 @@ def slice_source_context(
         lines_after = (end_lineno - lineno + 2) if end_lineno else 2
     if with_block_end is not None:
         # The error occurred when exiting an already-entered with block:
-        # extend the window to cover the block body that ran (e.g. all tasks
-        # created in a TaskGroup block), not just the usual two lines.
-        lines_after = max(lines_after, with_block_end - lineno)
+        # show the block body that ran (e.g. all tasks created in a TaskGroup
+        # block), limited to the block itself (capped by the caller).
+        lines_after = with_block_end - lineno
 
     slice_start = max(0, lineno - start - lines_before)
     slice_end = max(0, lineno - start + lines_after + 1)
@@ -1068,7 +1096,9 @@ def extract_single_frame(
     lines, start, original_common_indent, except_start = extract_source_lines(
         frame,
         lineno,
-        pos_end_lineno,
+        # Enter failure never gets block context (the block never ran), even
+        # when Python's positions span the whole block (3.11).
+        None if with_stage == "enter" else pos_end_lineno,
         notebook_cell=notebook_cell,
         except_block=except_block,
         with_block_end=with_block_end,
@@ -1120,10 +1150,6 @@ def extract_single_frame(
         # The error came from the with statement's enter/exit handling, not
         # from the context expression that Python marks: mark the entire
         # statement instead and drop the misleading call caret emphasis.
-        # Enter failure is the exception: the __enter__ call on the context
-        # expression failed, so keep the expression itself emphasized within
-        # the fully marked statement.
-        expression_range = mark_range
         frame_range, mark_range = build_with_statement_ranges(
             with_block["header_start"],
             with_block["body_start"],
@@ -1131,7 +1157,20 @@ def extract_single_frame(
             total_indent,
             lines,
         )
-        em_range = expression_range if with_stage == "enter" else None
+        # Enter failure: the __enter__ call on the context expression failed,
+        # so emphasize that expression within the fully marked statement.
+        # The expression span comes from the AST because Python's own mark
+        # covers the whole block on 3.11.
+        em_range: Range | None = None
+        if with_stage == "enter":
+            item = find_with_item_expression(with_block, lineno, frame.f_code, lasti)
+            if item:
+                em_range = {
+                    "lfirst": max(1, item["lfirst"] - start + 1),
+                    "lfinal": max(1, item["lfinal"] - start + 1),
+                    "cbeg": max(0, item["cbeg"] - total_indent),
+                    "cend": max(0, item["cend"] - total_indent),
+                }
     else:
         em_range = extract_emphasis_columns(
             lines,

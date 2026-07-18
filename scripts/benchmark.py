@@ -54,6 +54,9 @@ BENCHMARK_KEYS = {
     "callback",
     "comprehension",
     "concurrent",
+    "withexpr",
+    "withenter",
+    "withexit",
 }
 
 SCENARIOS: dict[str, tuple[str, Callable[[], BaseException]]] = {

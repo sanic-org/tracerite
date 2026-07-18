@@ -205,6 +205,16 @@ class WithBlockVisitor(ast.NodeVisitor):
             "header_start": node.lineno,
             "body_start": node.body[0].lineno,
             "block_end": node.end_lineno or node.body[-1].lineno,
+            "items": [
+                {
+                    "lfirst": item.context_expr.lineno,
+                    "lfinal": item.context_expr.end_lineno or item.context_expr.lineno,
+                    "cbeg": item.context_expr.col_offset,
+                    "cend": item.context_expr.end_col_offset
+                    or item.context_expr.col_offset + 1,
+                }
+                for item in node.items
+            ],
         }
         self.with_blocks.append(block)
         self.generic_visit(node)
