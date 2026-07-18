@@ -167,15 +167,17 @@ def find_with_item_expression(block, lineno, code, lasti):
 
     A single item is identified trivially.  With multiple comma-separated
     items (which may share a line), the failing instruction identifies the
-    item: on 3.12+ its position is the failing item's own span, on 3.11 it
-    is the Nth enter call of the header for the Nth item.  Returns None
-    rather than guessing when the item cannot be identified.
+    item: its position is the failing item's own span on newer CPython,
+    while on older versions the Nth enter call belongs to the Nth item and
+    the Nth exit call to the Nth item in reverse (exits run innermost
+    first).  Returns None rather than guessing when the item cannot be
+    identified.
     """
     items = block["items"]
     if len(items) == 1:
         return items[0]
     if lasti is not None:
-        enter_offsets = []
+        enter_offsets, exit_calls, wes_offsets = [], [], []
         for ins in dis.get_instructions(code):
             pos = getattr(ins, "positions", None)
             if pos is None or pos.lineno is None:
@@ -194,14 +196,27 @@ def find_with_item_expression(block, lineno, code, lasti):
                         )
                     ):
                         return item
-            if (
-                ins.opname == "BEFORE_WITH"
-                or (ins.opname == "LOAD_SPECIAL" and ins.argval == "__enter__")
-            ) and block["header_start"] <= pos.lineno < block["body_start"]:
+            if not block["header_start"] <= pos.lineno < block["body_start"]:
+                continue
+            if ins.opname == "BEFORE_WITH" or (
+                ins.opname == "LOAD_SPECIAL" and ins.argval == "__enter__"
+            ):
                 enter_offsets.append(ins.offset)
+            elif ins.opname == "WITH_EXCEPT_START":
+                wes_offsets.append(ins.offset)
+            elif ins.opname == "CALL" and ins.argval in (2, 3):
+                exit_calls.append(ins.offset)
         if lasti in enter_offsets:
             # The Nth enter call of the header belongs to the Nth item
             return items[min(enter_offsets.index(lasti), len(items) - 1)]
+        # Only calls after the last enter can be exits (item expressions may
+        # themselves be calls); the first exit call belongs to the last item.
+        last_enter = enter_offsets[-1] if enter_offsets else -1
+        for offsets in (exit_calls, wes_offsets):
+            offsets = [o for o in offsets if o > last_enter]
+            if lasti in offsets:
+                index = min(offsets.index(lasti), len(items) - 1)
+                return items[len(items) - 1 - index]
     matching = [item for item in items if item["lfirst"] <= lineno <= item["lfinal"]]
     return matching[0] if len(matching) == 1 else None
 

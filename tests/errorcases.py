@@ -488,3 +488,14 @@ def with_multi_item_exit_fails():
 def with_multi_item_exit_raises_on_error():
     with WithPassthrough() as a, ExitRaisesOnError() as b:
         multi_chained_marker = 1 / 0
+
+
+def make_exit_raises(a, b, c):
+    """Factory with three args returning an ExitRaises context manager."""
+    return ExitRaises()
+
+
+def with_multi_item_arg3_exit_fails():
+    with WithPassthrough() as a, make_exit_raises(1, 2, 3) as b:
+        arg3_marker_one = 1
+        arg3_marker_two = 2

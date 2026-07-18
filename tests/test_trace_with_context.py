@@ -18,6 +18,7 @@ The scenario functions live in errorcases.py (lint-exempt) because their
 marker assignments are the source material under test.
 """
 
+import inspect
 import sys
 import textwrap
 
@@ -32,6 +33,7 @@ from tests.errorcases import (
     with_exit_raises_on_error,
     with_expression_raises,
     with_long_block,
+    with_multi_item_arg3_exit_fails,
     with_multi_item_enter_fails,
     with_multi_item_exit_fails,
     with_multi_item_exit_raises_on_error,
@@ -160,12 +162,7 @@ class TestWithExitFailure:
         assert marked.startswith("with (")
         assert marked.endswith("):")
         assert "ExitRaises() as b," in marked
-        if sys.version_info >= (3, 12):
-            # 3.12+ positions identify the failing item; 3.11 marks the
-            # whole statement, so no item is emphasized there.
-            assert _emphasized_text(frame) == "ExitRaises()"
-        else:
-            assert not _has_emphasis(frame)
+        assert _emphasized_text(frame) == "ExitRaises()"
         assert "multi_marker_three = 3" in frame["lines"]
 
     def test_context_capped_at_twenty_lines(self):
@@ -317,10 +314,7 @@ class TestWithMultipleItems:
         frame = _frame_for(info, "with_multi_item_exit_fails")
         assert frame["_with_stage"] == "exit"
         assert _marked_text(frame) == "with WithPassthrough() as a, ExitRaises() as b:"
-        if sys.version_info >= (3, 12):
-            assert _emphasized_text(frame) == "ExitRaises()"
-        else:
-            assert not _has_emphasis(frame)
+        assert _emphasized_text(frame) == "ExitRaises()"
         assert "multi_exit_marker_three = 3" in frame["lines"]
 
     def test_multi_item_exit_raises_on_error(self):
@@ -333,10 +327,18 @@ class TestWithMultipleItems:
         frame = _frame_for(info, "with_multi_item_exit_raises_on_error")
         assert frame["_with_stage"] == "exit"
         assert "multi_chained_marker = 1 / 0" in frame["lines"]
-        if sys.version_info >= (3, 12):
-            assert _emphasized_text(frame) == "ExitRaisesOnError()"
-        else:
-            assert not _has_emphasis(frame)
+        assert _emphasized_text(frame) == "ExitRaisesOnError()"
+
+    def test_multi_item_arg3_exit_fails(self):
+        """Item expression with arguments is not mistaken for an exit call."""
+        try:
+            with_multi_item_arg3_exit_fails()
+        except RuntimeError as e:
+            info = extract_exception(e)
+
+        frame = _frame_for(info, "with_multi_item_arg3_exit_fails")
+        assert frame["_with_stage"] == "exit"
+        assert _emphasized_text(frame) == "make_exit_raises(1, 2, 3)"
 
 
 class TestTaskGroupContext:
@@ -438,6 +440,22 @@ class TestWithBlockParsing:
         block = find_with_block("with a(), b():\n    x = 1\n", 1, 1)
         # Both items share the line and no failing instruction is given
         assert find_with_item_expression(block, 1, None, None) is None
+
+    def test_find_with_item_expression_no_instruction_match(self):
+        """lasti matching no item span or enter/exit call yields no item."""
+
+        def holder():
+            with WithPassthrough(), WithPassthrough():
+                pass
+
+        code = holder.__code__
+        block = find_with_block(
+            inspect.getsource(holder), code.co_firstlineno, code.co_firstlineno + 1
+        )
+        # RESUME (offset 0) is neither within an item span nor an enter/exit call
+        assert (
+            find_with_item_expression(block, code.co_firstlineno + 1, code, 0) is None
+        )
 
     def test_build_with_statement_ranges_without_colon_in_window(self):
         src = "with (\n    a(),\n    b(),\n):\n    x = 1\n"
