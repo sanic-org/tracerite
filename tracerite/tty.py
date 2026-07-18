@@ -732,7 +732,7 @@ def _build_chrono_frame_lines(
     symbol = symbols.get(relevance, "")
     symbol_colored = f"{EM_CALL}{symbol}{RESET}" if symbol else ""
 
-    desc = symdesc[relevance]
+    desc = frinfo.get("symbol_desc") or symdesc[relevance]
 
     # Width available for the content after the left border "│ "
     content_width = max(1, term_width - _LINE_PREFIX_WIDTH)

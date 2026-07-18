@@ -6,12 +6,13 @@ block body already ran.  Three cases are handled:
 
 1. Context expression failure (block never entered): Python's own highlight
    on the failing expression is kept, relevance stays call/error.
-2. Enter failure: the entire with statement is marked and the initialising
-   expression is emphasized, relevance stop, but the context is not extended
-   (the block never ran).
-3. Exit failure: the entire with statement is marked without emphasis,
-   relevance stop, and the context is extended to cover the block body
-   (e.g. all tasks created in a TaskGroup block).
+2. Enter failure: the entire with statement is marked with the initialising
+   expression emphasized, relevance stop ("Entering with block"), but the
+   context is not extended (the block never ran).
+3. Exit failure: the entire with statement is marked with the context
+   expression emphasized, relevance stop ("Exiting with block"), and the
+   context is extended to cover the block body (e.g. all tasks created in a
+   TaskGroup block).
 
 The scenario functions live in errorcases.py (lint-exempt) because their
 marker assignments are the source material under test.
@@ -31,11 +32,15 @@ from tests.errorcases import (
     with_exit_raises_on_error,
     with_expression_raises,
     with_long_block,
+    with_multi_item_enter_fails,
+    with_multi_item_exit_fails,
+    with_multi_item_first_enter_fails,
+    with_multiline_enter_fails,
     with_multiline_header,
 )
 from tracerite.trace.chain_analysis import (
     find_with_block_for_header_line,
-    parse_source_for_with_blocks,
+    parse_source_string_for_with_blocks,
 )
 from tracerite.trace.digest import detect_with_block_error
 
@@ -93,7 +98,7 @@ class TestWithExitFailure:
         assert "exit_marker_three = 3" in frame["lines"]
 
     def test_exit_failure_marks_entire_statement(self):
-        """The mark covers the with statement header, not just the expression."""
+        """The statement is marked, with the context expression emphasized."""
         try:
             with_exit_raises()
         except RuntimeError as e:
@@ -101,7 +106,8 @@ class TestWithExitFailure:
 
         frame = _frame_for(info, "with_exit_raises")
         assert _marked_text(frame) == "with ExitRaises() as cm:"
-        assert not _has_emphasis(frame)
+        assert _emphasized_text(frame) == "ExitRaises()"
+        assert frame["symbol_desc"] == "Exiting with block"
 
     def test_exit_failure_relevance_and_trace_continue(self):
         """With frame is stop, and the trace continues to the __exit__ error."""
@@ -151,6 +157,12 @@ class TestWithExitFailure:
         assert marked.startswith("with (")
         assert marked.endswith("):")
         assert "ExitRaises() as b," in marked
+        if sys.version_info >= (3, 12):
+            # 3.12+ positions identify the failing item; 3.11 marks the
+            # whole statement, so no item is emphasized there.
+            assert _emphasized_text(frame) == "ExitRaises()"
+        else:
+            assert not _has_emphasis(frame)
         assert "multi_marker_three = 3" in frame["lines"]
 
     def test_context_capped_at_twenty_lines(self):
@@ -190,6 +202,7 @@ class TestWithEnterFailure:
         frame = _frame_for(info, "with_enter_raises")
         assert _marked_text(frame) == "with EnterRaises() as cm:"
         assert _emphasized_text(frame) == "EnterRaises()"
+        assert frame["symbol_desc"] == "Entering with block"
 
     def test_enter_failure_relevance_and_trace_continue(self):
         """With frame is stop, and the trace continues to the __enter__ error."""
@@ -229,6 +242,7 @@ class TestWithExpressionFailure:
         frame = _frame_for(info, "with_expression_raises")
         assert _marked_text(frame) == 'open("/nonexistent/path/file.txt")'
         assert frame["relevance"] == "error"
+        assert "symbol_desc" not in frame
 
 
 class TestWithBodyFailure:
@@ -244,6 +258,67 @@ class TestWithBodyFailure:
         assert frame["_with_stage"] is None
         assert frame["codeline"] == "body_marker = 1 / 0"
         assert frame["relevance"] == "error"
+
+
+class TestWithMultipleItems:
+    """Comma-separated with items: emphasize the one that failed to enter."""
+
+    def test_multi_item_enter_fails_emphasizes_failing_item(self):
+        """With several items on one line, em is on the item that failed."""
+        try:
+            with_multi_item_enter_fails()
+        except RuntimeError as e:
+            info = extract_exception(e)
+
+        frame = _frame_for(info, "with_multi_item_enter_fails")
+        assert frame["_with_stage"] == "enter"
+        assert _marked_text(frame) == "with WithPassthrough() as a, EnterRaises() as b:"
+        assert _emphasized_text(frame) == "EnterRaises()"
+        assert "multi_enter_marker_three = 3" not in frame["lines"]
+
+    def test_multi_item_first_enter_fails(self):
+        """The first item is emphasized when it is the one that failed."""
+        try:
+            with_multi_item_first_enter_fails()
+        except RuntimeError as e:
+            info = extract_exception(e)
+
+        frame = _frame_for(info, "with_multi_item_first_enter_fails")
+        assert frame["_with_stage"] == "enter"
+        assert _marked_text(frame) == "with EnterRaises() as a, WithPassthrough() as b:"
+        assert _emphasized_text(frame) == "EnterRaises()"
+
+    def test_multiline_enter_fails(self):
+        """Multi-line header: full statement marked, failing item emphasized."""
+        try:
+            with_multiline_enter_fails()
+        except RuntimeError as e:
+            info = extract_exception(e)
+
+        frame = _frame_for(info, "with_multiline_enter_fails")
+        assert frame["_with_stage"] == "enter"
+        marked = _marked_text(frame)
+        assert marked.startswith("with (")
+        assert marked.endswith("):")
+        assert "EnterRaises() as b," in marked
+        assert _emphasized_text(frame) == "EnterRaises()"
+        assert "ml_enter_marker_three = 3" not in frame["lines"]
+
+    def test_multi_item_exit_fails(self):
+        """Exit failure on a later item still extends to the block end."""
+        try:
+            with_multi_item_exit_fails()
+        except RuntimeError as e:
+            info = extract_exception(e)
+
+        frame = _frame_for(info, "with_multi_item_exit_fails")
+        assert frame["_with_stage"] == "exit"
+        assert _marked_text(frame) == "with WithPassthrough() as a, ExitRaises() as b:"
+        if sys.version_info >= (3, 12):
+            assert _emphasized_text(frame) == "ExitRaises()"
+        else:
+            assert not _has_emphasis(frame)
+        assert "multi_exit_marker_three = 3" in frame["lines"]
 
 
 class TestTaskGroupContext:
@@ -290,13 +365,13 @@ class TestTaskGroupContext:
 
         frame = _frame_for(info, "run_failing_taskgroup")
         assert _marked_text(frame) == "async with asyncio.TaskGroup() as tg:"
-        assert not _has_emphasis(frame)
+        assert _emphasized_text(frame) == "asyncio.TaskGroup()"
 
 
 class TestWithBlockParsing:
     """Unit tests for the AST with-block analysis helpers."""
 
-    def test_parse_and_find_with_blocks(self, tmp_path):
+    def test_parse_and_find_with_blocks(self):
         src = textwrap.dedent(
             """\
             with a():
@@ -308,10 +383,7 @@ class TestWithBlockParsing:
                     await y
             """
         )
-        path = tmp_path / "with_blocks.py"
-        path.write_text(src)
-
-        blocks = parse_source_for_with_blocks(str(path))
+        blocks = parse_source_string_for_with_blocks(src)
         assert len(blocks) == 3
 
         outer = find_with_block_for_header_line(blocks, 1)
@@ -323,14 +395,12 @@ class TestWithBlockParsing:
         # async with headers are found as well
         assert find_with_block_for_header_line(blocks, 6)["body_start"] == 7
 
-    def test_oneliner_with_never_matches(self, tmp_path):
-        path = tmp_path / "oneliner.py"
-        path.write_text("with a(): pass\n")
-        blocks = parse_source_for_with_blocks(str(path))
+    def test_oneliner_with_never_matches(self):
+        blocks = parse_source_string_for_with_blocks("with a(): pass\n")
         assert find_with_block_for_header_line(blocks, 1) is None
 
-    def test_parse_unreadable_file_returns_empty(self):
-        assert parse_source_for_with_blocks("/nonexistent/module.py") == []
+    def test_parse_empty_source_returns_empty(self):
+        assert parse_source_string_for_with_blocks("") == []
 
     def test_detect_with_block_error_no_with(self):
         """Frames not on a with statement header yield no stage."""

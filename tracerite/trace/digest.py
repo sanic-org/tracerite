@@ -352,32 +352,56 @@ def _first_offset_at_or_after_line(code, lineno: int) -> int | None:
     return min(offsets, default=None)
 
 
-def _line_of_offset(code, offset: int) -> int | None:
-    """Return the source line of the instruction at the given offset."""
-    for ins in dis.get_instructions(code):
-        if ins.offset == offset:
-            pos = getattr(ins, "positions", None)
-            return pos.lineno if pos else None
-    return None
+def _range_contains_point(rng, line: int, col: int) -> bool:
+    """Check whether a (line, col) source point falls within a Range."""
+    if not (rng["lfirst"] <= line <= rng["lfinal"]):
+        return False
+    if line == rng["lfirst"] and col < rng["cbeg"]:
+        return False
+    return not (line == rng["lfinal"] and col >= rng["cend"])
 
 
 def find_with_item_expression(block, lineno, code, lasti):
-    """Find the context expression range of the with item that failed.
+    """Find the context expression range of the with item that failed, or None.
 
-    Prefers the item whose expression span contains the frame's line.  When
-    the line points at the header start (Python 3.11 marks the whole block),
-    the failing instruction's own line is used to locate the item instead.
+    A single item is identified trivially.  With multiple comma-separated
+    items (which may share a line), the failing instruction identifies the
+    item: on 3.12+ its position is the failing item's own span, on 3.11 it
+    is the Nth enter call of the header for the Nth item.  Returns None
+    rather than guessing when the item cannot be identified.
     """
     items = block["items"]
-    for item in items:
-        if item["lfirst"] <= lineno <= item["lfinal"]:
+    if len(items) == 1:
+        return items[0]
+    if lasti is not None:
+        item = _find_failing_with_item(items, code, lasti, block)
+        if item:
             return item
-    item_line = _line_of_offset(code, lasti) if lasti is not None else None
-    if item_line is not None:
-        for item in items:
-            if item["lfirst"] <= item_line <= item["lfinal"]:
-                return item
-    return items[0] if items else None
+    matching = [item for item in items if item["lfirst"] <= lineno <= item["lfinal"]]
+    return matching[0] if len(matching) == 1 else None
+
+
+def _find_failing_with_item(items, code, lasti, block):
+    """Identify the with item whose enter/exit call is at lasti, or None."""
+    enter_offsets = []
+    for ins in dis.get_instructions(code):
+        pos = getattr(ins, "positions", None)
+        if pos is None or pos.lineno is None:
+            continue
+        if ins.offset == lasti:
+            for item in items:
+                if _range_contains_point(item, pos.lineno, pos.col_offset):
+                    return item
+        if (
+            ins.opname == "BEFORE_WITH"
+            or (ins.opname == "LOAD_SPECIAL" and ins.argval == "__enter__")
+        ) and block["header_start"] <= pos.lineno < block["body_start"]:
+            enter_offsets.append(ins.offset)
+    if lasti in enter_offsets:
+        index = enter_offsets.index(lasti)
+        if index < len(items):
+            return items[index]
+    return None
 
 
 def extract_source_lines(
@@ -1107,11 +1131,21 @@ def extract_single_frame(
         with_stage, with_block = detect_with_block_error(
             frame, lineno, lasti, next_func, cache=cache
         )
-    with_block_end = (
-        min(with_block["block_end"], lineno + MAX_WITH_BLOCK_CONTEXT_LINES)
-        if with_stage == "exit" and with_block is not None
-        else None
-    )
+    with_block_end = None
+    if with_block is not None:
+        if with_stage == "exit":
+            # Show the block body that ran, capped and limited to the block.
+            with_block_end = min(
+                with_block["block_end"], lineno + MAX_WITH_BLOCK_CONTEXT_LINES
+            )
+        elif with_stage == "enter":
+            # Cover the entire statement header (which may span multiple
+            # lines) and at least the default two following lines, but never
+            # extend into the block body that never ran.
+            header_end = min(
+                with_block["body_start"] - 1, lineno + MAX_WITH_BLOCK_CONTEXT_LINES
+            )
+            with_block_end = max(lineno + 2, header_end)
 
     lines, start, original_common_indent, except_start = extract_source_lines(
         frame,
@@ -1177,20 +1211,18 @@ def extract_single_frame(
             total_indent,
             lines,
         )
-        # Enter failure: the __enter__ call on the context expression failed,
-        # so emphasize that expression within the fully marked statement.
-        # The expression span comes from the AST because Python's own mark
-        # covers the whole block on 3.11.
+        # Emphasize the context expression whose enter/exit call failed
+        # within the fully marked statement.  The expression span comes from
+        # the AST because Python's own mark covers the whole block on 3.11.
         em_range: Range | None = None
-        if with_stage == "enter":
-            item = find_with_item_expression(with_block, lineno, frame.f_code, lasti)
-            if item:
-                em_range = {
-                    "lfirst": max(1, item["lfirst"] - start + 1),
-                    "lfinal": max(1, item["lfinal"] - start + 1),
-                    "cbeg": max(0, item["cbeg"] - total_indent),
-                    "cend": max(0, item["cend"] - total_indent),
-                }
+        item = find_with_item_expression(with_block, lineno, frame.f_code, lasti)
+        if item:
+            em_range = {
+                "lfirst": max(1, item["lfirst"] - start + 1),
+                "lfinal": max(1, item["lfinal"] - start + 1),
+                "cbeg": max(0, item["cbeg"] - total_indent),
+                "cend": max(0, item["cend"] - total_indent),
+            }
     else:
         em_range = extract_emphasis_columns(
             lines,
@@ -1241,5 +1273,9 @@ def extract_single_frame(
         "_except_start": except_start,
         "_with_stage": with_stage,
     }
+    if with_stage is not None:
+        # Symbol description rendered after the stop emoji, telling apart
+        # with block enter and exit failures.
+        result["symbol_desc"] = f"{with_stage.capitalize()}ing with block"
 
     return result

@@ -108,6 +108,7 @@ class FrameInfo(TypedDict, total=False):
     fragments: list[FragmentLine]
     function: str | None
     function_suffix: str
+    symbol_desc: str  # Overrides symdesc[relevance] when present
     urls: dict[str, str]
     full_source: str | None
     full_source_start: int | None

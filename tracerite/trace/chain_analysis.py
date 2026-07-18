@@ -28,7 +28,6 @@ __all__ = [
     "parse_source_string_for_try_except",
     "find_try_block_for_except_line",
     "find_matching_try_for_inner_exception",
-    "parse_source_for_with_blocks",
     "parse_source_string_for_with_blocks",
     "find_with_block_for_header_line",
 ]
@@ -220,46 +219,6 @@ class WithBlockVisitor(ast.NodeVisitor):
         }
         self.with_blocks.append(block)
         self.generic_visit(node)
-
-
-def parse_source_for_with_blocks(
-    filename: str,
-    *,
-    _cache: dict | None = None,
-) -> list[WithBlock]:
-    """Parse source file and extract with/async-with blocks.
-
-    Args:
-        filename: Path to the source file
-        _cache: Optional append-only cache mapping source keys to parsed blocks.
-            Intended for single-call use only; not persisted across calls.
-
-    Returns:
-        List of WithBlock objects found in the source
-    """
-    key = ("with_blocks", filename)
-    if _cache is not None and key in _cache:
-        return _cache[key]
-
-    try:
-        lines = linecache.getlines(filename)
-        if not lines:
-            result: list[WithBlock] = []
-        else:
-            source = "".join(lines)
-            tree = ast.parse(source, filename=filename)
-
-            visitor = WithBlockVisitor()
-            visitor.visit(tree)
-
-            result = visitor.with_blocks
-    except (SyntaxError, OSError, ValueError) as e:
-        logger.debug(f"Failed to parse {filename} for with-block analysis: {e}")
-        result = []
-
-    if _cache is not None:
-        _cache[key] = result
-    return result
 
 
 def dedent_source(source: str) -> tuple[str, int]:

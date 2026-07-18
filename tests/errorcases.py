@@ -452,3 +452,34 @@ def with_long_block():
         long_line_23 = 23
         long_line_24 = 24
         long_line_25 = 25
+
+
+def with_multi_item_enter_fails():
+    with WithPassthrough() as a, EnterRaises() as b:
+        multi_enter_marker_one = 1
+        multi_enter_marker_two = 2
+        multi_enter_marker_three = 3
+
+
+def with_multi_item_first_enter_fails():
+    with EnterRaises() as a, WithPassthrough() as b:
+        first_enter_marker_one = 1
+        first_enter_marker_two = 2
+        first_enter_marker_three = 3
+
+
+def with_multiline_enter_fails():
+    with (
+        WithPassthrough() as a,
+        EnterRaises() as b,
+    ):
+        ml_enter_marker_one = 1
+        ml_enter_marker_two = 2
+        ml_enter_marker_three = 3
+
+
+def with_multi_item_exit_fails():
+    with WithPassthrough() as a, ExitRaises() as b:
+        multi_exit_marker_one = 1
+        multi_exit_marker_two = 2
+        multi_exit_marker_three = 3
