@@ -232,8 +232,8 @@ if __name__ == "__main__":
 def _notebook_setup_cells() -> list[Any]:
     return [
         nbformat.v4.new_markdown_cell(
-            "# TraceRite Jupyter Notebook Demo\n\n"
-            "Run this notebook live inside the source repository to see the exception reports. "
+            "# Python tracebacks for Humans (and Machines)\n\n"
+            "You are viewing the TraceRite Jupyter Notebook demo. The examples below show rendered reports for various error scenarios when you run the cells."
         ),
         nbformat.v4.new_code_cell(source="%load_ext tracerite\n%tracerite keep"),
         nbformat.v4.new_code_cell(
@@ -243,7 +243,7 @@ def _notebook_setup_cells() -> list[Any]:
                 "import re\n"
                 "\n"
                 "from demo.helpers import acme\n"
-                "from demo.helpers.types import Bar, Foo\n"
+                "from demo.helpers.types import Bar, Foo"
             )
         ),
     ]
