@@ -134,7 +134,7 @@ def concurrent() -> None:
     except Exception as e:
         raise RuntimeError("Application crashed inside asyncio.run()") from e
 
-# Async demos skip the the sync wrapper that uses asyncio.run().
+# Async demos skip the sync wrapper that uses asyncio.run().
 concurrent._async_impl = acme.run_concurrent_tasks
 
 
