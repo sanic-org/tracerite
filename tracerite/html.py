@@ -24,7 +24,7 @@ from .trace.finalize import (
     normalize_variable,
 )
 
-html_style = (
+html_style = style = (
     files(cast(str, __package__)).joinpath("style.css").read_text(encoding="UTF-8")
 )
 javascript = (
