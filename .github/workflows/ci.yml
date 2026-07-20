@@ -53,6 +53,19 @@ jobs:
           name: test-results
           path: tests-results.xml
 
+  sanic:
+    name: Sanic compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Run Sanic smoke tests
+        run: uv run nox -s sanic
+
   coverage:
     name: Coverage Report & Badges
     runs-on: ubuntu-latest

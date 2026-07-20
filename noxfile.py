@@ -31,6 +31,9 @@ nox.options.sessions = [
 # Python versions to test against
 PYTHON_VERSIONS = ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
+# Sanic versions to test against
+SANIC_VERSIONS = ["24.12", "25.12"]
+
 # Tools run only on the latest Python version
 TOOLS_PYTHON = PYTHON_VERSIONS[-1]
 
@@ -62,6 +65,19 @@ def test(session):
         "-qq",
         *junit_args,
         *test_args,
+    )
+
+
+@nox.session(python=TOOLS_PYTHON)
+@nox.parametrize("sanic", [f"sanic~={v}" for v in SANIC_VERSIONS], ids=SANIC_VERSIONS)
+def sanic(session, sanic):
+    """Smoke test tracerite compatibility with supported Sanic versions."""
+    session.install(".", sanic, "sanic-testing", "pytest")
+    session.run(
+        "pytest",
+        "-p",
+        "no:warnings",
+        "tests/sanic_compat.py",
     )
 
 
