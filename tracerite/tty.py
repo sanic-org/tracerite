@@ -89,9 +89,9 @@ LINE_PREFIX_TOP = f"{DIM}╭{RESET} "  # Dim rounded top-left corner for first l
 LINE_PREFIX = f"{DIM}│{RESET} "  # Dim vertical line prefix for middle lines
 LINE_PREFIX_BOT = f"{DIM}╰{RESET} "  # Dim rounded bottom-left corner for last line
 EOL = f"\n{LINE_PREFIX}"  # End of line: newline, add prefix
-MARK_BG = f"{ESC}103m"  # Bright yellow background
-MARK_TEXT = f"{ESC}22;24;30m"  # Black text, no bold/underline
-EM = f"{ESC}1;4:3;91m"  # Bold, wavy underline, bright red
+MARK_BG = f"{ESC}48;5;220m"  # Yellow background (xterm256 #ffd700, fixed shade)
+MARK_TEXT = f"{ESC}22;24;38;5;16m"  # Black text (xterm256 #000000), no bold/underline
+EM = f"{ESC}1;4:3;38;5;196m"  # Bold, wavy underline, red (xterm256 #ff0000)
 LOCFN = f"{ESC}32m"
 EM_CALL = f"{ESC}93m"  # Bright yellow
 EXC = f"{ESC}90m"  # Dark grey for exception text
@@ -180,9 +180,9 @@ def tty_traceback(
     if file is None:
         file = sys.stderr
 
-    is_tty = file.isatty() if hasattr(file, "isatty") else False
-    no_color = not is_tty
-    no_inspector = not is_tty
+    no_inspector = no_color = "NO_COLOR" in os.environ or not (
+        "FORCE_COLOR" in os.environ or hasattr(file, "isatty") and file.isatty()
+    )
 
     # Start with rounded top corner
     output = LINE_PREFIX_TOP
@@ -495,25 +495,22 @@ def _wrap_code_line(colored: str, max_width: int) -> list[str]:
         if token.startswith("\x1b"):
             current.append(token)
             if token.endswith("m"):
-                params = token[2:-1]
-                for p in params.split(";"):
-                    color = [] if p == "0" else [c for c in color if c != p] + [p]
+                # Track active SGR sequences; replaying them in order
+                # reproduces the exact terminal state (RESET clears).
+                color = [] if token[2:-1] == "0" else color + [token]
             continue
 
         w = _display_width(token)
         if width + w > max_width:
-            chunk = "".join(current)
-            if chunks and color:
-                chunk = f"{ESC}{';'.join(color)}m{chunk}"
-            chunks.append(chunk)
+            chunks.append("".join(current))
             current, width = [], 0
+            if color:
+                # Restore active styles at the start of the continuation
+                current.append("".join(color))
         current.append(token)
         width += w
 
-    chunk = "".join(current)
-    if chunks and color:
-        chunk = f"{ESC}{';'.join(color)}m{chunk}"
-    chunks.append(chunk)
+    chunks.append("".join(current))
     return chunks
 
 
@@ -1310,9 +1307,10 @@ def _format_fragment(fragment: Fragment) -> str:
     # Add the code
     colored_parts.append(code)
 
-    # Close em if ending
-    if em in EMPHASIS_FIN and mark not in EMPHASIS_FIN:
-        colored_parts.append(MARK_TEXT)
+    # Close em if ending; em is only used within mark, so when the mark
+    # continues, restate its attributes to back out of the em styling.
+    if em in EMPHASIS_FIN and mark in {"beg", "mid"}:
+        colored_parts.append(MARK_BG + MARK_TEXT)
 
     # Close mark if ending
     if mark in EMPHASIS_FIN:

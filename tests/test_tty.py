@@ -322,6 +322,46 @@ class TestTtyTraceback:
         assert "ValueError" in output.data
         assert "test" in output.data
 
+    def test_no_color_env_disables_color(self, monkeypatch):
+        """NO_COLOR disables colors even on a TTY."""
+        monkeypatch.setenv("NO_COLOR", "1")
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            raise ValueError("no color test")
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "\x1b[" not in result
+
+    def test_no_color_takes_precedence_over_force_color(self, monkeypatch):
+        """NO_COLOR wins when both it and FORCE_COLOR are set."""
+        monkeypatch.setenv("NO_COLOR", "1")
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            raise ValueError("no color test")
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        assert "\x1b[" not in output.getvalue()
+
+    def test_force_color_env_enables_color(self, monkeypatch):
+        """FORCE_COLOR enables colors even when the file is not a TTY."""
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        output = io.StringIO()
+        try:
+            raise ValueError("force color test")
+        except Exception as e:
+            tty_traceback(exc=e, file=output)
+
+        result = output.getvalue()
+        assert "ValueError" in result
+        assert "\x1b[" in result
+
     def test_term_width_from_terminal_size(self, monkeypatch):
         """Test tty_traceback gets term_width from os.get_terminal_size."""
         import os
@@ -2474,7 +2514,7 @@ class TestCodeLineWidthAdaptation:
         for line, _, _ in lines[1:]:
             assert line.endswith(RESET)
         # ...and a continuation chunk restores the mark background color.
-        assert any("\x1b[103" in line for line, _, _ in lines[2:])
+        assert any(MARK_BG in line for line, _, _ in lines[2:])
 
     def test_caret_line_wraps(self):
         """The line carrying the caret symbol is wrapped."""
@@ -3446,8 +3486,8 @@ class TestTTYCoverage:
         colored = f"{BOLD}{EM}{'x' * 20}"
         chunks = _wrap_code_line(colored, 8)
         assert len(chunks) > 1
-        # Second chunk should restore the EM style (bold, wavy underline, bright red).
-        assert chunks[1].startswith(EM)
+        # Second chunk should restore both styles (bold, wavy underline, red).
+        assert chunks[1].startswith(BOLD + EM)
 
     def test_wrap_code_line_no_escape_only_chunks(self):
         """Leading escape sequences should not produce zero-width chunks."""
