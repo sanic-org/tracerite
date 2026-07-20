@@ -180,9 +180,9 @@ def tty_traceback(
     if file is None:
         file = sys.stderr
 
-    no_inspector = no_color = "NO_COLOR" in os.environ or not (
-        "FORCE_COLOR" in os.environ or hasattr(file, "isatty") and file.isatty()
-    )
+    is_tty = hasattr(file, "isatty") and file.isatty()
+    no_color = "NO_COLOR" in os.environ or not (is_tty or "FORCE_COLOR" in os.environ)
+    no_inspector = no_color or not is_tty  # journalctl doesn't like cursor positioning
 
     # Start with rounded top corner
     output = LINE_PREFIX_TOP
