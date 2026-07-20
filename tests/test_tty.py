@@ -3486,7 +3486,7 @@ class TestTTYCoverage:
         colored = f"{BOLD}{EM}{'x' * 20}"
         chunks = _wrap_code_line(colored, 8)
         assert len(chunks) > 1
-        # Second chunk should restore both styles (bold, wavy underline, red).
+        # Second chunk should restore both styles (bold, red).
         assert chunks[1].startswith(BOLD + EM)
 
     def test_wrap_code_line_no_escape_only_chunks(self):
