@@ -323,6 +323,46 @@ def deeply_nested_chain_with_calls():
         raise  # Re-raise so caller can catch it
 
 
+def _raise_typeerror_in_except():
+    """Helper: raises TypeError while handling a ZeroDivisionError."""
+    try:
+        1 / 0
+    except ZeroDivisionError:
+        raise TypeError("handler failed")
+
+
+def _reraise_same_exception():
+    """Middle hop: re-raises the caught exception with ``raise e``."""
+    try:
+        _raise_typeerror_in_except()
+    except TypeError as e:
+        raise e
+
+
+def reraise_same_exception_in_chain():
+    """Three-exception chain with a middle hop doing ``raise e``.
+
+    The ``raise e`` frame must render after the TypeError crash site, not
+    before the calls that led to it.
+    """
+    try:
+        _reraise_same_exception()
+    except TypeError as e:
+        raise RuntimeError("wrapped") from e
+
+
+def reraise_outermost_exception():
+    """Both hops re-raise the caught exception with ``raise e``.
+
+    The outermost re-raise is the final frame and must carry the TypeError
+    banner; the crash site keeps error relevance without the banner.
+    """
+    try:
+        _reraise_same_exception()
+    except TypeError as e:
+        raise e
+
+
 # ---------------------------------------------------------------------------
 # With-block enter/exit failures (context extension and statement marking)
 # ---------------------------------------------------------------------------

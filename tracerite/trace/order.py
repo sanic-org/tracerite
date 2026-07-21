@@ -326,8 +326,14 @@ def build_linked_backbone(
     inner_exc = chain[inner_exc_idx]
     inner_frames = inner_exc.get("frames", [])
 
+    # ``raise e`` on the caught exception prepends a frame entry that happened
+    # after the crash site; emit those after it instead of with the calls.
+    re_raise = find_re_raise_frames_before_link(frames, except_frame_idx, cache=cache)
+    skipped = frozenset(re_raise)
+
     for frame_idx in range(except_frame_idx):
-        append_copied_frame(chronological, frames[frame_idx])
+        if frame_idx not in skipped:
+            append_copied_frame(chronological, frames[frame_idx])
 
     build_backbone_frames(
         chronological,
@@ -340,13 +346,29 @@ def build_linked_backbone(
     )
 
     last_idx = len(frames) - 1
+    banner = make_exception_banner(exc, exc_idx)
     for frame_idx in range(except_frame_idx, len(frames)):
         chrono_frame = append_copied_frame(chronological, frames[frame_idx])
         if frame_idx == except_frame_idx:
             promote_to_except(chrono_frame)
         if frame_idx == last_idx:
-            chrono_frame["exception"] = make_exception_banner(exc, exc_idx)
             add_subexceptions_to_frame(chrono_frame, exc, cache=cache)
+            if re_raise:
+                chrono_frame["symbol_desc"] = exc["type"]
+            else:
+                chrono_frame["exception"] = banner
+
+    # Re-raise entries are prepended to the traceback as the exception
+    # unwinds, so their traceback order is reverse-chronological.
+    for frame_idx in reversed(re_raise):
+        chrono_frame = append_copied_frame(chronological, frames[frame_idx])
+        promote_to_except(chrono_frame)
+        chrono_frame["symbol_desc"] = "Re-raise"
+
+    if re_raise:
+        # The banner belongs to the last frame of this exception's section;
+        # the crash site keeps its error relevance either way.
+        chronological[-1]["exception"] = banner
 
 
 def build_unlinked_backbone(
@@ -375,7 +397,8 @@ def build_unlinked_backbone(
             )
 
     re_raise = find_re_raise_frames(exc, frames, cache=cache)
-    order = [i for i in range(len(frames)) if i not in re_raise] + re_raise
+    skipped = frozenset(re_raise)
+    order = [i for i in range(len(frames)) if i not in skipped] + re_raise
     last_idx = len(frames) - 1
     banner = make_exception_banner(exc, exc_idx)
 
@@ -390,7 +413,7 @@ def build_unlinked_backbone(
                 chrono_frame["exception"] = banner
         if is_final and re_raise:
             chrono_frame["exception"] = banner
-        if frame_idx in re_raise:
+        if frame_idx in skipped:
             promote_to_except(chrono_frame)
 
 
@@ -408,6 +431,42 @@ def find_re_raise_frames(
         for i, frame in enumerate(frames[:-1])
         if frame_in_except_handler(frame, cache=cache)
     ]
+
+
+def find_re_raise_frames_before_link(
+    frames: list[FrameInfo],
+    except_frame_idx: int,
+    *,
+    cache: dict | None = None,
+) -> list[int]:
+    """Find frames before the chain link that re-raise the same exception.
+
+    ``raise e`` on the caught exception prepends a traceback entry at the
+    ``raise`` line while the original call entry of the same function stays
+    deeper in the traceback.  Such entries are inside an except handler and
+    their function appears again later in the traceback; chronologically
+    they happened after the exception's crash site, not before the calls
+    that led to it.
+    """
+    seen: set[tuple[str | None, str | None]] = set()
+    re_raise = []
+    for frame_idx in range(len(frames) - 1, -1, -1):
+        frame = frames[frame_idx]
+        identity = (
+            frame.get("original_filename") or frame.get("filename"),
+            frame.get("function"),
+        )
+        if None in identity:
+            continue
+        if (
+            frame_idx < except_frame_idx
+            and identity in seen
+            and frame_in_except_handler(frame, cache=cache)
+        ):
+            re_raise.append(frame_idx)
+        seen.add(identity)
+    re_raise.reverse()
+    return re_raise
 
 
 def make_exception_banner(exc: ExceptionInfo, exc_idx: int) -> ExceptionInfo:
