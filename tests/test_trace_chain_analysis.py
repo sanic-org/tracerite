@@ -741,6 +741,31 @@ class TestBuildChronologicalFrames:
         ]
         assert find_re_raise_frames_before_link(frames, 1) == []
 
+    def test_find_re_raise_frames_before_link_ignores_missing_identity(self):
+        """Frames without filename or function never match as re-raises."""
+        frames = [
+            {"function": "mid", "lineno": 20, "_except_start": 18},
+            {"function": "mid", "lineno": 15},
+            {
+                "filename": "a.py",
+                "function": "inner",
+                "lineno": 30,
+                "_except_start": 28,
+            },
+        ]
+        assert find_re_raise_frames_before_link(frames, 2) == []
+        frames = [
+            {"filename": "a.py", "lineno": 20, "_except_start": 18},
+            {"filename": "a.py", "lineno": 15},
+            {
+                "filename": "a.py",
+                "function": "inner",
+                "lineno": 30,
+                "_except_start": 28,
+            },
+        ]
+        assert find_re_raise_frames_before_link(frames, 2) == []
+
     def test_inner_exception_without_frames(self):
         """Test chronological frames when inner exception has no frames.
 
