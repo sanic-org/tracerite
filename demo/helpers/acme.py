@@ -62,7 +62,7 @@ def outerstep() -> None:
     try:
         middlestep()
     except Exception as e:
-        detail = "inner step failed"
+        detail = "middle step failed"
         raise ValueError(f"Could not {action}: {detail}") from e
 
 
