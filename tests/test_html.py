@@ -607,6 +607,9 @@ def test_multiline_exception_message_html():
     assert "Second line" in pre_text or "Third line" in pre_text
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="add_note() requires Python 3.11+"
+)
 def test_exception_notes_html():
     """Notes from add_note render as a list in the exception banner."""
     from tests.errorcases import exception_with_notes

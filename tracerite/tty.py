@@ -554,17 +554,17 @@ def _build_exception_banner(exc_info: ExceptionInfo, term_width: int) -> str:
                 body = body[1:]
         body_lines_raw = body.split("\n")
 
+    if notes := exc_info.get("notes", []):
+        # Paragraph breaks in the message call for a visual break before notes.
+        if "\n\n" in message:
+            body_lines_raw.append("")
+        body_lines_raw.extend(f"🔹 {note}" for note in notes)
+
     body_lines_wrapped: list[str] = []
     for para in body_lines_raw:
         body_lines_wrapped.extend(_wrap_text(para, cont_width) if para else [""])
 
     lines = summary_lines + body_lines_wrapped
-
-    if notes := exc_info.get("notes", []):
-        # Paragraph breaks in the message call for a visual break before notes.
-        if "\n\n" in message:
-            lines.append("")
-        lines.extend(f"🔹 {note}" for note in notes)
 
     if len(lines) > 100:
         skipped = len(lines) - 40

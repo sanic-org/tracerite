@@ -1784,6 +1784,9 @@ class TestOutputFormatting:
         # Should have ANSI codes for coloring
         assert "\x1b[" in result
 
+    @pytest.mark.skipif(
+        sys.version_info < (3, 11), reason="add_note() requires Python 3.11+"
+    )
     def test_exception_notes_rendered_with_marker(self):
         """Notes from add_note render as 🔹-prefixed lines after the message."""
         output = io.StringIO()
@@ -1801,6 +1804,9 @@ class TestOutputFormatting:
         note_idx = next(i for i, line in enumerate(lines) if "🔹 first note" in line)
         assert "Something failed" in lines[note_idx - 1]
 
+    @pytest.mark.skipif(
+        sys.version_info < (3, 11), reason="add_note() requires Python 3.11+"
+    )
     def test_exception_notes_after_paragraph_break(self):
         """A message with paragraph breaks puts an empty line before notes."""
         output = io.StringIO()
@@ -1819,6 +1825,23 @@ class TestOutputFormatting:
         # The line before the note is visually empty (box border only)
         assert lines[note_idx - 1].strip(" │▐╰") == ""
         assert "Second paragraph." in lines[note_idx - 2]
+
+    def test_long_exception_note_wraps(self):
+        """A long note wraps to the banner width like the message body."""
+        banner = _build_exception_banner(
+            {
+                "type": "ValueError",
+                "summary": "boom",
+                "message": "boom",
+                "notes": ["word " * 40],
+                "from": "none",
+            },
+            80,
+        )
+        plain = ANSI_ESCAPE_RE.sub("", banner)
+        assert "🔹 word" in plain
+        assert max(_display_width(line) for line in plain.splitlines()) <= 80
+        assert sum("word" in line for line in plain.splitlines()) > 1
 
     def test_warning_frame_formatting(self):
         """Test warning frame (user code calling stdlib that fails)."""
