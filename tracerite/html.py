@@ -283,6 +283,11 @@ def _exception_banner(doc: Any, exc_info: ExceptionInfo) -> None:
                     else:
                         doc(line)
 
+    if notes := exc_info.get("notes", []):
+        with doc.ul(class_="excnotes"):
+            for note in notes:
+                doc.li(note)
+
 
 def _compact_code_line(doc: Any, frinfo: FrameInfo) -> None:
     """Render compact one-liner showing all marked code regions."""

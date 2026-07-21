@@ -471,6 +471,7 @@ def make_exception_banner(exc: ExceptionInfo, exc_idx: int) -> ExceptionInfo:
         "type": exc["type"],
         "message": exc["message"],
         "summary": exc["summary"],
+        "notes": exc["notes"],
         "from": exc["from"],
         "exc_idx": exc_idx,
     }

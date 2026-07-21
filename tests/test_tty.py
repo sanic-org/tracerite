@@ -54,6 +54,8 @@ from .errorcases import (
     binomial_operator,
     chained_from_and_without,
     exception_group_with_frames,
+    exception_with_note_after_paragraphs,
+    exception_with_notes,
     function_with_many_locals,
     function_with_many_locals_chained,
     function_with_single_local,
@@ -1781,6 +1783,42 @@ class TestOutputFormatting:
         assert "TypeError" in result
         # Should have ANSI codes for coloring
         assert "\x1b[" in result
+
+    def test_exception_notes_rendered_with_marker(self):
+        """Notes from add_note render as 🔹-prefixed lines after the message."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            exception_with_notes()
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=120)
+
+        result = output.getvalue()
+        assert "🔹 first note" in result
+        assert "🔹 second note" in result
+        # Single-line message: notes follow the summary line directly
+        lines = result.splitlines()
+        note_idx = next(i for i, line in enumerate(lines) if "🔹 first note" in line)
+        assert "Something failed" in lines[note_idx - 1]
+
+    def test_exception_notes_after_paragraph_break(self):
+        """A message with paragraph breaks puts an empty line before notes."""
+        output = io.StringIO()
+        output.isatty = lambda: True
+        try:
+            exception_with_note_after_paragraphs()
+        except Exception as e:
+            tty_traceback(exc=e, file=output, term_width=120)
+
+        result = output.getvalue()
+        assert "🔹 note after paragraphs" in result
+        lines = [ANSI_ESCAPE_RE.sub("", line) for line in result.splitlines()]
+        note_idx = next(
+            i for i, line in enumerate(lines) if "🔹 note after paragraphs" in line
+        )
+        # The line before the note is visually empty (box border only)
+        assert lines[note_idx - 1].strip(" │▐╰") == ""
+        assert "Second paragraph." in lines[note_idx - 2]
 
     def test_warning_frame_formatting(self):
         """Test warning frame (user code calling stdlib that fails)."""

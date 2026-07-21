@@ -260,6 +260,21 @@ def multiline_exception_message():
     )
 
 
+def exception_with_notes():
+    """Raise an exception carrying notes added via ``add_note``."""
+    e = ValueError("Something failed")
+    e.add_note("first note")
+    e.add_note("second note")
+    raise e
+
+
+def exception_with_note_after_paragraphs():
+    """Multiline message with a paragraph break plus a note."""
+    e = ValueError("First paragraph.\n\nSecond paragraph.")
+    e.add_note("note after paragraphs")
+    raise e
+
+
 def empty_second_line_exception():
     """Raise an exception with an empty line in the middle."""
     raise ValueError("First line\n\nThird line after empty")

@@ -100,6 +100,7 @@ def digest_exception(
     if is_syntax_error:
         message = clean_syntax_error_message(message)
     summary = create_summary(message)
+    notes = list(getattr(e, "__notes__", []))
     f = chain_reason(e)
 
     try:
@@ -118,6 +119,7 @@ def digest_exception(
         "type": type(e).__name__,
         "message": message,
         "summary": summary,
+        "notes": notes,
         "from": f,
         "repr": repr(e),
         "frames": frames or [],

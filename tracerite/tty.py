@@ -560,6 +560,12 @@ def _build_exception_banner(exc_info: ExceptionInfo, term_width: int) -> str:
 
     lines = summary_lines + body_lines_wrapped
 
+    if notes := exc_info.get("notes", []):
+        # Paragraph breaks in the message call for a visual break before notes.
+        if "\n\n" in message:
+            lines.append("")
+        lines.extend(f"🔹 {note}" for note in notes)
+
     if len(lines) > 100:
         skipped = len(lines) - 40
         lines = lines[:20] + [f"{ELLIPSIS}⋮ {skipped} more lines{RESET}"] + lines[-20:]
