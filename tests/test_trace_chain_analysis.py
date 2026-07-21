@@ -19,6 +19,7 @@ from tracerite.trace.order import (
     enrich_chain_with_links,
     filter_hidden_frames,
     find_chain_link,
+    find_re_raise_frames_before_link,
     frame_in_except_handler,
     get_frame_lineno,
 )
@@ -28,6 +29,8 @@ from .errorcases import (
     deeply_nested_chain_with_calls,
     error_via_call_in_except,
     reraise_context,
+    reraise_outermost_exception,
+    reraise_same_exception_in_chain,
     unrelated_error_in_except,
 )
 
@@ -607,6 +610,127 @@ class TestBuildChronologicalFrames:
         assert (
             exc_frames[2]["exception"]["from"] == "context"
         )  # ZeroDivisionError - implicit
+
+    def test_reraise_same_exception_frame_moves_after_crash(self):
+        """A ``raise e`` frame renders after the crash site, not before it.
+
+        The middle hop re-raises the caught exception, prepending a frame at
+        the ``raise e`` line while its original call frame stays deeper in
+        the traceback.  Chronologically the re-raise happened after the
+        TypeError was raised, so it must follow the crash frame.
+        """
+        try:
+            reraise_same_exception_in_chain()
+        except Exception as e:
+            chain = extract_chain_exceptions(e)
+
+        chrono = build_chronological_frames(chain)
+
+        # Exception banners stay in chronological order
+        exc_types = [
+            f["exception"]["type"] for f in chrono if f.get("exception")
+        ]
+        assert exc_types == ["ZeroDivisionError", "TypeError", "RuntimeError"]
+
+        # The middle hop appears twice: the call, and the ``raise e`` frame
+        mid = [
+            i
+            for i, f in enumerate(chrono)
+            if f.get("function") == "_reraise_same_exception"
+        ]
+        assert len(mid) == 2
+        call_idx, reraise_idx = mid
+        assert chrono[call_idx]["relevance"] == "call"
+        assert chrono[reraise_idx]["relevance"] == "except"
+        assert chrono[reraise_idx]["function_suffix"] == "⚡except"
+        assert chrono[reraise_idx]["symbol_desc"] == "Re-raise"
+
+        zde_idx = next(
+            i
+            for i, f in enumerate(chrono)
+            if (f.get("exception") or {}).get("type") == "ZeroDivisionError"
+        )
+        typeerror_idx = next(
+            i
+            for i, f in enumerate(chrono)
+            if (f.get("exception") or {}).get("type") == "TypeError"
+        )
+
+        # Call leads to the crash; the re-raise follows the crash site and
+        # carries the exception banner as the last frame of its section.
+        assert call_idx < zde_idx < typeerror_idx
+        assert typeerror_idx == reraise_idx
+
+        # The crash site keeps error relevance but loses the banner.
+        crash = next(
+            f
+            for f in chrono
+            if "raise TypeError" in (f.get("codeline") or "")
+        )
+        assert crash["relevance"] == "error"
+        assert not crash.get("exception")
+
+    def test_reraise_outermost_keeps_banner_on_last_frame(self):
+        """A ``raise e`` of the outermost exception carries its banner last.
+
+        With two re-raise hops the traceback stores them most-recent-first,
+        so chronological order emits them reversed: the middle hop's frame
+        precedes the outermost one, which closes the chain with the banner.
+        """
+        try:
+            reraise_outermost_exception()
+        except Exception as e:
+            chain = extract_chain_exceptions(e)
+
+        chrono = build_chronological_frames(chain)
+
+        # The outermost re-raise is the final frame and carries the banner.
+        assert chrono[-1]["function"] == "reraise_outermost_exception"
+        assert chrono[-1]["relevance"] == "except"
+        assert chrono[-1]["symbol_desc"] == "Re-raise"
+        assert chrono[-1]["exception"]["type"] == "TypeError"
+
+        # The middle re-raise renders before the outermost one.
+        reraises = [
+            (f.get("function"), f.get("symbol_desc"))
+            for f in chrono
+            if f.get("symbol_desc") == "Re-raise"
+        ]
+        assert reraises == [
+            ("_reraise_same_exception", "Re-raise"),
+            ("reraise_outermost_exception", "Re-raise"),
+        ]
+
+        # Exception banners are in chronological order, crash keeps 💣.
+        exc_types = [
+            f["exception"]["type"] for f in chrono if f.get("exception")
+        ]
+        assert exc_types == ["ZeroDivisionError", "TypeError"]
+        crash = next(
+            f
+            for f in chrono
+            if "raise TypeError" in (f.get("codeline") or "")
+        )
+        assert crash["relevance"] == "error"
+        assert not crash.get("exception")
+
+    def test_find_re_raise_frames_before_link(self):
+        """In-except frames whose function reappears later are re-raises."""
+        frames = [
+            {"filename": "a.py", "function": "outer", "lineno": 10},
+            {"filename": "a.py", "function": "mid", "lineno": 20, "_except_start": 18},
+            {"filename": "a.py", "function": "mid", "lineno": 15},
+            {"filename": "a.py", "function": "inner", "lineno": 30, "_except_start": 28},
+        ]
+        assert find_re_raise_frames_before_link(frames, 3) == [1]
+
+    def test_find_re_raise_frames_before_link_keeps_except_call(self):
+        """A call from an except handler is not a re-raise without a duplicate."""
+        frames = [
+            {"filename": "a.py", "function": "caller", "lineno": 20, "_except_start": 18},
+            {"filename": "a.py", "function": "inner", "lineno": 30, "_except_start": 28},
+        ]
+        assert find_re_raise_frames_before_link(frames, 1) == []
 
     def test_inner_exception_without_frames(self):
         """Test chronological frames when inner exception has no frames.
