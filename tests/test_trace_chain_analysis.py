@@ -627,9 +627,7 @@ class TestBuildChronologicalFrames:
         chrono = build_chronological_frames(chain)
 
         # Exception banners stay in chronological order
-        exc_types = [
-            f["exception"]["type"] for f in chrono if f.get("exception")
-        ]
+        exc_types = [f["exception"]["type"] for f in chrono if f.get("exception")]
         assert exc_types == ["ZeroDivisionError", "TypeError", "RuntimeError"]
 
         # The middle hop appears twice: the call, and the ``raise e`` frame
@@ -663,12 +661,11 @@ class TestBuildChronologicalFrames:
 
         # The crash site keeps error relevance but loses the banner.
         crash = next(
-            f
-            for f in chrono
-            if "raise TypeError" in (f.get("codeline") or "")
+            f for f in chrono if "raise TypeError" in (f.get("codeline") or "")
         )
         assert crash["relevance"] == "error"
         assert not crash.get("exception")
+        assert crash["symbol_desc"] == "TypeError"
 
     def test_reraise_outermost_keeps_banner_on_last_frame(self):
         """A ``raise e`` of the outermost exception carries its banner last.
@@ -702,17 +699,14 @@ class TestBuildChronologicalFrames:
         ]
 
         # Exception banners are in chronological order, crash keeps 💣.
-        exc_types = [
-            f["exception"]["type"] for f in chrono if f.get("exception")
-        ]
+        exc_types = [f["exception"]["type"] for f in chrono if f.get("exception")]
         assert exc_types == ["ZeroDivisionError", "TypeError"]
         crash = next(
-            f
-            for f in chrono
-            if "raise TypeError" in (f.get("codeline") or "")
+            f for f in chrono if "raise TypeError" in (f.get("codeline") or "")
         )
         assert crash["relevance"] == "error"
         assert not crash.get("exception")
+        assert crash["symbol_desc"] == "TypeError"
 
     def test_find_re_raise_frames_before_link(self):
         """In-except frames whose function reappears later are re-raises."""
@@ -720,15 +714,30 @@ class TestBuildChronologicalFrames:
             {"filename": "a.py", "function": "outer", "lineno": 10},
             {"filename": "a.py", "function": "mid", "lineno": 20, "_except_start": 18},
             {"filename": "a.py", "function": "mid", "lineno": 15},
-            {"filename": "a.py", "function": "inner", "lineno": 30, "_except_start": 28},
+            {
+                "filename": "a.py",
+                "function": "inner",
+                "lineno": 30,
+                "_except_start": 28,
+            },
         ]
         assert find_re_raise_frames_before_link(frames, 3) == [1]
 
     def test_find_re_raise_frames_before_link_keeps_except_call(self):
         """A call from an except handler is not a re-raise without a duplicate."""
         frames = [
-            {"filename": "a.py", "function": "caller", "lineno": 20, "_except_start": 18},
-            {"filename": "a.py", "function": "inner", "lineno": 30, "_except_start": 28},
+            {
+                "filename": "a.py",
+                "function": "caller",
+                "lineno": 20,
+                "_except_start": 18,
+            },
+            {
+                "filename": "a.py",
+                "function": "inner",
+                "lineno": 30,
+                "_except_start": 28,
+            },
         ]
         assert find_re_raise_frames_before_link(frames, 1) == []
 
