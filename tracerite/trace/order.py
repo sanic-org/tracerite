@@ -329,9 +329,10 @@ def build_linked_backbone(
     # ``raise e`` on the caught exception prepends a frame entry that happened
     # after the crash site; emit those after it instead of with the calls.
     re_raise = find_re_raise_frames_before_link(frames, except_frame_idx, cache=cache)
+    skipped = frozenset(re_raise)
 
     for frame_idx in range(except_frame_idx):
-        if frame_idx not in re_raise:
+        if frame_idx not in skipped:
             append_copied_frame(chronological, frames[frame_idx])
 
     build_backbone_frames(
@@ -396,7 +397,8 @@ def build_unlinked_backbone(
             )
 
     re_raise = find_re_raise_frames(exc, frames, cache=cache)
-    order = [i for i in range(len(frames)) if i not in re_raise] + re_raise
+    skipped = frozenset(re_raise)
+    order = [i for i in range(len(frames)) if i not in skipped] + re_raise
     last_idx = len(frames) - 1
     banner = make_exception_banner(exc, exc_idx)
 
@@ -411,7 +413,7 @@ def build_unlinked_backbone(
                 chrono_frame["exception"] = banner
         if is_final and re_raise:
             chrono_frame["exception"] = banner
-        if frame_idx in re_raise:
+        if frame_idx in skipped:
             promote_to_except(chrono_frame)
 
 
@@ -446,24 +448,24 @@ def find_re_raise_frames_before_link(
     they happened after the exception's crash site, not before the calls
     that led to it.
     """
+    seen: set[tuple[str | None, str | None]] = set()
     re_raise = []
-    for frame_idx in range(except_frame_idx):
+    for frame_idx in range(len(frames) - 1, -1, -1):
         frame = frames[frame_idx]
-        if not frame_in_except_handler(frame, cache=cache):
-            continue
         identity = (
             frame.get("original_filename") or frame.get("filename"),
             frame.get("function"),
         )
-        if any(
-            (
-                other.get("original_filename") or other.get("filename"),
-                other.get("function"),
-            )
-            == identity
-            for other in frames[frame_idx + 1 :]
+        if None in identity:
+            continue
+        if (
+            frame_idx < except_frame_idx
+            and identity in seen
+            and frame_in_except_handler(frame, cache=cache)
         ):
             re_raise.append(frame_idx)
+        seen.add(identity)
+    re_raise.reverse()
     return re_raise
 
 
@@ -473,7 +475,7 @@ def make_exception_banner(exc: ExceptionInfo, exc_idx: int) -> ExceptionInfo:
         "type": exc["type"],
         "message": exc["message"],
         "summary": exc["summary"],
-        "notes": exc["notes"],
+        "notes": exc.get("notes") or [],
         "from": exc["from"],
         "exc_idx": exc_idx,
     }
