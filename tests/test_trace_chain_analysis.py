@@ -682,6 +682,7 @@ class TestBuildChronologicalFrames:
         )
         assert crash["relevance"] == "error"
         assert not crash.get("exception")
+        assert crash["symbol_desc"] == "TypeError"
 
     def test_reraise_outermost_keeps_banner_on_last_frame(self):
         """A ``raise e`` of the outermost exception carries its banner last.
@@ -722,6 +723,7 @@ class TestBuildChronologicalFrames:
         )
         assert crash["relevance"] == "error"
         assert not crash.get("exception")
+        assert crash["symbol_desc"] == "TypeError"
 
     def test_find_re_raise_frames_before_link(self):
         """In-except frames whose function reappears later are re-raises."""
