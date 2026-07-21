@@ -352,7 +352,9 @@ def build_linked_backbone(
             promote_to_except(chrono_frame)
         if frame_idx == last_idx:
             add_subexceptions_to_frame(chrono_frame, exc, cache=cache)
-            if not re_raise:
+            if re_raise:
+                chrono_frame["symbol_desc"] = exc["type"]
+            else:
                 chrono_frame["exception"] = banner
 
     # Re-raise entries are prepended to the traceback as the exception
