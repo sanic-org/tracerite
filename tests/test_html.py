@@ -607,6 +607,27 @@ def test_multiline_exception_message_html():
     assert "Second line" in pre_text or "Third line" in pre_text
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="add_note() requires Python 3.11+"
+)
+def test_exception_notes_html():
+    """Notes from add_note render as a list in the exception banner."""
+    from tests.errorcases import exception_with_notes
+
+    try:
+        exception_with_notes()
+    except Exception as e:
+        html_output = str(html_traceback(e))
+
+    soup = BeautifulSoup(html_output, "html.parser")
+
+    notes_list = soup.find("ul", class_="excnotes")
+    assert notes_list is not None
+    # <li> end tags are optional; html.parser nests them, so read direct text
+    items = [li.find(string=True, recursive=False) for li in notes_list.find_all("li")]
+    assert items == ["first note", "second note"]
+
+
 def test_empty_line_exception_message_html():
     """Test HTML output for exception with empty line in message."""
     from tests.errorcases import empty_second_line_exception

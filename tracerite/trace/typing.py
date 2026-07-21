@@ -130,6 +130,7 @@ ExceptionInfo = TypedDict(
         "type": str,
         "message": str,
         "summary": str,
+        "notes": list[str],
         "from": str,  # "cause" | "context" | "none"
         "repr": str,
         "frames": list[FrameInfo],

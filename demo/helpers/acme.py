@@ -47,13 +47,22 @@ def innerstep() -> None:
         bad_handler(where)
 
 
-def outerstep() -> None:
-    """Top level: wraps the exception from innerstep in ValueError."""
-    action = "compute"
+def middlestep() -> None:
+    """Re-raise hop: catches the exception, adds a note and re-raises."""
     try:
         innerstep()
     except Exception as e:
-        detail = "inner step failed"
+        e.add_note("Hello from middlestep error handler")
+        raise e
+
+
+def outerstep() -> None:
+    """Top level: wraps the exception from middlestep in ValueError."""
+    action = "compute"
+    try:
+        middlestep()
+    except Exception as e:
+        detail = "middle step failed"
         raise ValueError(f"Could not {action}: {detail}") from e
 
 

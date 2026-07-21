@@ -1,5 +1,9 @@
 """Tests for chain_analysis module - try-except block matching."""
 
+import sys
+
+import pytest
+
 from tracerite.trace.chain_analysis import (
     TryExceptVisitor,
     find_matching_try_for_inner_exception,
@@ -451,6 +455,26 @@ class TestBuildChronologicalFrames:
         # Last frame should have exception info
         assert chrono[-1].get("exception") is not None
         assert chrono[-1]["exception"]["type"] == "ValueError"
+
+    @pytest.mark.skipif(
+        sys.version_info < (3, 11), reason="add_note() requires Python 3.11+"
+    )
+    def test_exception_notes_propagate_to_banner(self):
+        """Notes from add_note end up in the banner attached to the frame."""
+        from .errorcases import exception_with_notes
+
+        try:
+            exception_with_notes()
+        except Exception as e:
+            chain = extract_chain_exceptions(e)
+
+        assert chain[0]["notes"] == ["first note", "second note"]
+        # Summary and message are unaffected by notes
+        assert chain[0]["summary"] == "Something failed"
+        assert chain[0]["message"] == "Something failed"
+
+        chrono = build_chronological_frames(chain)
+        assert chrono[-1]["exception"]["notes"] == ["first note", "second note"]
 
     def test_chained_exceptions_have_exception_info(self):
         """Test that error frames have exception info attached."""

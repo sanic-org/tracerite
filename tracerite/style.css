@@ -116,6 +116,8 @@
 }
 :root .tracerite .excmessage { font-size: 0.8em; border-left: .25rem solid var(--tracerite-exception); margin-left: 0.45rem; padding-left: 0.5rem; white-space: pre-wrap; overflow-wrap: break-word; overflow: hidden; }
 :root .tracerite .excmessage-ellipsis { color: var(--tracerite-lineno); }
+:root .tracerite .excnotes { border-left: .25rem solid var(--tracerite-exception); margin-left: 0.45rem; padding-left: 0.5rem; list-style-position: inside; }
+:root .tracerite .excnotes li::marker { content: "🔹 "; }
 :root .tracerite .exctype { color: var(--tracerite-exception); font-weight: 700; }
 
 :root .tracerite .traceback-details p { margin: 1em 0; }
@@ -371,7 +373,8 @@
 /* Exception headers and messages span all columns */
 :root .tracerite > h2,
 :root .tracerite > h3,
-:root .tracerite > pre.excmessage {
+:root .tracerite > pre.excmessage,
+:root .tracerite > ul.excnotes {
   grid-column: 1 / -1;
 }
 
