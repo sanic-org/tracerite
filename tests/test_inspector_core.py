@@ -367,6 +367,15 @@ class TestDictFormatting:
         assert "15 items" in result
         assert fmt == "inline"
 
+    def test_non_string_dict_key(self):
+        """Dict keys that are not strings should be stringified for display."""
+        result, fmt = prettyvalue({1: "one"})
+        assert isinstance(result, dict)
+        assert result["type"] == "keyvalue"
+        keys = [row[0] for row in result["rows"]]
+        assert "1" in keys
+        assert "one" in result["rows"][0][1]
+
 
 class TestMultilineFormatting:
     """Test formatting of values with newlines."""

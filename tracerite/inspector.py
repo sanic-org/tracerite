@@ -346,28 +346,17 @@ def prettyvalue(val: Any) -> tuple[Any, str]:
 
 def _format_keyvalue_container(val: Any) -> tuple[Any, str] | None:
     """Format namedtuple, dict, dataclass, or struct as a key-value table."""
-    if (
-        isinstance(val, tuple)
-        and hasattr(val, "_fields")
-        and isinstance(val._fields, tuple)
-    ):
-        return _build_keyvalue_table(val, val._fields, "fields", getattr)
     if isinstance(val, dict):
-        if not val:
-            return ("{}", "inline")
-        return _build_keyvalue_table(val, list(val.keys()), "items", lambda d, k: d[k])
-    if dataclasses.is_dataclass(val) and not isinstance(val, type):
-        return _build_keyvalue_table(
-            val,
-            [f.name for f in dataclasses.fields(val)],
-            "fields",
-            object.__getattribute__,
-        )
-    struct_fields = _struct_fields(val)
-    if struct_fields is not None:
-        return _build_keyvalue_table(
-            val, struct_fields, "fields", object.__getattribute__
-        )
+        return _kvtable(val, list(val.items()), "items") if val else ("{}", "inline")
+
+    # Namedtuple types (not ordinary tuple)
+    if isinstance(val, tuple) and hasattr(val, "_fields"):
+        return _kvtable(val, [(f, getattr(val, f)) for f in val._fields], "fields")  # type: ignore
+
+    # Dataclass, msgspec and Pydantic struct types
+    if (struct_fields := _struct_fields(val)) is not None:
+        return _kvtable(val, [(name, getattr(val, name)) for name in struct_fields])
+
     return None
 
 
@@ -376,27 +365,29 @@ def _truncated(s: str, limit: int = 60) -> str:
     return s if len(s) <= limit else s[: limit - 3] + "…"
 
 
-def _build_keyvalue_table(
+def _kvtable(
     val: Any,
-    fields: tuple[Any, ...] | list[Any],
-    item_label: str,
-    getter: Callable[[Any, Any], Any],
+    items: list[tuple[Any, Any]],
+    item_label: str = "fields",
 ) -> tuple[Any, str]:
-    """Build a key-value table or summary for a container with named fields."""
-    if not fields:
+    """Build a key-value table or summary for a container with named items."""
+    items = list(items)
+
+    if not items:
         return (f"{type(val).__name__}()", "inline")
-    if len(fields) > 10:
-        return (f"({len(fields)} {item_label})", "inline")
+    if len(items) > 10:
+        return (f"({len(items)} {item_label})", "inline")
 
     rows = [
-        [_truncated(name, 40), _truncated(f"{getter(val, name)!s}", 60)]
-        for name in fields
+        [_truncated(f"{name}", 40), _truncated(f"{value}", 60)] for name, value in items
     ]
     return ({"type": "keyvalue", "rows": rows}, "inline")
 
 
 def _struct_fields(val: Any) -> tuple[str, ...] | None:
     """Return field names for msgspec Struct or Pydantic BaseModel, if applicable."""
+    if dataclasses.is_dataclass(val):
+        return tuple(f.name for f in dataclasses.fields(val))
     if isinstance(fields := getattr(type(val), "__struct_fields__", None), tuple):
         return fields
     if isinstance(fields := getattr(type(val), "model_fields", None), dict):
