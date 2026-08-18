@@ -82,8 +82,8 @@ def _extract_variable_rows(
     ]
 
 
-blacklist_names = {"_", "In", "Out"}
-blacklist_types = (
+blacklist_names: set[str] = {"_", "In", "Out"}
+blacklist_types: tuple[type, ...] = (
     type,
     types.ModuleType,
     types.FunctionType,
