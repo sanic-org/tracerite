@@ -39,6 +39,7 @@ SuppressionValue = bool | Literal["until"]
 _SUPPRESSIONS: dict[str, SuppressionValue] = {
     "asyncio.base_events": True,
     "asyncio.runners": True,
+    "contextlib": True,
     "importlib": True,
     "importlib._bootstrap": True,
 }
